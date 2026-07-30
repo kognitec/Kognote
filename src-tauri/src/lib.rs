@@ -162,7 +162,8 @@ fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<tauri:
         .item(&open_shortcuts)
         .build()?;
 
-    let builder = MenuBuilder::new(handle);
+    #[allow(unused_mut)]
+    let mut builder = MenuBuilder::new(handle);
 
     #[cfg(target_os = "macos")]
     {
@@ -184,7 +185,7 @@ fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<tauri:
             .quit()
             .build()?;
 
-        let builder = builder.item(&app_menu);
+        builder = builder.item(&app_menu);
     }
 
     let menu = builder
@@ -227,6 +228,35 @@ pub fn run() {
 
             if let Ok(menu) = build_app_menu(handle) {
                 let _ = app.set_menu(menu);
+            }
+
+            if let Some(window) = app.get_webview_window("main") {
+                #[cfg(target_os = "macos")]
+                {
+                    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+                    let _ = apply_vibrancy(
+                        &window,
+                        NSVisualEffectMaterial::UnderWindowBackground,
+                        Some(NSVisualEffectState::Active),
+                        None,
+                    );
+                }
+
+                #[cfg(target_os = "windows")]
+                {
+                    use window_vibrancy::{apply_mica, apply_acrylic, apply_blur};
+                    if apply_mica(&window, None).is_err() {
+                        if apply_acrylic(&window, Some((18, 19, 28, 125))).is_err() {
+                            let _ = apply_blur(&window, Some((18, 19, 28, 125)));
+                        }
+                    }
+                }
+
+                #[cfg(target_os = "linux")]
+                {
+                    // Linux GTK transparency / dark window fallback
+                    let _ = window.set_background_color(Some(tauri::Color(9, 10, 15, 255)));
+                }
             }
 
             let db_state = handle.state::<DbState>();

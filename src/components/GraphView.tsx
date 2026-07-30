@@ -189,20 +189,7 @@ export const GraphView: React.FC = () => {
   useEffect(() => { linkThicknessRef.current = linkThickness; wakeUpSimulation(0.2); }, [linkThickness, wakeUpSimulation]);
   useEffect(() => { linksRef.current = links; wakeUpSimulation(0.3); }, [links, wakeUpSimulation]);
 
-  // Drag reordering
-  const handleDragStart = (e: React.DragEvent, index: number) => {
-    e.dataTransfer.setData("text/plain", index.toString());
-  };
-  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); };
-  const handleDrop = (e: React.DragEvent, hoverIndex: number) => {
-    const dragIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
-    if (isNaN(dragIndex) || dragIndex === hoverIndex) return;
-    const updated = [...filters];
-    const [dragged] = updated.splice(dragIndex, 1);
-    updated.splice(hoverIndex, 0, dragged);
-    setFilters(updated);
-    alphaRef.current = 1.0;
-  };
+  // Drag reordering using inline filter drag handlers below
   const moveItem = (index: number, direction: "up" | "down") => {
     const targetIndex = direction === "up" ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= filters.length) return;
@@ -1591,7 +1578,7 @@ export const GraphView: React.FC = () => {
       onClick={() => setContextMenu(null)}
     >
       {/* Sidebar */}
-      <div className="w-72 border-r dark:border-[#1e2335] border-slate-200 dark:bg-[#0b0c10]/95 bg-slate-50/95 backdrop-blur-md p-4 flex flex-col gap-4 shrink-0 overflow-y-auto z-10 custom-scrollbar">
+      <div className="w-72 border-r dark:border-[#1e2335] border-slate-200 dark:bg-sidebar/95 bg-slate-50/95 backdrop-blur-md p-4 flex flex-col gap-4 shrink-0 overflow-y-auto z-10 custom-scrollbar">
         {/* Header */}
         <div>
           <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 tracking-widest uppercase flex items-center gap-1.5">
@@ -1641,7 +1628,7 @@ export const GraphView: React.FC = () => {
               placeholder="Search notes, tags..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-md dark:bg-[#11131c] bg-white px-2.5 py-1.5 pr-7 text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-600 border dark:border-[#1e2335] border-slate-300 focus:outline-none focus:border-indigo-500/50 transition-colors"
+              className="w-full rounded-md dark:bg-card bg-white px-2.5 py-1.5 pr-7 text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-600 border dark:border-[#1e2335] border-slate-300 focus:outline-none focus:border-indigo-500/50 transition-colors"
             />
             {searchQuery && (
               <button
@@ -1659,7 +1646,7 @@ export const GraphView: React.FC = () => {
           <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
             <Palette className="h-3.5 w-3.5 text-indigo-400" /> Color Mode
           </span>
-          <div className="grid grid-cols-3 gap-1 bg-[#11131c] p-1 rounded-lg border border-[#1e2335]">
+          <div className="grid grid-cols-3 gap-1 bg-card p-1 rounded-lg border border-[#1e2335]">
             {[
               { id: "category", label: "Category" },
               { id: "priority", label: "Priority" },
@@ -1706,9 +1693,34 @@ export const GraphView: React.FC = () => {
               <div
                 key={filter.id}
                 draggable
-                onDragStart={(e) => handleDragStart(e, index)}
-                onDragOver={handleDragOver}
-                onDrop={(e) => handleDrop(e, index)}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("text/plain", String(index));
+                  e.dataTransfer.effectAllowed = "move";
+                }}
+                onDragEnter={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (e.dataTransfer) {
+                    e.dataTransfer.dropEffect = "move";
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const fromIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
+                  if (isNaN(fromIndex) || fromIndex === index) return;
+                  setFilters((prev) => {
+                    const updated = [...prev];
+                    const [moved] = updated.splice(fromIndex, 1);
+                    updated.splice(index, 0, moved);
+                    return updated;
+                  });
+                  alphaRef.current = 1.0;
+                }}
                 className="flex items-center justify-between p-1.5 rounded-md hover:bg-[#121520] transition-colors group cursor-grab active:cursor-grabbing border border-transparent hover:border-[#1e2335]/40"
               >
                 <div className="flex items-center gap-2 select-none min-w-0 flex-1">
@@ -1766,7 +1778,7 @@ export const GraphView: React.FC = () => {
               <button
                 key={p.id}
                 onClick={() => applyPreset(p.id as any)}
-                className="py-1 rounded bg-[#11131c] border border-[#1f2335] hover:border-indigo-500/50 text-[9.5px] font-semibold text-slate-400 hover:text-slate-200 transition-all cursor-pointer"
+                className="py-1 rounded bg-card border border-card-border hover:border-indigo-500/50 text-[9.5px] font-semibold text-slate-400 hover:text-slate-200 transition-all cursor-pointer"
               >
                 {p.label}
               </button>
@@ -1822,7 +1834,7 @@ export const GraphView: React.FC = () => {
                   <span className="h-2.5 w-2.5 rounded-full bg-[#10b981] shrink-0" />Done
                 </span>
                 <span className="flex items-center gap-2 cursor-pointer hover:text-slate-200">
-                  <span className="h-2.5 w-2.5 rounded-full bg-[#6366f1] shrink-0" />In Progress
+                  <span className="h-2.5 w-2.5 rounded-full bg-accent-primary shrink-0" />In Progress
                 </span>
                 <span className="flex items-center gap-2 cursor-pointer hover:text-slate-200">
                   <span className="h-2.5 w-2.5 rounded-full bg-[#a855f7] shrink-0" />In Review
@@ -1891,7 +1903,7 @@ export const GraphView: React.FC = () => {
         </div>
 
         {/* Zoom Controls */}
-        <div className="absolute bottom-4 right-4 z-10 flex items-center gap-1 rounded-lg bg-[#11131c]/90 border border-[#1e2335] p-1.5 shadow-xl backdrop-blur-md">
+        <div className="absolute bottom-4 right-4 z-10 flex items-center gap-1 rounded-lg bg-card/90 border border-[#1e2335] p-1.5 shadow-xl backdrop-blur-md">
           <button onClick={() => adjustZoom(0.15)} className="p-1.5 rounded-md hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors" title="Zoom In">
             <ZoomIn className="h-3.5 w-3.5" />
           </button>
@@ -1907,11 +1919,11 @@ export const GraphView: React.FC = () => {
         {/* Enhanced Tooltip */}
         {tooltip && (
           <div
-            className="pointer-events-none absolute z-20 bg-[#0f1117]/95 border border-[#1e2335] rounded-xl shadow-2xl p-3 min-w-[170px] backdrop-blur-md"
+            className="pointer-events-none absolute z-20 bg-[#0f1117]/95 border border-[#1e2335] rounded-xl shadow-2xl p-3 min-w-42.5 backdrop-blur-md"
             style={{ left: Math.min(tooltip.screenX - (canvasRef.current?.getBoundingClientRect().left ?? 0) + 14, (canvasRef.current?.clientWidth ?? 300) - 190), top: Math.max((tooltip.screenY - (canvasRef.current?.getBoundingClientRect().top ?? 0)) - 90, 10) }}
           >
             <div className="flex items-center justify-between gap-2">
-              <div className="text-xs font-bold text-slate-200 truncate max-w-[140px]">{tooltip.node.label}</div>
+              <div className="text-xs font-bold text-slate-200 truncate max-w-35">{tooltip.node.label}</div>
               {tooltip.node.bookmarked && <Star className="h-3 w-3 text-amber-400 fill-amber-400 shrink-0" />}
             </div>
 
@@ -1941,12 +1953,12 @@ export const GraphView: React.FC = () => {
         {/* Context Menu */}
         {contextMenu && (
           <div
-            className="absolute z-30 bg-[#0f1117]/98 border border-[#1e2335] rounded-xl shadow-2xl py-1 min-w-[180px] backdrop-blur-xl"
+            className="absolute z-30 bg-[#0f1117]/98 border border-[#1e2335] rounded-xl shadow-2xl py-1 min-w-45 backdrop-blur-xl"
             style={{ left: contextMenu.x, top: contextMenu.y }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-3 py-2 border-b border-[#1e2335]/60">
-              <div className="text-[11px] font-semibold text-slate-200 truncate max-w-[160px]">{contextMenu.node.label}</div>
+              <div className="text-[11px] font-semibold text-slate-200 truncate max-w-40">{contextMenu.node.label}</div>
               <div className="text-[9.5px] text-slate-500 capitalize">{contextMenu.node.type.replace("tag-in-notes", "Tag")}</div>
             </div>
             {contextMenu.node.type === "note" && (

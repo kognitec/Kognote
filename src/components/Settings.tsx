@@ -188,8 +188,8 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-200 flex items-center justify-center bg-black/70 backdrop-blur-md animate-fade-in p-4 selection:bg-indigo-600/30">
-      <div className="flex flex-col dark:bg-card bg-white rounded-2xl border dark:border-card-border border-slate-300 w-full max-w-2xl max-h-[90vh] shadow-2xl overflow-hidden p-5">
+    <div className="fixed inset-0 z-200 flex items-center justify-center bg-black/75 animate-fade-in p-4 selection:bg-indigo-600/30">
+      <div className="flex flex-col dark:bg-card bg-white rounded-2xl border dark:border-card-border border-slate-300 w-full max-w-2xl max-h-[90vh] shadow-2xl overflow-hidden p-5 animate-modal-pop">
         
         {/* Header */}
         <div className="flex items-center justify-between border-b dark:border-card-border border-slate-200 pb-3.5 shrink-0">

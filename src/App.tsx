@@ -61,11 +61,11 @@ const ToastHost: React.FC = () => {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed bottom-6 right-6 z-[100] flex flex-col gap-2 pointer-events-none">
+    <div className="fixed bottom-6 right-6 z-100 flex flex-col gap-2 pointer-events-none">
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className="flex items-center gap-2 rounded-xl bg-[#161825] border border-emerald-500/30 px-4 py-3 text-xs font-semibold text-emerald-300 shadow-lg animate-fade-in backdrop-blur-sm"
+          className="flex items-center gap-2 rounded-xl bg-card border border-emerald-500/30 px-4 py-3 text-xs font-semibold text-emerald-300 shadow-lg animate-fade-in backdrop-blur-sm"
         >
           <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0" />
           {toast.message}
@@ -80,8 +80,8 @@ const MainApp: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex h-screen w-screen flex-col items-center justify-center bg-[#08090e] text-slate-400 select-none">
-        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-linear-to-b from-[#1a1d2e] to-[#0f111a] border border-white/10 shadow-xl shadow-indigo-500/20 ring-1 ring-white/10 animate-pulse">
+      <div className="flex h-screen w-screen flex-col items-center justify-center bg-background text-slate-400 select-none">
+        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-linear-to-b from-card to-sidebar border border-white/10 shadow-xl shadow-indigo-500/20 ring-1 ring-white/10 animate-pulse">
           <img src={logoImg} alt="Kognote Logo" className="h-10 w-10 object-contain" />
         </div>
         <span className="text-xs font-bold tracking-widest text-slate-300">LOADING KOGNOTE...</span>

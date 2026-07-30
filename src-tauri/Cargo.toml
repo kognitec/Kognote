@@ -49,6 +49,7 @@ tauri-plugin-stronghold = "2"
 tauri-plugin-shell = "2"
 regex = "1"
 zip = "2.1"
+window-vibrancy = "0.5"
 
 
 

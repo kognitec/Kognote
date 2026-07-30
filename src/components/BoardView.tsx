@@ -4,14 +4,15 @@ import { useSettings } from "../contexts/SettingsContext";
 import { useSync } from "../contexts/SyncContext";
 import { searchEngine } from "../lib/search-engine";
 import { invokeIPC } from "../lib/ipc";
-import { 
-  Columns, 
-  Plus, 
-  Circle, 
-  Archive, 
+import { setDragState, getDragState, clearDragState } from "../lib/drag-state";
+import {
+  Columns,
+  Plus,
+  Circle,
+  Archive,
   Inbox,
-  Clock, 
-  CheckCircle2, 
+  Clock,
+  CheckCircle2,
   X,
   Search,
   Tag,
@@ -47,45 +48,45 @@ interface BoardCard {
 }
 
 const COLUMNS: { name: "Backlog" | "Todo" | "In Progress" | "In Review" | "Done"; label: string; color: string; hoverBg: string; borderGlow: string; icon: any }[] = [
-  { 
-    name: "Backlog", 
-    label: "Backlog", 
-    color: "text-slate-500", 
+  {
+    name: "Backlog",
+    label: "Backlog",
+    color: "text-slate-500",
     hoverBg: "hover:bg-slate-500/5",
     borderGlow: "border-slate-500/30",
-    icon: Inbox 
+    icon: Inbox
   },
-  { 
-    name: "Todo", 
-    label: "Todo", 
-    color: "text-indigo-400", 
+  {
+    name: "Todo",
+    label: "Todo",
+    color: "text-indigo-400",
     hoverBg: "hover:bg-indigo-500/5",
     borderGlow: "border-indigo-500/30",
-    icon: Circle 
+    icon: Circle
   },
-  { 
-    name: "In Progress", 
-    label: "In Progress", 
-    color: "text-amber-400", 
+  {
+    name: "In Progress",
+    label: "In Progress",
+    color: "text-amber-400",
     hoverBg: "hover:bg-amber-500/5",
     borderGlow: "border-amber-500/30",
-    icon: Clock 
+    icon: Clock
   },
-  { 
-    name: "In Review", 
-    label: "In Review", 
-    color: "text-purple-400", 
+  {
+    name: "In Review",
+    label: "In Review",
+    color: "text-purple-400",
     hoverBg: "hover:bg-purple-500/5",
     borderGlow: "border-purple-500/30",
-    icon: Eye 
+    icon: Eye
   },
-  { 
-    name: "Done", 
-    label: "Done", 
-    color: "text-emerald-400", 
+  {
+    name: "Done",
+    label: "Done",
+    color: "text-emerald-400",
     hoverBg: "hover:bg-emerald-500/5",
     borderGlow: "border-emerald-500/30",
-    icon: CheckCircle2 
+    icon: CheckCircle2
   }
 ];
 
@@ -93,16 +94,16 @@ const getRelativeTime = (timestamp?: number) => {
   if (!timestamp) return "Recently";
   const ms = timestamp < 1e11 ? timestamp * 1000 : timestamp;
   const diff = Date.now() - ms;
-  
+
   const sec = Math.floor(diff / 1000);
   if (sec < 60) return "Just now";
-  
+
   const min = Math.floor(sec / 60);
   if (min < 60) return `${min}m ago`;
-  
+
   const hrs = Math.floor(min / 60);
   if (hrs < 24) return `${hrs}h ago`;
-  
+
   const days = Math.floor(hrs / 24);
   if (days === 1) return "Yesterday";
   return `${days}d ago`;
@@ -129,7 +130,7 @@ export const BoardView: React.FC = () => {
     registerSyncHandler("board-refresh", async () => { await triggerNotesScan(); }, "Refresh Kanban Board");
     return () => unregisterSyncHandler("board-refresh");
   }, [registerSyncHandler, unregisterSyncHandler, triggerNotesScan]);
-  
+
   const { vaultPath, includeArchivedInScans } = useSettings();
 
   // Board state computed from cache
@@ -172,6 +173,8 @@ export const BoardView: React.FC = () => {
 
   // Drag and Drop helpers
   const handleDragStart = (e: React.DragEvent, card: BoardCard) => {
+    setDragState("card", card);
+    e.dataTransfer.setData("application/kognote-card", JSON.stringify(card));
     e.dataTransfer.setData("text/plain", card.file.path);
     e.dataTransfer.effectAllowed = "move";
     setDraggedCard(card);
@@ -180,14 +183,20 @@ export const BoardView: React.FC = () => {
   const handleDragEnd = () => {
     setDragOverColumn(null);
     setDraggedCard(null);
+    clearDragState();
   };
 
   const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault(); // Required to allow drop events to fire
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = "move";
+    }
   };
 
   const handleDragEnter = (e: React.DragEvent, columnName: string) => {
     e.preventDefault();
+    e.stopPropagation();
     if (dragOverColumn !== columnName) {
       setDragOverColumn(columnName);
     }
@@ -195,20 +204,34 @@ export const BoardView: React.FC = () => {
 
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+    // Only clear highlight if the drag actually left the column element entirely
+    const relatedTarget = e.relatedTarget as Node | null;
+    if (!relatedTarget || !e.currentTarget.contains(relatedTarget)) {
+      setDragOverColumn(null);
+    }
   };
 
   const handleDrop = async (e: React.DragEvent, targetStatus: "Backlog" | "Todo" | "In Progress" | "In Review" | "Done") => {
     e.preventDefault();
+    e.stopPropagation();
     setDragOverColumn(null);
-    
-    let filePath = draggedCard?.file.path || "";
+
+    let filePath = "";
+    const draggedStateCard = getDragState<BoardCard>("card") || getDragState<FileEntry>("file");
+    if (draggedStateCard) {
+      filePath = (draggedStateCard as any).file?.path || (draggedStateCard as any).path || "";
+    }
     if (!filePath) {
-      const rawPayload = e.dataTransfer.getData("application/kognote-file");
+      filePath = draggedCard?.file.path || "";
+    }
+    if (!filePath) {
+      const rawPayload = e.dataTransfer.getData("application/kognote-file") || e.dataTransfer.getData("application/kognote-card");
       if (rawPayload) {
         try {
           const parsed = JSON.parse(rawPayload);
-          filePath = parsed.path || "";
-        } catch (_) {}
+          filePath = parsed.path || parsed.file?.path || "";
+        } catch (_) { }
       }
     }
     if (!filePath) {
@@ -216,6 +239,7 @@ export const BoardView: React.FC = () => {
     }
 
     setDraggedCard(null);
+    clearDragState();
     if (!filePath) return;
 
     // Only allow markdown files to be dropped onto board columns
@@ -262,34 +286,34 @@ export const BoardView: React.FC = () => {
   const handleCreateNoteInline = async (status: "Backlog" | "Todo" | "In Progress" | "In Review" | "Done") => {
     if (!newCardTitle || !newCardTitle.trim()) return;
     const title = newCardTitle.trim();
-    
+
     // Clear inline states
     setActiveCreatorColumn(null);
     setNewCardTitle("");
 
     try {
       const statusVal = status === "In Progress" ? "in-progress" : status === "In Review" ? "in-review" : status.toLowerCase();
-      
+
       // Inherit from active Board filters & selected options (type is strictly "note")
       const notePriority = newCardPriority || (selectedPriority && selectedPriority !== "all" ? selectedPriority : "none");
       const noteStorage = selectedStorage === "archived" ? "archived" : "active";
       const noteBookmarked = selectedBookmarkedOnly ? "yes" : "no";
 
       const { fullContent: initialContent } = ensureAndSyncFrontmatter(
-        "", 
-        { 
-          status: statusVal, 
+        "",
+        {
+          status: statusVal,
           priority: notePriority as any,
           type: "note",
           storage: noteStorage as any,
           bookmarked: noteBookmarked
         }
       );
-      
+
       const parent = vaultPath;
       const fileName = title.endsWith(".md") ? title : `${title}.md`;
       const filePath = `${parent}/${fileName}`;
-      
+
       await invokeIPC("write_note", {
         path: filePath,
         content: initialContent,
@@ -313,7 +337,7 @@ export const BoardView: React.FC = () => {
       })) as string;
 
       const { fullContent: updatedContent } = ensureAndSyncFrontmatter(fileContent, { status: "none" });
-      
+
       await invokeIPC("write_note", {
         path: card.file.path,
         content: updatedContent,
@@ -334,8 +358,8 @@ export const BoardView: React.FC = () => {
     // 1. Search Query filter
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      list = list.filter(c => 
-        c.title.toLowerCase().includes(q) || 
+      list = list.filter(c =>
+        c.title.toLowerCase().includes(q) ||
         c.snippet.toLowerCase().includes(q)
       );
     }
@@ -393,9 +417,9 @@ export const BoardView: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full w-full bg-[#08090d] text-slate-200 select-none animate-fade-in">
-      
+
       {/* ── Top Controls Header ────────────────────────────────────────── */}
-      <div className="flex flex-col gap-3 border-b border-[#1f2335] px-6 py-4 bg-[#0b0c10]/50 backdrop-blur-md shrink-0">
+      <div className="flex flex-col gap-3 border-b border-card-border px-6 py-4 bg-sidebar/50 backdrop-blur-md shrink-0">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
@@ -408,7 +432,7 @@ export const BoardView: React.FC = () => {
               </p>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-3">
             {isScanLoading && (
               <span className="text-[10px] text-indigo-400 font-semibold tracking-wide animate-pulse">
@@ -419,16 +443,16 @@ export const BoardView: React.FC = () => {
         </div>
 
         {/* Row 2: Filtering Controls */}
-        <div className="flex flex-wrap items-center gap-3 border-t border-[#1f2335]/40 pt-3">
+        <div className="flex flex-wrap items-center gap-3 border-t border-card-border/40 pt-3">
           {/* Search box */}
-          <div className="relative w-44 sm:w-56 min-w-[120px] shrink">
+          <div className="relative w-44 sm:w-56 min-w-30 shrink">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
             <input
               type="text"
               placeholder="Search cards..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg bg-[#10121a] pl-8 pr-8 py-1.5 text-xs text-slate-200 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 hover:border-slate-800 transition-colors placeholder-slate-600"
+              className="w-full rounded-lg bg-[#10121a] pl-8 pr-8 py-1.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 hover:border-slate-800 transition-colors placeholder-slate-600"
             />
             {searchQuery && (
               <button onClick={() => setSearchQuery("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 cursor-pointer">
@@ -438,14 +462,14 @@ export const BoardView: React.FC = () => {
           </div>
 
           {/* Type Filter */}
-          <div className="flex items-center gap-1.5 text-slate-500 border-l border-[#1f2335] pl-3 shrink-0">
+          <div className="flex items-center gap-1.5 text-slate-500 border-l border-card-border pl-3 shrink-0">
             <Filter className="h-3.5 w-3.5 text-slate-500 shrink-0" />
             <span className="hidden md:inline text-[10px] font-bold uppercase tracking-wider text-slate-500">Type:</span>
             <div className="relative flex items-center">
               <select
                 value={selectedType || ""}
                 onChange={(e) => setSelectedType(e.target.value || null)}
-                className="appearance-none bg-[#11131c] border border-[#1f2335] hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
+                className="appearance-none bg-card border border-card-border hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
               >
                 <option value="">All Types</option>
                 <option value="note">Note</option>
@@ -458,13 +482,13 @@ export const BoardView: React.FC = () => {
           </div>
 
           {/* Priority Filter */}
-          <div className="flex items-center gap-1.5 text-slate-500 border-l border-[#1f2335] pl-3 shrink-0">
+          <div className="flex items-center gap-1.5 text-slate-500 border-l border-card-border pl-3 shrink-0">
             <span className="hidden md:inline text-[10px] font-bold uppercase tracking-wider text-slate-500">Priority:</span>
             <div className="relative flex items-center">
               <select
                 value={selectedPriority || ""}
                 onChange={(e) => setSelectedPriority(e.target.value || null)}
-                className="appearance-none bg-[#11131c] border border-[#1f2335] hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
+                className="appearance-none bg-card border border-card-border hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
               >
                 <option value="">All Priorities</option>
                 <option value="high">High</option>
@@ -477,13 +501,13 @@ export const BoardView: React.FC = () => {
           </div>
 
           {/* Storage Filter */}
-          <div className="flex items-center gap-1.5 text-slate-500 border-l border-[#1f2335] pl-3 shrink-0">
+          <div className="flex items-center gap-1.5 text-slate-500 border-l border-card-border pl-3 shrink-0">
             <span className="hidden md:inline text-[10px] font-bold uppercase tracking-wider text-slate-500">Storage:</span>
             <div className="relative flex items-center">
               <select
                 value={selectedStorage || ""}
                 onChange={(e) => setSelectedStorage(e.target.value || null)}
-                className="appearance-none bg-[#11131c] border border-[#1f2335] hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
+                className="appearance-none bg-card border border-card-border hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
               >
                 <option value="">All Storage</option>
                 <option value="active">📂 Active</option>
@@ -495,14 +519,14 @@ export const BoardView: React.FC = () => {
           </div>
 
           {/* Tag Filter */}
-          <div className="flex items-center gap-1.5 text-slate-500 border-l border-[#1f2335] pl-3 shrink-0">
+          <div className="flex items-center gap-1.5 text-slate-500 border-l border-card-border pl-3 shrink-0">
             <Tag className="h-3.5 w-3.5 text-slate-500 shrink-0" />
             <span className="hidden md:inline text-[10px] font-bold uppercase tracking-wider text-slate-500">Tag:</span>
             <div className="relative flex items-center">
               <select
                 value={selectedTag || ""}
                 onChange={(e) => setSelectedTag(e.target.value || null)}
-                className="appearance-none bg-[#11131c] border border-[#1f2335] hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
+                className="appearance-none bg-card border border-card-border hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
               >
                 <option value="">All Tags</option>
                 {allUniqueTags.map(tag => (
@@ -516,25 +540,24 @@ export const BoardView: React.FC = () => {
           {/* Bookmarked Only Toggle */}
           <button
             onClick={() => setSelectedBookmarkedOnly(prev => !prev)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border transition-all cursor-pointer ${
-              selectedBookmarkedOnly
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border transition-all cursor-pointer ${selectedBookmarkedOnly
                 ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
-                : "bg-[#11131c] border-[#1f2335] text-slate-400 hover:text-slate-200"
-            }`}
+                : "bg-card border-card-border text-slate-400 hover:text-slate-200"
+              }`}
           >
             <Bookmark className={`h-3.5 w-3.5 ${selectedBookmarkedOnly ? "fill-amber-400" : ""}`} />
             <span>Bookmarked</span>
           </button>
 
           {/* Sort By selector */}
-          <div className="flex items-center gap-1.5 text-slate-500 border-l border-[#1f2335] pl-3 shrink-0">
+          <div className="flex items-center gap-1.5 text-slate-500 border-l border-card-border pl-3 shrink-0">
             <ArrowUpDown className="h-3.5 w-3.5 text-slate-500 shrink-0" />
             <span className="hidden md:inline text-[10px] font-bold uppercase tracking-wider text-slate-500">Sort:</span>
             <div className="relative flex items-center">
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
-                className="appearance-none bg-[#11131c] border border-[#1f2335] hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
+                className="appearance-none bg-card border border-card-border hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
               >
                 <option value="title">Card Title</option>
                 <option value="due">Due Date</option>
@@ -559,21 +582,20 @@ export const BoardView: React.FC = () => {
           const completedTasksInCol = colCards.reduce((acc, card) => acc + card.completedTasks, 0);
 
           return (
-            <div 
+            <div
               key={col.name}
               onDragOver={handleDragOver}
               onDragEnter={(e) => handleDragEnter(e, col.name)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, col.name)}
-              className={`w-72 flex flex-col h-full max-h-full rounded-xl bg-slate-900/10 dark:bg-slate-950/20 border border-[#1f2335] hover:border-slate-800/40 transition-all duration-200 shrink-0 select-none overflow-hidden ${
-                isOver 
-                  ? "border-indigo-500/40 bg-indigo-500/5 shadow-2xl" 
+              className={`w-72 flex flex-col h-full max-h-full rounded-xl bg-slate-900/10 dark:bg-slate-950/20 border border-card-border hover:border-slate-800/40 transition-all duration-200 shrink-0 select-none overflow-hidden ${isOver
+                  ? "border-indigo-500/40 bg-indigo-500/5 shadow-2xl"
                   : ""
-              }`}
+                }`}
             >
               {/* Column Header */}
               <div className="flex flex-col shrink-0">
-                <div className="flex items-center justify-between px-4 py-3 bg-slate-900/20 dark:bg-slate-950/30 border-b border-[#1f2335]">
+                <div className="flex items-center justify-between px-4 py-3 bg-slate-900/20 dark:bg-slate-950/30 border-b border-card-border">
                   <div className="flex items-center gap-2">
                     <Icon className={`h-4 w-4 ${col.color}`} />
                     <span className="text-xs font-bold text-slate-300 leading-none">{col.label}</span>
@@ -581,7 +603,7 @@ export const BoardView: React.FC = () => {
                       {colCards.length}
                     </span>
                   </div>
-                  
+
                   <button
                     onClick={() => {
                       setActiveCreatorColumn(col.name);
@@ -594,11 +616,11 @@ export const BoardView: React.FC = () => {
                     <Plus className="h-3.5 w-3.5" />
                   </button>
                 </div>
-                
+
                 {/* Column Header Progress bar (if tasks exist) */}
                 {totalTasksInCol > 0 && (
                   <div className="w-full h-0.5 bg-slate-800/80 overflow-hidden shrink-0">
-                    <div 
+                    <div
                       style={{ width: `${Math.round((completedTasksInCol / totalTasksInCol) * 100)}%` }}
                       className="h-full bg-indigo-500 transition-all duration-300"
                     />
@@ -608,8 +630,8 @@ export const BoardView: React.FC = () => {
 
               {/* Inline Card Creator Form */}
               {activeCreatorColumn === col.name && (
-                <div className="p-3 border-b border-[#1f2335]/40 shrink-0 bg-black">
-                  <form 
+                <div className="p-3 border-b border-card-border/40 shrink-0 bg-black">
+                  <form
                     onSubmit={(e) => {
                       e.preventDefault();
                       handleCreateNoteInline(col.name);
@@ -623,12 +645,12 @@ export const BoardView: React.FC = () => {
                       placeholder="Note title..."
                       value={newCardTitle}
                       onChange={(e) => setNewCardTitle(e.target.value)}
-                      className="w-full bg-[#050608] border border-[#1f2335] rounded px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500/50 placeholder-slate-600 font-semibold"
+                      className="w-full bg-[#050608] border border-card-border rounded px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500/50 placeholder-slate-600 font-semibold"
                     />
 
                     {/* Active Board Metadata Preview Badges */}
                     <div className="flex flex-wrap items-center gap-1 text-[9.5px] font-mono">
-                      <span className="px-1.5 py-0.5 rounded bg-[#11131c] border border-[#2a2e3d] text-indigo-300 font-bold">
+                      <span className="px-1.5 py-0.5 rounded bg-card border border-[#2a2e3d] text-indigo-300 font-bold">
                         Status: {col.label}
                       </span>
                       {selectedTag && (
@@ -652,7 +674,7 @@ export const BoardView: React.FC = () => {
                       <select
                         value={newCardPriority}
                         onChange={(e) => setNewCardPriority(e.target.value as any)}
-                        className="bg-[#050608] border border-[#1f2335] rounded px-2 py-1 text-[10px] font-bold text-slate-300 focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+                        className="bg-[#050608] border border-card-border rounded px-2 py-1 text-[10px] font-bold text-slate-300 focus:outline-none focus:border-indigo-500/50 cursor-pointer"
                         title="Initial Note Priority"
                       >
                         <option value="medium">⚡ Priority: Medium</option>
@@ -686,10 +708,14 @@ export const BoardView: React.FC = () => {
               )}
 
               {/* Card List Container */}
-              <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5 max-h-full scrollbar-thin select-none">
+              <div
+                className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5 max-h-full scrollbar-thin select-none"
+                onDragOver={handleDragOver}
+                onDragEnter={(e) => handleDragEnter(e, col.name)}
+              >
                 {colCards.map((card) => {
                   const hasTasks = card.todoTasks + card.completedTasks > 0;
-                  const percent = hasTasks 
+                  const percent = hasTasks
                     ? Math.round((card.completedTasks / (card.todoTasks + card.completedTasks)) * 100)
                     : 0;
 
@@ -699,28 +725,29 @@ export const BoardView: React.FC = () => {
                       draggable
                       onDragStart={(e) => handleDragStart(e, card)}
                       onDragEnd={handleDragEnd}
+                      onDragOver={handleDragOver}
+                      onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
                       onClick={() => openFile(card.file)}
-                      className={`group flex flex-col gap-2.5 rounded-xl border p-3.5 transition-all duration-300 cursor-pointer relative glass-card overflow-hidden w-full ${
-                        card.priority === "high"
+                      className={`group flex flex-col gap-2.5 rounded-xl border p-3.5 transition-all duration-300 cursor-pointer relative glass-card overflow-hidden w-full ${card.priority === "high"
                           ? "border-red-500/30 hover:border-red-500/50"
                           : card.priority === "medium"
-                          ? "border-amber-500/30 hover:border-amber-500/50"
-                          : "border-[#1f2335]"
-                      }`}
+                            ? "border-amber-500/30 hover:border-amber-500/50"
+                            : "border-card-border"
+                        }`}
                     >
                       {/* Priority, Drag Handle, Note Type, Bookmark, Lock & Last Modified Date */}
                       <div className="flex flex-wrap items-center justify-between gap-y-1.5 gap-x-2 text-[9px] font-bold leading-none select-none w-full">
                         <div className="flex flex-wrap items-center gap-1.5 min-w-0 max-w-full">
                           <GripVertical className="h-3 w-3 text-slate-500/70 group-hover:text-indigo-400/80 cursor-grab active:cursor-grabbing transition-colors shrink-0" />
-                          
+
                           {/* Note Type Icon */}
                           {getTypeIcon(card.type)}
-                          
+
                           {/* Bookmark Icon */}
                           {card.bookmarked && (
                             <span title="Bookmarked Note"><Bookmark className="h-3 w-3 text-amber-400 fill-amber-400/30 shrink-0" /></span>
                           )}
-                          
+
 
 
                           {/* Storage State Badge */}
@@ -778,7 +805,7 @@ export const BoardView: React.FC = () => {
                                 value={card.status}
                                 onClick={(e) => e.stopPropagation()}
                                 onChange={(e) => handleStatusChange(card, e.target.value as any)}
-                                className="appearance-none bg-[#1c1e2d] border border-[#2d3149] hover:border-indigo-500/50 rounded pl-1.5 pr-4 py-0.5 text-slate-400 hover:text-slate-200 text-[9px] font-bold focus:outline-none cursor-pointer transition-all max-w-[95px] truncate"
+                                className="appearance-none bg-[#1c1e2d] border border-[#2d3149] hover:border-indigo-500/50 rounded pl-1.5 pr-4 py-0.5 text-slate-400 hover:text-slate-200 text-[9px] font-bold focus:outline-none cursor-pointer transition-all max-w-23.75 truncate"
                               >
                                 <option value="Backlog">Backlog</option>
                                 <option value="Todo">Todo</option>
@@ -803,8 +830,8 @@ export const BoardView: React.FC = () => {
 
                       {/* Full-Width Note Title */}
                       <div className="w-full select-none pt-0.5">
-                        <span 
-                          className="text-xs font-bold text-slate-200 leading-snug group-hover:text-indigo-400 transition-colors line-clamp-2 break-words block"
+                        <span
+                          className="text-xs font-bold text-slate-200 leading-snug group-hover:text-indigo-400 transition-colors line-clamp-2 wrap-break-word block"
                           title={card.title}
                         >
                           {card.title}
@@ -812,10 +839,10 @@ export const BoardView: React.FC = () => {
                       </div>
 
                       {/* Note Tags Body Section (Replaces content snippet) */}
-                      <div className="min-h-[22px] flex flex-wrap items-center gap-1 select-none py-0.5">
+                      <div className="min-h-5.5 flex flex-wrap items-center gap-1 select-none py-0.5">
                         {card.tags && card.tags.length > 0 ? (
                           card.tags.map((t) => (
-                            <span 
+                            <span
                               key={t}
                               className="text-[9px] px-1.5 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 font-bold hover:text-indigo-200 transition-colors"
                             >
@@ -828,21 +855,21 @@ export const BoardView: React.FC = () => {
                       </div>
 
                       {/* Info Row (Due date & task counts) */}
-                      <div className="flex items-center justify-between border-t border-[#1f2335]/70 pt-2 select-none">
+                      <div className="flex items-center justify-between border-t border-card-border/70 pt-2 select-none">
                         <div className="flex items-center gap-1.5">
                           <Calendar className={`h-3 w-3 ${card.dueDate ? "text-indigo-400" : "text-slate-600/70"}`} />
                           <span className={`text-[9px] font-bold tracking-wide uppercase ${card.dueDate ? "text-slate-300" : "text-slate-600"}`}>
                             {card.dueDate ? `Due: ${card.dueDate}` : "No due date"}
                           </span>
                         </div>
-                        
+
                         {hasTasks && (
                           <div className="flex items-center gap-1.5">
                             <span className="text-[9px] font-extrabold text-emerald-500 dark:text-emerald-400">
                               {card.completedTasks}/{card.todoTasks + card.completedTasks}
                             </span>
                             <div className="w-10 h-1 rounded-full bg-slate-800 dark:bg-slate-900 overflow-hidden">
-                              <div 
+                              <div
                                 style={{ width: `${percent}%` }}
                                 className="h-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] transition-all duration-300"
                               />
@@ -855,7 +882,7 @@ export const BoardView: React.FC = () => {
                 })}
 
                 {colCards.length === 0 && (
-                  <div className="flex flex-col items-center justify-center gap-1.5 py-12 text-slate-600 border border-dashed border-[#1f2335]/70 rounded-xl select-none">
+                  <div className="flex flex-col items-center justify-center gap-1.5 py-12 text-slate-600 border border-dashed border-card-border/70 rounded-xl select-none">
                     <span className="text-[10px] italic">No cards</span>
                   </div>
                 )}

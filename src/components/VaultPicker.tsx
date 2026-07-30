@@ -26,14 +26,14 @@ export const VaultPicker: React.FC = () => {
   };
 
   return (
-    <div className="relative flex min-h-screen w-screen flex-col items-center justify-center bg-[#08090e] p-6 text-foreground animate-fade-in select-none overflow-y-auto">
+    <div className="relative flex min-h-screen w-screen flex-col items-center justify-center bg-background p-6 text-foreground animate-fade-in select-none overflow-y-auto">
       {/* Dynamic ambient gradient background glows */}
-      <div className="absolute top-1/4 left-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-indigo-600/15 blur-[140px] pointer-events-none" />
-      <div className="absolute bottom-1/4 left-1/3 h-[400px] w-[400px] rounded-full bg-pink-600/10 blur-[130px] pointer-events-none" />
+      <div className="absolute top-1/4 left-1/2 h-125 w-125 -translate-x-1/2 -translate-y-1/2 rounded-full bg-indigo-600/15 blur-[140px] pointer-events-none" />
+      <div className="absolute bottom-1/4 left-1/3 h-100 w-100 rounded-full bg-pink-600/10 blur-[130px] pointer-events-none" />
 
       <div className="relative z-10 my-auto max-w-3xl w-full text-center py-8">
         {/* Version & Subtitle Badge */}
-        <div className="inline-flex items-center gap-2 rounded-full bg-indigo-500/10 border border-indigo-500/20 px-4 py-1.5 text-xs font-semibold text-indigo-300 shadow-sm mb-6 backdrop-blur-md">
+        <div className="inline-flex items-center gap-2 rounded-full bg-indigo-500/10 border border-indigo-500/20 px-4 py-1.5 text-xs font-semibold text-indigo-300 shadow-sm mb-6">
           <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
           <span>Local-First Knowledge Workspace</span>
           <span className="h-1 w-1 rounded-full bg-indigo-400/60" />
@@ -41,7 +41,7 @@ export const VaultPicker: React.FC = () => {
         </div>
 
         {/* Logo Container */}
-        <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-3xl bg-linear-to-b from-[#1a1d2e] to-[#0f111a] border border-white/15 shadow-2xl shadow-indigo-500/20 ring-1 ring-white/10 group transition-all duration-300 hover:scale-105 hover:border-indigo-500/40">
+        <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-3xl bg-linear-to-b from-card to-sidebar border border-white/15 shadow-2xl shadow-indigo-500/20 ring-1 ring-white/10 group transition-all duration-300 hover:scale-105 hover:border-indigo-500/40">
           <img src={logoImg} alt="Kognote Logo" className="h-16 w-16 object-contain drop-shadow-[0_4px_12px_rgba(99,102,241,0.4)]" />
         </div>
 
@@ -57,7 +57,7 @@ export const VaultPicker: React.FC = () => {
         <div className="flex flex-col items-center gap-3">
           <button
             onClick={handleSelectFolder}
-            className="group relative flex items-center justify-center gap-3 rounded-2xl bg-linear-to-r from-indigo-600 to-indigo-500 px-9 py-4 font-bold text-white shadow-xl shadow-indigo-600/30 hover:from-indigo-500 hover:to-indigo-400 active:scale-98 transition-all duration-200 cursor-pointer border border-indigo-400/30 text-base"
+            className="group relative flex items-center justify-center gap-3 rounded-2xl bg-linear-to-r from-indigo-600 to-indigo-500 px-9 py-4 font-bold text-white shadow-xl shadow-indigo-600/30 hover:from-indigo-500 hover:to-indigo-400 active:scale-[0.98] transition-all duration-200 cursor-pointer border border-indigo-400/30 text-base"
           >
             <FolderOpen className="h-5 w-5 text-indigo-100 group-hover:scale-110 transition-transform" />
             <span>Select or Create Vault Directory</span>
@@ -71,8 +71,8 @@ export const VaultPicker: React.FC = () => {
         </div>
 
         {/* Feature Highlights Grid */}
-        <div className="mt-14 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-left border-t border-white/[0.08] pt-10">
-          <div className="rounded-2xl bg-white/[0.02] border border-white/[0.06] p-4.5 hover:border-indigo-500/30 hover:bg-white/[0.04] transition-all duration-200">
+        <div className="mt-14 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-left border-t border-white/8 pt-10">
+          <div className="rounded-2xl bg-white/2 border border-white/6 p-4.5 hover:border-indigo-500/30 hover:bg-white/4 transition-all duration-200">
             <div className="flex items-center gap-3 mb-2">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-400 ring-1 ring-indigo-500/20">
                 <FileText className="h-4 w-4" />
@@ -84,7 +84,7 @@ export const VaultPicker: React.FC = () => {
             </p>
           </div>
 
-          <div className="rounded-2xl bg-white/[0.02] border border-white/[0.06] p-4.5 hover:border-pink-500/30 hover:bg-white/[0.04] transition-all duration-200">
+          <div className="rounded-2xl bg-white/2 border border-white/6 p-4.5 hover:border-pink-500/30 hover:bg-white/4 transition-all duration-200">
             <div className="flex items-center gap-3 mb-2">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-pink-500/10 text-pink-400 ring-1 ring-pink-500/20">
                 <Cpu className="h-4 w-4" />
@@ -96,7 +96,7 @@ export const VaultPicker: React.FC = () => {
             </p>
           </div>
 
-          <div className="rounded-2xl bg-white/[0.02] border border-white/[0.06] p-4.5 hover:border-purple-500/30 hover:bg-white/[0.04] transition-all duration-200">
+          <div className="rounded-2xl bg-white/2 border border-white/6 p-4.5 hover:border-purple-500/30 hover:bg-white/4 transition-all duration-200">
             <div className="flex items-center gap-3 mb-2">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-500/10 text-purple-400 ring-1 ring-purple-500/20">
                 <Network className="h-4 w-4" />
@@ -108,7 +108,7 @@ export const VaultPicker: React.FC = () => {
             </p>
           </div>
 
-          <div className="rounded-2xl bg-white/[0.02] border border-white/[0.06] p-4.5 hover:border-emerald-500/30 hover:bg-white/[0.04] transition-all duration-200">
+          <div className="rounded-2xl bg-white/2 border border-white/6 p-4.5 hover:border-emerald-500/30 hover:bg-white/4 transition-all duration-200">
             <div className="flex items-center gap-3 mb-2">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20">
                 <GraduationCap className="h-4 w-4" />
@@ -120,7 +120,7 @@ export const VaultPicker: React.FC = () => {
             </p>
           </div>
 
-          <div className="rounded-2xl bg-white/[0.02] border border-white/[0.06] p-4.5 hover:border-amber-500/30 hover:bg-white/[0.04] transition-all duration-200">
+          <div className="rounded-2xl bg-white/2 border border-white/6 p-4.5 hover:border-amber-500/30 hover:bg-white/4 transition-all duration-200">
             <div className="flex items-center gap-3 mb-2">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20">
                 <CheckSquare className="h-4 w-4" />
@@ -132,7 +132,7 @@ export const VaultPicker: React.FC = () => {
             </p>
           </div>
 
-          <div className="rounded-2xl bg-white/[0.02] border border-white/[0.06] p-4.5 hover:border-blue-500/30 hover:bg-white/[0.04] transition-all duration-200">
+          <div className="rounded-2xl bg-white/2 border border-white/6 p-4.5 hover:border-blue-500/30 hover:bg-white/4 transition-all duration-200">
             <div className="flex items-center gap-3 mb-2">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20">
                 <ShieldCheck className="h-4 w-4" />

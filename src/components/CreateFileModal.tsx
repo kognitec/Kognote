@@ -129,13 +129,13 @@ export const CreateFileModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs animate-fade-in select-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 animate-fade-in select-none">
       <div
         ref={modalRef}
-        className="w-full max-w-md rounded-2xl border border-[#1f2335] bg-[#0b0c10]/95 p-6 shadow-2xl backdrop-blur-md animate-scale-up text-slate-200"
+        className="w-full max-w-md rounded-2xl border border-card-border bg-sidebar/95 p-6 shadow-2xl animate-scale-up text-slate-200"
       >
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-[#1f2335] mb-5">
+        <div className="flex items-center justify-between pb-3 border-b border-card-border mb-5">
           <div>
             <h3 className="text-sm font-extrabold tracking-wider text-slate-100 uppercase">
               Create New File
@@ -166,7 +166,7 @@ export const CreateFileModal: React.FC = () => {
                 className={`flex items-center justify-center gap-2 rounded-xl p-3 border text-xs font-semibold transition-all ${
                   fileType === "md"
                     ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-400 shadow-md shadow-indigo-500/5"
-                    : "border-[#1f2335] bg-[#12141d] text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                    : "border-card-border bg-[#12141d] text-slate-400 hover:border-slate-700 hover:text-slate-200"
                 }`}
               >
                 <FileText className="h-4 w-4" />
@@ -178,7 +178,7 @@ export const CreateFileModal: React.FC = () => {
                 className={`flex items-center justify-center gap-2 rounded-xl p-3 border text-xs font-semibold transition-all ${
                   fileType === "excalidraw"
                     ? "border-purple-500/50 bg-purple-500/10 text-purple-400 shadow-md shadow-purple-500/5"
-                    : "border-[#1f2335] bg-[#12141d] text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                    : "border-card-border bg-[#12141d] text-slate-400 hover:border-slate-700 hover:text-slate-200"
                 }`}
               >
                 <Network className="h-4 w-4" />
@@ -190,7 +190,7 @@ export const CreateFileModal: React.FC = () => {
           {/* Template Selection Dropdown (Only for Markdown) */}
           {fileType === "md" && templates.length > 0 && (
             <div>
-              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
                   <LayoutTemplate className="h-3.5 w-3.5 text-indigo-400" />
                   <span>Choose Template (Optional)</span>
@@ -200,7 +200,7 @@ export const CreateFileModal: React.FC = () => {
               <select
                 value={selectedTemplate}
                 onChange={(e) => setSelectedTemplate(e.target.value)}
-                className="w-full rounded-xl border border-[#1f2335] bg-[#12141d] px-3.5 py-2.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none transition-colors cursor-pointer"
+                className="w-full rounded-xl border border-card-border bg-[#12141d] px-3.5 py-2.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none transition-colors cursor-pointer"
               >
                 <option value="">Blank Note (No Template)</option>
                 {templates.map((tpl) => (
@@ -223,7 +223,7 @@ export const CreateFileModal: React.FC = () => {
               value={fileName}
               onChange={(e) => setFileName(e.target.value)}
               placeholder={fileType === "md" ? "e.g. Weekly Roadmap" : "e.g. System Architecture"}
-              className="w-full rounded-xl border border-[#1f2335] bg-[#12141d] px-3.5 py-2.5 text-xs text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:outline-none transition-colors"
+              className="w-full rounded-xl border border-card-border bg-[#12141d] px-3.5 py-2.5 text-xs text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:outline-none transition-colors"
             />
           </div>
 

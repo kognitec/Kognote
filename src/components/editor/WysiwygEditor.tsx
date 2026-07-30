@@ -14,6 +14,7 @@ import { FileText, Tag as TagIcon, Calendar } from "lucide-react";
 import { getDateSuggestions, formatDateISO, isDateQueryCompleted } from "../../lib/date-parser";
 import { parseFrontmatter } from "../../lib/frontmatter";
 import { getShortestUniquePath } from "../../lib/wikilink-utils";
+import { getDragState } from "../../lib/drag-state";
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
 
@@ -724,8 +725,14 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
       });
     };
 
+    const handleDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
     const handleDragOver = (e: DragEvent) => {
       e.preventDefault();
+      e.stopPropagation();
       if (e.dataTransfer) {
         e.dataTransfer.dropEffect = "copy";
       }
@@ -736,7 +743,12 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
       const plainTextPath = e.dataTransfer?.getData("text/plain");
 
       let droppedFilePath: string | null = null;
-      if (fileDataStr) {
+      const draggedState = getDragState("file") || getDragState("card");
+      if (draggedState) {
+        droppedFilePath = draggedState.path || draggedState.file?.path || null;
+      }
+
+      if (!droppedFilePath && fileDataStr) {
         try {
           const parsed = JSON.parse(fileDataStr);
           if (parsed && parsed.path && !parsed.is_dir) {
@@ -744,16 +756,17 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
           }
         } catch {}
       }
-      if (!droppedFilePath && plainTextPath && (plainTextPath.endsWith(".md") || plainTextPath.endsWith(".excalidraw"))) {
-        droppedFilePath = plainTextPath;
+      if (!droppedFilePath && plainTextPath && plainTextPath.trim().length > 0) {
+        droppedFilePath = plainTextPath.trim();
       }
 
       if (droppedFilePath) {
         e.preventDefault();
         e.stopPropagation();
 
+        const isImg = isImageFile(droppedFilePath);
         const linkTarget = getShortestUniquePath(droppedFilePath, vaultPath, files);
-        const backlinkText = `[[${linkTarget}]]`;
+        const backlinkText = isImg ? `![[${linkTarget}]]` : `[[${linkTarget}]]`;
 
         const crepe = crepeRef.current;
         if (crepe) {
@@ -818,11 +831,13 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
       }
     };
 
+    container.addEventListener("dragenter", handleDragEnter, true);
     container.addEventListener("dragover", handleDragOver, true);
     container.addEventListener("pointerup", handlePointerUp, true);
     container.addEventListener("drop", handleDrop, true);
 
     return () => {
+      container.removeEventListener("dragenter", handleDragEnter, true);
       container.removeEventListener("dragover", handleDragOver, true);
       container.removeEventListener("pointerup", handlePointerUp, true);
       container.removeEventListener("drop", handleDrop, true);
@@ -843,13 +858,13 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
       {/* Autocomplete Popup Dropdown for [[wikilinks]] and #tags */}
       {autocompletePopup && currentOptions.length > 0 && (
         <div
-          className={`fixed z-[130] max-h-60 overflow-y-auto rounded-xl bg-[#11131c] border border-indigo-500/30 p-1.5 shadow-2xl backdrop-blur-md animate-fade-in text-xs font-sans ${
+          className={`fixed z-130 max-h-60 overflow-y-auto rounded-xl bg-card border border-indigo-500/30 p-1.5 shadow-2xl backdrop-blur-md animate-fade-in text-xs font-sans ${
             autocompletePopup.type === "date" ? "w-80" : "w-64"
           }`}
           style={{ top: `${autocompletePopup.coords.top}px`, left: `${autocompletePopup.coords.left}px` }}
           onMouseDown={(e) => e.preventDefault()}
         >
-          <div className="px-2 py-1 border-b border-[#1f2335] mb-1 flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          <div className="px-2 py-1 border-b border-card-border mb-1 flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
             {autocompletePopup.type === "link" ? (
               <div className="flex items-center gap-1.5">
                 <FileText className="h-3 w-3 text-indigo-400" />

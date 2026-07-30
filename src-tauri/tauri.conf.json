@@ -55,7 +55,6 @@
         "installMode": "currentUser"
       },
       "wix": {},
-      "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
       "timestampUrl": "http://timestamp.digicert.com",
       "webviewInstallMode": {

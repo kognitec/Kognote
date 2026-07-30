@@ -6,6 +6,7 @@ import { useSettings } from "../contexts/SettingsContext";
 import { useVault } from "../contexts/VaultContext";
 import { invokeIPC } from "../lib/ipc";
 import { parseFrontmatter } from "../lib/frontmatter";
+import { getDragState, clearDragState } from "../lib/drag-state";
 
 // Helper function to manually wrap text to fit within card bounds
 function wrapText(text: string, maxCharsPerLine: number = 24): string {
@@ -17,7 +18,7 @@ function wrapText(text: string, maxCharsPerLine: number = 24): string {
       wrappedLines.push("");
       continue;
     }
-    
+
     if (line.length <= maxCharsPerLine) {
       wrappedLines.push(line);
       continue;
@@ -58,7 +59,7 @@ interface NoteCardInfo {
 }
 
 function parseNoteCardData(
-  rawContent: string, 
+  rawContent: string,
   fileName: string,
   cachedMeta?: any,
   cachedTasks?: any[]
@@ -167,7 +168,7 @@ function parseNoteCardData(
 
 // Helper to resolve moved note paths across active, archived, and deleted states
 function resolveNotePath(
-  originalPath: string, 
+  originalPath: string,
   noteCache: Record<string, any>,
   files: any[]
 ): string | null {
@@ -244,7 +245,7 @@ export const Canvas: React.FC = () => {
         const fileExists = await invokeIPC("fs_exists", { path: targetPath });
         if (!isCurrent) return;
         let data: { elements: any[]; appState: any } = { elements: [], appState: { theme: "dark" } };
-        
+
         if (fileExists) {
           const jsonStr = await invokeIPC("fs_read", { path: targetPath });
           if (!isCurrent) return;
@@ -315,9 +316,9 @@ export const Canvas: React.FC = () => {
                 const nameWithExt = resolvedPath.replace(/\\/g, "/").split("/").pop() || "";
                 const cachedData = noteCache[resolvedPath];
                 const cardInfo = parseNoteCardData(
-                  freshContent, 
-                  nameWithExt, 
-                  cachedData?.meta, 
+                  freshContent,
+                  nameWithExt,
+                  cachedData?.meta,
                   cachedData?.tasks
                 );
 
@@ -482,13 +483,38 @@ export const Canvas: React.FC = () => {
   // HTML5 drag and drop files & attachments onto visual board
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
-    const fileData = e.dataTransfer.getData("application/kognote-file");
-    if (!fileData || !excalidrawAPI || !containerRef.current) return;
+    e.stopPropagation();
+    if (!excalidrawAPI || !containerRef.current) return;
+
+    let item: { name: string; path: string; is_dir?: boolean } | null = null;
+    const draggedState = getDragState("file") || getDragState("card");
+    if (draggedState) {
+      const p = draggedState.path || draggedState.file?.path;
+      const n = draggedState.name || draggedState.title || p?.split(/[/\\]/).pop() || "File";
+      if (p) {
+        item = { name: n, path: p, is_dir: !!draggedState.is_dir };
+      }
+    }
+    if (!item || !item.path) {
+      const fileData = e.dataTransfer.getData("application/kognote-file");
+      if (fileData) {
+        try {
+          item = JSON.parse(fileData);
+        } catch { }
+      }
+    }
+    if (!item || !item.path) {
+      const plainPath = e.dataTransfer.getData("text/plain");
+      if (plainPath) {
+        const fileName = plainPath.split(/[/\\]/).pop() || "File";
+        item = { name: fileName, path: plainPath, is_dir: false };
+      }
+    }
+    if (!item || !item.path) return;
 
     try {
-      const item = JSON.parse(fileData);
       const appState = excalidrawAPI.getAppState();
-      
+
       // Accurately translate drop client coordinates to Excalidraw scene coordinates
       const sceneCoords = viewportCoordsToSceneCoords(
         { clientX: e.clientX, clientY: e.clientY },
@@ -532,7 +558,7 @@ export const Canvas: React.FC = () => {
                 imgWidth = 450;
               }
             }
-          } catch {}
+          } catch { }
         }
 
         const fileId = `file_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -788,9 +814,9 @@ export const Canvas: React.FC = () => {
       };
 
       const newElements = convertToExcalidrawElements([
-        cardElement, 
-        headerElement, 
-        titleElement, 
+        cardElement,
+        headerElement,
+        titleElement,
         footerElement
       ] as any);
 
@@ -805,18 +831,31 @@ export const Canvas: React.FC = () => {
 
   if (!isReady || !initialData) {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-[#090a0f] text-slate-400">
+      <div className="flex h-full w-full items-center justify-center bg-background text-slate-400">
         Loading Whiteboard...
       </div>
     );
   }
 
   return (
-    <div 
+    <div
       ref={containerRef}
-      className="h-full w-full relative flex flex-col bg-[#090a0f]"
-      onDrop={handleDrop}
-      onDragOver={(e) => e.preventDefault()}
+      className="h-full w-full relative flex flex-col bg-background"
+      onDrop={(e) => {
+        handleDrop(e);
+        clearDragState();
+      }}
+      onDragEnter={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer) {
+          e.dataTransfer.dropEffect = "copy";
+        }
+      }}
     >
       <Excalidraw
         excalidrawAPI={(api) => setExcalidrawAPI(api)}

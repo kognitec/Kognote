@@ -10,7 +10,16 @@ async function getStore() {
   try {
     const dataDir = await appDataDir();
     const holdPath = await join(dataDir, "kognote_secure.hold");
-    const pin = "kognote-secure-local-vault-pin-2026"; 
+    
+    // Dynamically derive a deterministic key seed from appDataDir location
+    const encoder = new TextEncoder();
+    const data = encoder.encode(dataDir + "-kognote-v1");
+    let hash = 0;
+    for (let i = 0; i < data.length; i++) {
+      hash = (hash << 5) - hash + data[i];
+      hash |= 0;
+    }
+    const pin = `kognote-pin-${Math.abs(hash).toString(16)}-2026`; 
 
     strongholdInstance = await Stronghold.load(holdPath, pin);
     const client = await strongholdInstance.createClient("kognote_secrets");

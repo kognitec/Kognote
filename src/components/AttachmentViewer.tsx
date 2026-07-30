@@ -6,6 +6,7 @@ import {
   Trash2, ExternalLink, FolderOpen, ZoomIn, ZoomOut, RotateCw, RefreshCw
 } from "lucide-react";
 import { invokeIPC } from "../lib/ipc";
+import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 
 interface AttachmentViewerProps {
   file: FileEntry;
@@ -32,8 +33,12 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({ file }) => {
     invokeIPC("open_with_default", { path: file.path }).catch(console.error);
   };
 
-  const handleDelete = () => {
-    if (confirm(`Are you sure you want to delete this attachment: ${file.name}?`)) {
+  const handleDelete = async () => {
+    const confirmed = await tauriConfirm(`Are you sure you want to delete this attachment: ${file.name}?`, {
+      title: "Delete Attachment",
+      kind: "warning",
+    });
+    if (confirmed) {
       deleteFileOrDirectory(file.path);
     }
   };
@@ -43,7 +48,7 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({ file }) => {
       return (
         <div className="flex-1 flex flex-col items-center justify-center overflow-auto p-8 min-h-0">
           {/* Zoom/Rotate Controls */}
-          <div className="flex items-center gap-3 bg-[#11131c]/90 border border-[#1f2335] px-4 py-2 rounded-full mb-6 shadow-lg z-10 text-xs">
+          <div className="flex items-center gap-3 bg-card/90 border border-card-border px-4 py-2 rounded-full mb-6 shadow-lg z-10 text-xs">
             <button 
               type="button"
               onClick={() => setZoom(z => Math.max(25, z - 25))} 
@@ -52,7 +57,7 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({ file }) => {
             >
               <ZoomOut className="h-4 w-4" />
             </button>
-            <span className="text-slate-300 font-bold min-w-[45px] text-center">{zoom}%</span>
+            <span className="text-slate-300 font-bold min-w-11.25 text-center">{zoom}%</span>
             <button 
               type="button"
               onClick={() => setZoom(z => Math.min(400, z + 25))} 
@@ -61,7 +66,7 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({ file }) => {
             >
               <ZoomIn className="h-4 w-4" />
             </button>
-            <div className="w-px bg-[#1f2335] h-4 self-center mx-1" />
+            <div className="w-px bg-card-border h-4 self-center mx-1" />
             <button 
               type="button"
               onClick={() => setRotate(r => (r + 90) % 360)} 
@@ -90,7 +95,7 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({ file }) => {
                 maxWidth: '90%',
                 maxHeight: '80%'
               }}
-              className="object-contain rounded-lg border border-[#1f2335] bg-[#0c0d15] shadow-2xl"
+              className="object-contain rounded-lg border border-card-border bg-sidebar shadow-2xl"
             />
           </div>
         </div>
@@ -104,7 +109,7 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({ file }) => {
             src={assetSrc} 
             controls 
             autoPlay
-            className="max-w-full max-h-full rounded-xl border border-[#1f2335] shadow-2xl bg-black"
+            className="max-w-full max-h-full rounded-xl border border-card-border shadow-2xl bg-black"
           />
         </div>
       );
@@ -113,7 +118,7 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({ file }) => {
     if (isAudio) {
       return (
         <div className="flex-1 flex items-center justify-center p-8 min-h-0">
-          <div className="w-full max-w-lg rounded-2xl border border-[#1f2335] bg-[#11131c]/60 p-8 shadow-2xl backdrop-blur-md text-center flex flex-col items-center gap-6">
+          <div className="w-full max-w-lg rounded-2xl border border-card-border bg-card/60 p-8 shadow-2xl backdrop-blur-md text-center flex flex-col items-center gap-6">
             <div className="p-6 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-[0_0_20px_rgba(99,102,241,0.15)]">
               <MusicIcon className="h-12 w-12" />
             </div>
@@ -135,10 +140,10 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({ file }) => {
 
     if (isPdf) {
       return (
-        <div className="flex-1 h-full w-full p-4 min-h-0 bg-[#090a0f]">
+        <div className="flex-1 h-full w-full p-4 min-h-0 bg-background">
           <iframe 
             src={assetSrc} 
-            className="w-full h-full rounded-xl border border-[#1f2335] shadow-2xl"
+            className="w-full h-full rounded-xl border border-card-border shadow-2xl"
             title={file.name}
           />
         </div>
@@ -165,9 +170,9 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({ file }) => {
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#090a0f] text-slate-200 select-none overflow-hidden animate-fade-in">
+    <div className="flex flex-col h-full w-full bg-background text-slate-200 select-none overflow-hidden animate-fade-in">
       {/* Header Info Panel */}
-      <div className="h-14 border-b border-[#1f2335] bg-[#0b0c10] px-6 flex items-center justify-between shrink-0 animate-fade-in">
+      <div className="h-14 border-b border-card-border bg-sidebar px-6 flex items-center justify-between shrink-0 animate-fade-in">
         <div className="flex items-center gap-3 min-w-0">
           {getIcon()}
           <div className="min-w-0">
@@ -182,7 +187,7 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({ file }) => {
           <button 
             type="button"
             onClick={handleOpenDefault}
-            className="px-3 py-1.5 rounded-md border border-[#1f2335] bg-[#11131c] text-[10px] font-bold text-slate-300 hover:text-slate-100 hover:bg-slate-800/40 transition-colors flex items-center gap-1 cursor-pointer"
+            className="px-3 py-1.5 rounded-md border border-card-border bg-card text-[10px] font-bold text-slate-300 hover:text-slate-100 hover:bg-card-hover transition-colors flex items-center gap-1 cursor-pointer"
             title="Open using default method set in OS"
           >
             <ExternalLink className="h-3 w-3" />
@@ -191,13 +196,13 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({ file }) => {
           <button 
             type="button"
             onClick={handleReveal}
-            className="px-3 py-1.5 rounded-md border border-[#1f2335] bg-[#11131c] text-[10px] font-bold text-slate-300 hover:text-slate-100 hover:bg-slate-800/40 transition-colors flex items-center gap-1 cursor-pointer"
+            className="px-3 py-1.5 rounded-md border border-card-border bg-card text-[10px] font-bold text-slate-300 hover:text-slate-100 hover:bg-card-hover transition-colors flex items-center gap-1 cursor-pointer"
             title="Show file in Finder / File Explorer"
           >
             <FolderOpen className="h-3 w-3" />
             Reveal in Finder
           </button>
-          <div className="w-px bg-[#1f2335] h-5 self-center mx-1" />
+          <div className="w-px bg-card-border h-5 self-center mx-1" />
           <button 
             type="button"
             onClick={handleDelete}
@@ -214,3 +219,4 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({ file }) => {
     </div>
   );
 };
+

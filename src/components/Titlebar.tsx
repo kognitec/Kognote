@@ -64,7 +64,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
     <div
       data-tauri-drag-region
       onMouseDown={handleStartDrag}
-      className="flex h-11 w-full items-center justify-between border-b border-white/[0.06] bg-[#0b0c10]/95 backdrop-blur-xs px-4 text-foreground select-none"
+      className="flex h-11 w-full items-center justify-between border-b border-white/6 bg-sidebar/95 px-4 text-foreground select-none"
       style={{boxShadow: 'inset 0 -1px 0 rgba(255,255,255,0.04), 0 1px 0 rgba(0,0,0,0.3)'}}
     >
       {/* Left section: Logo & macOS window controls */}
@@ -215,7 +215,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
 
         <button
           onClick={onOpenSettings}
-          className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-[#1a1d29] hover:text-slate-200 transition-colors border border-transparent hover:border-slate-800 cursor-pointer hover-rotate-continuous"
+          className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-[#1a1d29] hover:text-slate-200 transition-colors border border-transparent hover:border-slate-800 cursor-pointer hover-rotate-continuous btn-interactive"
           title="Settings"
         >
           <SettingsIcon className="h-3.5 w-3.5" />
@@ -226,19 +226,19 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
           <div className="flex items-center gap-0.5 ml-1 border-l border-slate-800 pl-1.5">
             <button
               onClick={handleMinimize}
-              className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-[#1a1d29] hover:text-slate-200 transition-colors cursor-pointer"
+              className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-[#1a1d29] hover:text-slate-200 transition-colors cursor-pointer btn-interactive"
             >
               <Minus className="h-3 w-3" />
             </button>
             <button
               onClick={handleMaximize}
-              className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-[#1a1d29] hover:text-slate-200 transition-colors cursor-pointer"
+              className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-[#1a1d29] hover:text-slate-200 transition-colors cursor-pointer btn-interactive"
             >
               <Square className="h-2.5 w-2.5" />
             </button>
             <button
               onClick={handleClose}
-              className="flex h-6 w-6 items-center justify-full rounded-full text-slate-500 hover:bg-red-500/20 hover:text-red-400 transition-colors cursor-pointer"
+              className="flex h-6 w-6 items-center justify-full rounded-full text-slate-500 hover:bg-red-500/20 hover:text-red-400 transition-colors cursor-pointer btn-interactive"
             >
               <X className="h-3 w-3" />
             </button>

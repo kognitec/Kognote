@@ -1,0 +1,152 @@
+name: Release Kognote
+
+# Trigger: push a git tag like "v1.0.0" to start a release build
+# To trigger manually: GitHub Actions tab → "Run workflow"
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: 'Create as draft release?'
+        required: false
+        default: 'true'
+
+# ─── Pinned llama.cpp release to use for macOS binaries ─────────────────────
+# Update this when you want to ship a newer llama.cpp version.
+# Find releases at: https://github.com/ggerganov/llama.cpp/releases
+env:
+  LLAMA_VERSION: b5834
+
+jobs:
+  build-release:
+    permissions:
+      contents: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ─── macOS Apple Silicon (M1/M2/M3) ───────────────────────────────
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            label: 'macOS (Apple Silicon)'
+            llama_asset: 'llama-{VERSION}-bin-macos-arm64.zip'
+            llama_bin_name: 'llama-server-aarch64-apple-darwin'
+
+          # ─── macOS Intel ───────────────────────────────────────────────────
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            label: 'macOS (Intel)'
+            llama_asset: 'llama-{VERSION}-bin-macos-x64.zip'
+            llama_bin_name: 'llama-server-x86_64-apple-darwin'
+
+          # ─── Windows x64 ──────────────────────────────────────────────────
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            label: 'Windows (x64)'
+            llama_asset: ''
+            llama_bin_name: ''
+
+    runs-on: ${{ matrix.platform }}
+    name: Build — ${{ matrix.label }}
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Node.js ─────────────────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # ── 3. Rust toolchain ──────────────────────────────────────────────────
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # ── 4. Rust cache (speeds up subsequent builds significantly) ──────────
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      # ── 5. Download llama-server binary (macOS only) ───────────────────────
+      # Both macOS targets download their matching binary from the pinned
+      # llama.cpp release. This guarantees version consistency across platforms
+      # and removes reliance on any binary committed to the repo.
+      # Windows uses the .exe + DLLs already in src-tauri/bin/ (committed).
+      - name: Download llama-server for macOS
+        if: matrix.platform == 'macos-latest'
+        run: |
+          # Resolve the asset name using the pinned version
+          ASSET="${{ matrix.llama_asset }}"
+          ASSET="${ASSET/\{VERSION\}/$LLAMA_VERSION}"
+          BIN_NAME="${{ matrix.llama_bin_name }}"
+
+          echo "==> Downloading $ASSET (version $LLAMA_VERSION)"
+          curl -fL "https://github.com/ggerganov/llama.cpp/releases/download/${LLAMA_VERSION}/${ASSET}" \
+            -o llama-download.zip
+
+          echo "==> Extracting..."
+          unzip -o llama-download.zip -d llama-extracted
+
+          echo "==> Locating llama-server binary..."
+          BINARY=$(find llama-extracted -name "llama-server" -type f | head -1)
+
+          if [ -z "$BINARY" ]; then
+            echo "ERROR: llama-server binary not found in archive!"
+            ls -la llama-extracted/ || true
+            find llama-extracted -type f | head -30
+            exit 1
+          fi
+
+          echo "==> Copying $BINARY → src-tauri/bin/$BIN_NAME"
+          cp "$BINARY" "src-tauri/bin/$BIN_NAME"
+          chmod +x "src-tauri/bin/$BIN_NAME"
+
+          # Verify it is a valid Mach-O binary
+          file "src-tauri/bin/$BIN_NAME"
+          SIZE=$(wc -c < "src-tauri/bin/$BIN_NAME")
+          echo "==> $BIN_NAME installed successfully ($SIZE bytes)"
+
+      # ── 6. Install frontend dependencies ───────────────────────────────────
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # ── 7. Build & bundle the Tauri app ────────────────────────────────────
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ── macOS Code Signing (optional — remove if not signing) ──────────
+          # Uncomment and add these secrets in GitHub → Settings → Secrets:
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Kognote ${{ github.ref_name }}'
+          releaseBody: |
+            ## Kognote ${{ github.ref_name }}
+
+            ### Downloads
+            | Platform | File |
+            |----------|------|
+            | Windows  | `Kognote_*_x64-setup.exe` (NSIS installer) |
+            | macOS ARM | `Kognote_*_aarch64.dmg` (Apple Silicon M1/M2/M3) |
+            | macOS Intel | `Kognote_*_x64.dmg` (Intel Mac) |
+
+            ### What's New
+            See [CHANGELOG.md](CHANGELOG.md) for details.
+          releaseDraft: ${{ github.event.inputs.draft == 'true' || github.event_name == 'push' }}
+          prerelease: false
+          args: --target ${{ matrix.target }}

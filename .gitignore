@@ -18,6 +18,9 @@ llama-vulkan-bin/
 llama-win.zip
 llama-vulkan.zip
 
+# Tauri external binaries — these MUST be committed so GitHub Actions can bundle them
+# Do NOT add src-tauri/bin/ to .gitignore
+
 # Logs & temp files
 *.log
 npm-debug.log*

@@ -406,11 +406,11 @@ export const CommandPalette: React.FC = () => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 pt-[12vh] backdrop-blur-sm select-none animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 pt-[12vh] select-none animate-fade-in">
       <div className="absolute inset-0" onClick={() => setIsOpen(false)} />
 
       {/* Palette Card */}
-      <div className="relative w-full max-w-2xl rounded-xl border border-[#1e2338] bg-[#0c0e17]/95 shadow-2xl overflow-hidden text-slate-200 flex flex-col max-h-[75vh]">
+      <div className="relative w-full max-w-2xl rounded-xl border border-[#1e2338] bg-[#0c0e17]/95 shadow-2xl overflow-hidden text-slate-200 flex flex-col max-h-[75vh] animate-modal-pop">
         
         {/* Top Input Bar */}
         <div className="flex h-13 items-center gap-3 px-4 border-b border-[#1e2338] bg-[#0f111d]">
@@ -490,7 +490,7 @@ export const CommandPalette: React.FC = () => {
         {/* Results List */}
         <div
           ref={resultsContainerRef}
-          className="flex-1 overflow-y-auto p-2 flex flex-col gap-1 min-h-[160px]"
+          className="flex-1 overflow-y-auto p-2 flex flex-col gap-1 min-h-40"
         >
           {isSearching ? (
             <div className="py-12 text-center text-xs text-slate-500 flex flex-col items-center gap-2.5">

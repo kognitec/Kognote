@@ -172,6 +172,7 @@ pub async fn watch_vault(
     let mut path_guard = state.vault_path.lock().map_err(|e| e.to_string())?;
     *path_guard = Some(canonical_vault_path.clone());
 
+    #[cfg(debug_assertions)]
     println!("Now watching vault at: {:?}", canonical_vault_path);
     Ok(())
 }

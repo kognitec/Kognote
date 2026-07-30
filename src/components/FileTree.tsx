@@ -4,6 +4,7 @@ import { useVault, FileEntry, ATTACHMENTS_FOLDER } from "../contexts/VaultContex
 import { useSync } from "../contexts/SyncContext";
 import { searchEngine } from "../lib/search-engine";
 import { invokeIPC } from "../lib/ipc";
+import { setDragState, getDragState, clearDragState } from "../lib/drag-state";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getFileIcon } from "../lib/file-icons";
 import { isValidTagToken } from "../lib/tag-utils";
@@ -222,12 +223,12 @@ export const FileTree: React.FC = () => {
             const startMarker = "<!-- AI Generated Content:";
             const endMarker = "-->";
             const startIdx = cached.content.indexOf(startMarker);
-            
+
             if (startIdx !== -1) {
               const endIdx = cached.content.indexOf(endMarker, startIdx);
               if (endIdx !== -1) {
                 const aiText = cached.content.substring(startIdx + startMarker.length, endIdx);
-                
+
                 let parsedAiTags: string[] = [];
                 let parsedAiLinks: string[] = [];
 
@@ -241,39 +242,39 @@ export const FileTree: React.FC = () => {
                   }
                 }
 
-              // Parse backlinks
-              const linksLineMatch = aiText.match(/AI Backlinks:\s*([^|]*)/i);
-              const activeBacklinksText = linksLineMatch ? linksLineMatch[1] : aiText;
-              const linksFound = activeBacklinksText.matchAll(/(?:\\?\[){2}(.*?)(?:\\?\]){2}/g);
-              for (const m of linksFound) {
-                const linkName = m[1].replace(/\\/g, "").trim();
-                if (linkName && linkName !== "None") {
-                  parsedAiLinks.push(linkName);
+                // Parse backlinks
+                const linksLineMatch = aiText.match(/AI Backlinks:\s*([^|]*)/i);
+                const activeBacklinksText = linksLineMatch ? linksLineMatch[1] : aiText;
+                const linksFound = activeBacklinksText.matchAll(/(?:\\?\[){2}(.*?)(?:\\?\]){2}/g);
+                for (const m of linksFound) {
+                  const linkName = m[1].replace(/\\/g, "").trim();
+                  if (linkName && linkName !== "None") {
+                    parsedAiLinks.push(linkName);
+                  }
                 }
+
+                // Sync/update SQLite database suggestions cache
+                await searchEngine.saveAiSuggestions(note.path, parsedAiTags, parsedAiLinks);
+
+                // Register tags to sidebar Tags list
+                parsedAiTags.forEach((tag) => {
+                  const cleanTag = tag.toLowerCase().trim();
+                  const alreadyManualInNote = tagsMap[cleanTag]?.some((n) => n.path === note.path);
+                  if (cleanTag && cleanTag !== "flashcard" && !alreadyManualInNote) {
+                    if (!aiTagsMap[cleanTag]) {
+                      aiTagsMap[cleanTag] = [];
+                    }
+                    if (!aiTagsMap[cleanTag].some((n) => n.path === note.path)) {
+                      aiTagsMap[cleanTag].push(note);
+                    }
+                  }
+                });
               }
-
-              // Sync/update SQLite database suggestions cache
-              await searchEngine.saveAiSuggestions(note.path, parsedAiTags, parsedAiLinks);
-
-              // Register tags to sidebar Tags list
-              parsedAiTags.forEach((tag) => {
-                const cleanTag = tag.toLowerCase().trim();
-                const alreadyManualInNote = tagsMap[cleanTag]?.some((n) => n.path === note.path);
-                if (cleanTag && cleanTag !== "flashcard" && !alreadyManualInNote) {
-                  if (!aiTagsMap[cleanTag]) {
-                    aiTagsMap[cleanTag] = [];
-                  }
-                  if (!aiTagsMap[cleanTag].some((n) => n.path === note.path)) {
-                    aiTagsMap[cleanTag].push(note);
-                  }
-                }
-              });
             }
+          } catch (e) {
+            console.warn("Failed to parse/save AI suggestions during file scan:", note.path, e);
           }
-        } catch (e) {
-          console.warn("Failed to parse/save AI suggestions during file scan:", note.path, e);
         }
-      }
       } catch (err) {
         console.error(`Failed to scan note tags/urls: ${note.path}`, err);
       }
@@ -323,9 +324,9 @@ export const FileTree: React.FC = () => {
       const customEvent = e as CustomEvent<{ tag: string; type: "manual" | "ai" }>;
       if (customEvent.detail && customEvent.detail.tag) {
         setActiveTab("tags");
-        setSelectedTag({ 
-          name: customEvent.detail.tag, 
-          type: customEvent.detail.type || "manual" 
+        setSelectedTag({
+          name: customEvent.detail.tag,
+          type: customEvent.detail.type || "manual"
         });
       }
     };
@@ -339,7 +340,7 @@ export const FileTree: React.FC = () => {
     const confirmMessage = type === "manual"
       ? `Are you sure you want to delete all instances of manual tag #${tagName} from all notes?`
       : `Are you sure you want to remove AI suggested tag #${tagName} from all note suggestions?`;
-      
+
     const confirmDelete = window.confirm(confirmMessage);
     if (!confirmDelete) return;
 
@@ -439,7 +440,7 @@ export const FileTree: React.FC = () => {
   // Sort items recursively
   const sortTree = (items: FileEntry[], option: SortOption, isRoot = true): FileEntry[] => {
     const sorted = [...items];
-    
+
     // Sort children recursively first
     sorted.forEach((item) => {
       if (item.is_dir && item.children) {
@@ -524,7 +525,7 @@ export const FileTree: React.FC = () => {
             const pathLower = e.path.replace(/\\/g, "/").toLowerCase();
             const cache = noteCache[e.path] || Object.values(noteCache).find(c => c.path === e.path || c.path.replace(/\\/g, "/").toLowerCase() === pathLower);
             const storage = cache?.meta?.storage?.toLowerCase();
-            
+
             if (pathLower.includes("/trash/") || storage === "deleted") {
               trashCount++;
             } else if (pathLower.includes("/archived/") || storage === "archived") {
@@ -587,17 +588,16 @@ export const FileTree: React.FC = () => {
   }, [filteredFiles, expandedPaths, filter]);
 
   return (
-    <div className="flex h-full flex-col dark:bg-[#0b0c10] bg-slate-50 border-r dark:border-[#1f2335] border-slate-200 text-slate-800 dark:text-slate-300">
+    <div className="flex h-full flex-col dark:bg-sidebar bg-slate-50 border-r dark:border-card-border border-slate-200 text-slate-800 dark:text-slate-300">
       {/* Sleek Segmented Control Sidebar Navigation Tabs */}
-      <div className="p-2 border-b dark:border-[#1f2335] border-slate-200 dark:bg-[#090a0f] bg-slate-100">
-        <div className="grid grid-cols-4 p-0.5 rounded-lg dark:bg-[#12141e] bg-slate-200/80 border dark:border-[#1f2335]/70 border-slate-300/80 text-[10px] font-bold">
+      <div className="p-2 border-b dark:border-card-border border-slate-200 dark:bg-background bg-slate-100">
+        <div className="grid grid-cols-4 p-0.5 rounded-lg dark:bg-[#12141e] bg-slate-200/80 border dark:border-card-border/70 border-slate-300/80 text-[10px] font-bold">
           <button
             onClick={() => setActiveTab("files")}
-            className={`flex items-center justify-center gap-1 py-1.5 rounded-md transition-all duration-200 cursor-pointer ${
-              activeTab === "files"
+            className={`flex items-center justify-center gap-1 py-1.5 rounded-md transition-all duration-200 cursor-pointer ${activeTab === "files"
                 ? "dark:bg-[#1d2030] bg-white text-amber-600 dark:text-[#fbbf24] shadow-xs border border-amber-500/40"
                 : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-300/40 dark:hover:bg-[#161825]/50 border border-transparent"
-            }`}
+              }`}
             title="Folder & file vault explorer"
           >
             <Folder className="h-3.5 w-3.5" />
@@ -605,11 +605,10 @@ export const FileTree: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab("tags")}
-            className={`flex items-center justify-center gap-1 py-1.5 rounded-md transition-all duration-200 cursor-pointer ${
-              activeTab === "tags"
+            className={`flex items-center justify-center gap-1 py-1.5 rounded-md transition-all duration-200 cursor-pointer ${activeTab === "tags"
                 ? "dark:bg-[#1d2030] bg-white text-purple-600 dark:text-purple-400 shadow-xs border border-purple-500/40"
                 : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-300/40 dark:hover:bg-[#161825]/50 border border-transparent"
-            }`}
+              }`}
             title="Tags index browser"
           >
             <Tag className="h-3.5 w-3.5" />
@@ -617,11 +616,10 @@ export const FileTree: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab("attachments")}
-            className={`flex items-center justify-center gap-1 py-1.5 rounded-md transition-all duration-200 cursor-pointer ${
-              activeTab === "attachments"
+            className={`flex items-center justify-center gap-1 py-1.5 rounded-md transition-all duration-200 cursor-pointer ${activeTab === "attachments"
                 ? "dark:bg-[#1d2030] bg-white text-emerald-600 dark:text-emerald-400 shadow-xs border border-emerald-500/40"
                 : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-300/40 dark:hover:bg-[#161825]/50 border border-transparent"
-            }`}
+              }`}
             title="Vault media attachments"
           >
             <Paperclip className="h-3.5 w-3.5" />
@@ -629,11 +627,10 @@ export const FileTree: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab("urls")}
-            className={`flex items-center justify-center gap-1 py-1.5 rounded-md transition-all duration-200 cursor-pointer ${
-              activeTab === "urls"
+            className={`flex items-center justify-center gap-1 py-1.5 rounded-md transition-all duration-200 cursor-pointer ${activeTab === "urls"
                 ? "dark:bg-[#1d2030] bg-white text-indigo-600 dark:text-indigo-400 shadow-xs border border-indigo-500/40"
                 : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-300/40 dark:hover:bg-[#161825]/50 border border-transparent"
-            }`}
+              }`}
             title="Extracted web URLs"
           >
             <Globe className="h-3.5 w-3.5" />
@@ -645,7 +642,7 @@ export const FileTree: React.FC = () => {
       {/* Tab Contents: FILES */}
       {activeTab === "files" && (
         <div className="flex flex-col flex-1 overflow-hidden">
-          <div className="p-3 border-b dark:border-[#1f2335] border-slate-200">
+          <div className="p-3 border-b dark:border-card-border border-slate-200">
             <div className="relative mb-2.5">
               <Search className="absolute top-2.5 left-2.5 h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
               <input
@@ -653,7 +650,7 @@ export const FileTree: React.FC = () => {
                 placeholder="Filter files..."
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                className="w-full rounded-md dark:bg-[#11131c] bg-white text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 border dark:border-[#1f2335] border-slate-300 focus:outline-hidden focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/30 transition-all"
+                className="w-full rounded-md dark:bg-card bg-white text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 border dark:border-card-border border-slate-300 focus:outline-hidden focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/30 transition-all"
               />
               {filter && (
                 <button
@@ -693,15 +690,14 @@ export const FileTree: React.FC = () => {
                 <div className="relative" ref={sortDropdownRef}>
                   <button
                     onClick={() => setIsSortDropdownOpen(!isSortDropdownOpen)}
-                    className={`p-1 rounded-sm hover:bg-[#1a1d29] transition-colors cursor-pointer ${
-                      isSortDropdownOpen ? "bg-[#1a1d29] text-[#d946ef]" : "text-slate-500 hover:text-slate-300"
-                    }`}
+                    className={`p-1 rounded-sm hover:bg-[#1a1d29] transition-colors cursor-pointer ${isSortDropdownOpen ? "bg-[#1a1d29] text-[#d946ef]" : "text-slate-500 hover:text-slate-300"
+                      }`}
                     title="Sort Files"
                   >
                     <ArrowUpDown className="h-3.5 w-3.5" />
                   </button>
                   {isSortDropdownOpen && (
-                    <div className="absolute right-0 mt-1.5 w-52 bg-[#11131c] border border-[#1f2335] rounded-md shadow-2xl py-1 z-50 text-[11px] font-normal normal-case">
+                    <div className="absolute right-0 mt-1.5 w-52 bg-card border border-card-border rounded-md shadow-2xl py-1 z-50 text-[11px] font-normal normal-case">
                       {SORT_OPTIONS.map((opt) => (
                         <button
                           key={opt.value}
@@ -709,9 +705,8 @@ export const FileTree: React.FC = () => {
                             changeSortOption(opt.value);
                             setIsSortDropdownOpen(false);
                           }}
-                          className={`w-full text-left px-3 py-1.5 hover:bg-[#1a1d29] transition-colors flex items-center justify-between cursor-pointer ${
-                            sortOption === opt.value ? "text-[#d946ef] font-medium" : "text-slate-400 hover:text-slate-200"
-                          }`}
+                          className={`w-full text-left px-3 py-1.5 hover:bg-[#1a1d29] transition-colors flex items-center justify-between cursor-pointer ${sortOption === opt.value ? "text-[#d946ef] font-medium" : "text-slate-400 hover:text-slate-200"
+                            }`}
                         >
                           <span>{opt.label}</span>
                           {sortOption === opt.value && <Check className="h-3 w-3" />}
@@ -749,7 +744,7 @@ export const FileTree: React.FC = () => {
 
           {/* Starred / Bookmarked Notes Quick Access */}
           {starredNotes.length > 0 && (
-            <div className="px-3 py-1.5 border-b border-[#1f2335] bg-[#0b0c10]/40">
+            <div className="px-3 py-1.5 border-b border-card-border bg-sidebar/40">
               <button
                 onClick={() => setIsStarredOpen((prev) => !prev)}
                 className="flex items-center justify-between w-full text-[10px] font-bold text-amber-600 dark:text-amber-500 tracking-wider uppercase py-1 cursor-pointer select-none group"
@@ -759,9 +754,8 @@ export const FileTree: React.FC = () => {
                   <span>Bookmarks ({starredNotes.length})</span>
                 </div>
                 <ChevronRight
-                  className={`h-3 w-3 transform transition-transform duration-200 text-amber-600/70 group-hover:text-amber-500 ${
-                    isStarredOpen ? "rotate-90" : ""
-                  }`}
+                  className={`h-3 w-3 transform transition-transform duration-200 text-amber-600/70 group-hover:text-amber-500 ${isStarredOpen ? "rotate-90" : ""
+                    }`}
                 />
               </button>
               {isStarredOpen && (
@@ -824,7 +818,7 @@ export const FileTree: React.FC = () => {
                   placeholder="Search tags..."
                   value={tagSearch}
                   onChange={(e) => setTagSearch(e.target.value)}
-                  className="w-full rounded-md bg-[#11131c] pl-8 pr-3 py-1 text-xs text-slate-200 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50"
+                  className="w-full rounded-md bg-card pl-8 pr-3 py-1 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50"
                 />
               </div>
             </div>
@@ -846,13 +840,11 @@ export const FileTree: React.FC = () => {
                     >
                       &larr; Back to all tags
                     </button>
-                    <div className={`rounded-lg border p-2.5 flex flex-col gap-2 bg-[#161825] ${
-                      selectedTag.type === "manual" ? "border-slate-500/20" : "border-amber-500/20"
-                    }`}>
-                      <div className="flex items-center justify-between border-b border-[#1f2335] pb-1.5">
-                        <span className={`text-xs font-bold ${
-                          selectedTag.type === "manual" ? "text-slate-300" : "text-amber-400"
-                        }`}>
+                    <div className={`rounded-lg border p-2.5 flex flex-col gap-2 bg-[#161825] ${selectedTag.type === "manual" ? "border-slate-500/20" : "border-amber-500/20"
+                      }`}>
+                      <div className="flex items-center justify-between border-b border-card-border pb-1.5">
+                        <span className={`text-xs font-bold ${selectedTag.type === "manual" ? "text-slate-300" : "text-amber-400"
+                          }`}>
                           #{selectedTag.name} {selectedTag.type === "ai" && <span className="text-[9px] opacity-60">(AI)</span>}
                         </span>
                         <button
@@ -871,7 +863,7 @@ export const FileTree: React.FC = () => {
                           <button
                             key={note.path}
                             onClick={() => openFile(note)}
-                            className="flex items-center gap-1.5 rounded-lg border border-[#1f2335] bg-[#11131c] p-2 text-left text-xs text-slate-300 hover:border-[#d946ef]/50 hover:text-slate-100 transition-colors cursor-pointer w-full"
+                            className="flex items-center gap-1.5 rounded-lg border border-card-border bg-card p-2 text-left text-xs text-slate-300 hover:border-[#d946ef]/50 hover:text-slate-100 transition-colors cursor-pointer w-full"
                           >
                             <FileText className="h-3 w-3 text-[#d946ef]/80 shrink-0" />
                             <span className="truncate">{note.name}</span>
@@ -902,28 +894,25 @@ export const FileTree: React.FC = () => {
               return filteredTags.map((tag) => (
                 <div
                   key={`${tag.name}-${tag.type}`}
-                  className={`flex items-center justify-between rounded-lg border bg-[#11131c] px-3 py-2 text-xs transition-all ${
-                    tag.type === "manual" 
-                      ? "border-[#1f2335] hover:border-indigo-500/50 hover:bg-[#161825]"
-                      : "border-[#1f2335] hover:border-amber-500/50 hover:bg-[#1d1b16]"
-                  }`}
+                  className={`flex items-center justify-between rounded-lg border bg-card px-3 py-2 text-xs transition-all ${tag.type === "manual"
+                      ? "border-card-border hover:border-indigo-500/50 hover:bg-[#161825]"
+                      : "border-card-border hover:border-amber-500/50 hover:bg-[#1d1b16]"
+                    }`}
                 >
                   <button
                     onClick={() => handleTagSelect(tag.name, tag.type)}
-                    className={`flex-1 text-left font-semibold cursor-pointer truncate ${
-                      tag.type === "manual" 
-                        ? "text-slate-300 hover:text-slate-200" 
+                    className={`flex-1 text-left font-semibold cursor-pointer truncate ${tag.type === "manual"
+                        ? "text-slate-300 hover:text-slate-200"
                         : "text-amber-300 hover:text-amber-400"
-                    }`}
+                      }`}
                   >
                     #{tag.name} {tag.type === "ai" && <span className="text-[9px] opacity-50 font-normal">(AI)</span>}
                   </button>
                   <div className="flex items-center gap-2">
-                    <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
-                      tag.type === "manual"
+                    <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${tag.type === "manual"
                         ? "bg-slate-800 text-slate-400"
                         : "bg-amber-500/10 text-amber-400 border border-amber-500/15"
-                    }`}>
+                      }`}>
                       {tag.count} {tag.count === 1 ? "note" : "notes"}
                     </span>
                     <button
@@ -981,14 +970,14 @@ export const FileTree: React.FC = () => {
                         is_attachment: true
                       }));
                     }}
-                    className="flex flex-col gap-2 rounded-xl border border-[#1f2335] bg-[#11131c] p-3 hover:border-emerald-500/30 hover:bg-[#161825] transition-all group cursor-grab active:cursor-grabbing"
+                    className="flex flex-col gap-2 rounded-xl border border-card-border bg-card p-3 hover:border-emerald-500/30 hover:bg-[#161825] transition-all group cursor-grab active:cursor-grabbing"
                   >
                     {/* Thumbnail row */}
                     <div className="flex items-center gap-3">
                       {isImg && imgSrc ? (
                         <button
                           onClick={() => setPreviewAttachment({ path: item.path, name: item.name })}
-                          className="shrink-0 rounded-lg overflow-hidden border border-[#1f2335] hover:border-emerald-500/50 transition-all"
+                          className="shrink-0 rounded-lg overflow-hidden border border-card-border hover:border-emerald-500/50 transition-all"
                           title="Preview image"
                         >
                           <img
@@ -999,7 +988,7 @@ export const FileTree: React.FC = () => {
                           />
                         </button>
                       ) : (
-                        <div className="shrink-0 w-16 h-16 rounded-lg border border-[#1f2335] bg-[#0b0c10] flex items-center justify-center">
+                        <div className="shrink-0 w-16 h-16 rounded-lg border border-card-border bg-sidebar flex items-center justify-center">
                           <Paperclip className="h-6 w-6 text-emerald-400/50" />
                         </div>
                       )}
@@ -1072,10 +1061,10 @@ export const FileTree: React.FC = () => {
           onClick={() => setPreviewAttachment(null)}
         >
           <div
-            className="relative max-w-[90vw] max-h-[90vh] rounded-2xl overflow-hidden border border-[#1f2335] shadow-2xl bg-[#0b0c10]"
+            className="relative max-w-[90vw] max-h-[90vh] rounded-2xl overflow-hidden border border-card-border shadow-2xl bg-sidebar"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[#1f2335] bg-[#11131c]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-card-border bg-card">
               <div className="flex items-center gap-2">
                 {isImageFile(previewAttachment.name) ? (
                   <ImageIcon className="h-4 w-4 text-emerald-400" />
@@ -1089,7 +1078,7 @@ export const FileTree: React.FC = () => {
                   href={convertFileSrc(previewAttachment.path)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="p-1.5 rounded-md text-slate-400 hover:text-slate-200 hover:bg-[#1f2335] transition-colors"
+                  className="p-1.5 rounded-md text-slate-400 hover:text-slate-200 hover:bg-card-border transition-colors"
                   title="Open in OS viewer"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
@@ -1148,7 +1137,7 @@ export const FileTree: React.FC = () => {
               urlsList.map((item) => (
                 <div
                   key={item.url}
-                  className="flex flex-col gap-1.5 rounded-lg border border-[#1f2335] bg-[#11131c] p-2.5"
+                  className="flex flex-col gap-1.5 rounded-lg border border-card-border bg-card p-2.5"
                 >
                   <div className="flex items-center gap-1.5 truncate">
                     <Globe className="h-3 w-3 text-indigo-400 shrink-0" />
@@ -1185,32 +1174,32 @@ export const FileTree: React.FC = () => {
       )}
 
       {/* Sleek Vault Info Footer Bar */}
-      <div className="shrink-0 border-t dark:border-[#1f2335] border-slate-200 dark:bg-[#090a0f]/95 bg-slate-100/90 backdrop-blur-md select-none text-[10px] font-sans">
+      <div className="shrink-0 border-t dark:border-card-border border-slate-200 dark:bg-background/95 bg-slate-100/90 backdrop-blur-md select-none text-[10px] font-sans">
         {/* Expanded Details Popover Drawer */}
         {isFooterExpanded && (
-          <div className="p-2.5 border-b dark:border-[#1f2335] border-slate-200 dark:bg-[#0d0e16] bg-slate-200/90 space-y-1.5 animate-fade-in">
+          <div className="p-2.5 border-b dark:border-card-border border-slate-200 dark:bg-[#0d0e16] bg-slate-200/90 space-y-1.5 animate-fade-in">
             <div className="flex items-center justify-between text-[9px] font-bold text-slate-500 uppercase tracking-wider">
               <span>Vault Storage Breakdown</span>
               {isScanning && <span className="text-[#d946ef] animate-pulse">RE-INDEXING...</span>}
             </div>
             <div className="grid grid-cols-2 gap-1.5 text-slate-700 dark:text-slate-300 font-medium">
-              <div className="flex items-center justify-between px-2 py-1 rounded dark:bg-[#151724] bg-white border dark:border-[#1f2335] border-slate-300">
+              <div className="flex items-center justify-between px-2 py-1 rounded dark:bg-[#151724] bg-white border dark:border-card-border border-slate-300">
                 <span className="text-slate-500 dark:text-slate-400">Notes (.md)</span>
                 <span className="font-semibold text-emerald-600 dark:text-emerald-400">{vaultStats.mdCount}</span>
               </div>
-              <div className="flex items-center justify-between px-2 py-1 rounded dark:bg-[#151724] bg-white border dark:border-[#1f2335] border-slate-300">
+              <div className="flex items-center justify-between px-2 py-1 rounded dark:bg-[#151724] bg-white border dark:border-card-border border-slate-300">
                 <span className="text-slate-500 dark:text-slate-400">Canvas (.excalidraw)</span>
                 <span className="font-semibold text-purple-600 dark:text-purple-400">{vaultStats.canvasCount}</span>
               </div>
-              <div className="flex items-center justify-between px-2 py-1 rounded dark:bg-[#151724] bg-white border dark:border-[#1f2335] border-slate-300">
+              <div className="flex items-center justify-between px-2 py-1 rounded dark:bg-[#151724] bg-white border dark:border-card-border border-slate-300">
                 <span className="text-slate-500 dark:text-slate-400">Bookmarked</span>
                 <span className="font-semibold text-amber-600 dark:text-amber-500">{vaultStats.bookmarkedCount}</span>
               </div>
-              <div className="flex items-center justify-between px-2 py-1 rounded dark:bg-[#151724] bg-white border dark:border-[#1f2335] border-slate-300">
+              <div className="flex items-center justify-between px-2 py-1 rounded dark:bg-[#151724] bg-white border dark:border-card-border border-slate-300">
                 <span className="text-slate-500 dark:text-slate-400">Archived</span>
                 <span className="font-semibold text-sky-600 dark:text-sky-400">{vaultStats.archivedCount}</span>
               </div>
-              <div className="flex items-center justify-between px-2 py-1 rounded dark:bg-[#151724] bg-white border dark:border-[#1f2335] border-slate-300 col-span-2">
+              <div className="flex items-center justify-between px-2 py-1 rounded dark:bg-[#151724] bg-white border dark:border-card-border border-slate-300 col-span-2">
                 <span className="text-slate-500 dark:text-slate-400">Trash</span>
                 <span className="font-semibold text-rose-600 dark:text-rose-400">{vaultStats.trashCount}</span>
               </div>
@@ -1291,15 +1280,15 @@ const VirtualFileList: React.FC<{
 };
 
 const TreeItem: React.FC<TreeItemProps> = ({ item, depth, isOpen, onToggleFolder }) => {
-  const { 
-    activeFile, 
-    openFile, 
-    createDirectory, 
-    renameFileOrDirectory, 
-    deleteFileOrDirectory, 
-    isProtectedFolder: isProtected, 
-    setCreateFileModal, 
-    importAttachment, 
+  const {
+    activeFile,
+    openFile,
+    createDirectory,
+    renameFileOrDirectory,
+    deleteFileOrDirectory,
+    isProtectedFolder: isProtected,
+    setCreateFileModal,
+    importAttachment,
     noteCache,
     restoreNote,
     restoreAllTrash,
@@ -1327,6 +1316,7 @@ const TreeItem: React.FC<TreeItemProps> = ({ item, depth, isOpen, onToggleFolder
 
   const isActive = activeFile?.path === item.path;
   const isSystemFolder = item.is_dir && isProtected(item.path);
+  const [isDragOverFolder, setIsDragOverFolder] = useState(false);
 
   const pathLower = item.path.replace(/\\/g, "/").toLowerCase();
   const isTrashFolder = item.is_dir && (item.name.toLowerCase() === "trash" || item.name.toLowerCase() === ".deleted");
@@ -1420,149 +1410,214 @@ const TreeItem: React.FC<TreeItemProps> = ({ item, depth, isOpen, onToggleFolder
           </button>
         </form>
       ) : (
-          <div
-            onClick={handleToggle}
-            draggable={!item.is_dir}
-            onDragStart={(e) => {
-              if (!item.is_dir) {
-                e.dataTransfer.setData("application/kognote-file", JSON.stringify(item));
-                e.dataTransfer.setData("text/plain", item.path);
-                e.dataTransfer.effectAllowed = "copyMove";
+        <div
+          onClick={handleToggle}
+          draggable={true}
+          onDragStart={(e) => {
+            setDragState("file", item);
+            e.dataTransfer.setData("application/kognote-file", JSON.stringify(item));
+            e.dataTransfer.setData("text/plain", item.path);
+            e.dataTransfer.effectAllowed = "copyMove";
+          }}
+          onDragEnd={() => {
+            clearDragState();
+          }}
+          onDragOver={(e) => {
+            if (item.is_dir) {
+              e.preventDefault();
+              e.stopPropagation();
+              if (e.dataTransfer) {
+                e.dataTransfer.dropEffect = "move";
               }
-            }}
-            style={{ paddingLeft: `${depth * 12 + 10}px` }}
-            className={`group flex items-center justify-between py-1.5 pr-2 rounded-lg mx-1.5 my-0.5 cursor-pointer transition-all duration-200 ${
-              isActive
+            }
+          }}
+          onDragEnter={(e) => {
+            if (item.is_dir) {
+              e.preventDefault();
+              e.stopPropagation();
+              setIsDragOverFolder(true);
+            }
+          }}
+          onDragLeave={(e) => {
+            if (item.is_dir) {
+              e.preventDefault();
+              e.stopPropagation();
+              setIsDragOverFolder(false);
+            }
+          }}
+          onDrop={async (e) => {
+            if (!item.is_dir) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDragOverFolder(false);
+
+            let sourcePath = "";
+            const draggedItem = getDragState("file");
+            if (draggedItem && draggedItem.path) {
+              sourcePath = draggedItem.path;
+            }
+            if (!sourcePath) {
+              const rawPayload = e.dataTransfer.getData("application/kognote-file");
+              if (rawPayload) {
+                try {
+                  const parsed = JSON.parse(rawPayload);
+                  sourcePath = parsed.path || "";
+                } catch (_) { }
+              }
+            }
+            if (!sourcePath) {
+              sourcePath = e.dataTransfer.getData("text/plain");
+            }
+            if (!sourcePath || sourcePath === item.path) return;
+
+            const fileName = sourcePath.split(/[/\\]/).pop() || "";
+            if (!fileName) return;
+            const s = item.path.includes("\\") ? "\\" : "/";
+            const newPath = `${item.path.replace(/[/\\]+$/, "")}${s}${fileName}`;
+            if (newPath === sourcePath) return;
+
+            try {
+              await renameFileOrDirectory(sourcePath, newPath);
+            } catch (err) {
+              console.error("Failed to move item via drag and drop:", err);
+            } finally {
+              clearDragState();
+            }
+          }}
+          style={{ paddingLeft: `${depth * 12 + 10}px` }}
+          className={`group flex items-center justify-between py-1.5 pr-2 rounded-lg mx-1.5 my-0.5 cursor-pointer transition-all duration-200 ${isDragOverFolder
+              ? "bg-indigo-600/30 border border-indigo-500 text-white shadow-md"
+              : isActive
                 ? item.name.endsWith(".excalidraw")
                   ? "bg-[#9f00ff]/10 text-[#c084fc] font-bold shadow-sm"
                   : "bg-[#d946ef]/10 text-[#f472b6] font-bold shadow-sm"
                 : isSystemFolder
-                ? "hover:bg-[#161825]/45 hover:text-slate-200 text-slate-400"
-                : "hover:bg-[#161825]/45 hover:text-slate-200 text-slate-400"
+                  ? "hover:bg-[#161825]/45 hover:text-slate-200 text-slate-400"
+                  : "hover:bg-[#161825]/45 hover:text-slate-200 text-slate-400"
             }`}
-          >
-            <div className="flex items-center gap-2 truncate">
-              {item.is_dir ? (
-                <span className="text-slate-500 shrink-0">
-                  <ChevronRight 
-                    className={`h-3.5 w-3.5 transform transition-transform duration-200 ${isOpen ? "rotate-90 text-indigo-400" : ""}`} 
-                  />
-                </span>
-              ) : null}
-
-              {getFileIcon(item, noteCache, { className: "h-4 w-4 shrink-0", isOpenFolder: isOpen })}
-
-              <span 
-                className="truncate"
-                style={!isActive && item.name.endsWith(".excalidraw") ? { color: "#9f00ff" } : undefined}
-              >
-                {getDisplayName(item.name)}
+        >
+          <div className="flex items-center gap-2 truncate">
+            {item.is_dir ? (
+              <span className="text-slate-500 shrink-0">
+                <ChevronRight
+                  className={`h-3.5 w-3.5 transform transition-transform duration-200 ${isOpen ? "rotate-90 text-indigo-400" : ""}`}
+                />
               </span>
+            ) : null}
 
-              {item.is_dir && (
-                <span className="text-[9px] font-mono font-medium text-slate-500 bg-[#161825] px-1.5 py-0.2 rounded-full border border-[#1f2335] shrink-0 ml-0.5" title={`${folderNoteCount} items`}>
-                  {folderNoteCount}
-                </span>
-              )}
+            {getFileIcon(item, noteCache, { className: "h-4 w-4 shrink-0", isOpenFolder: isOpen })}
+
+            <span
+              className="truncate"
+              style={!isActive && item.name.endsWith(".excalidraw") ? { color: "#9f00ff" } : undefined}
+            >
+              {getDisplayName(item.name)}
+            </span>
+
+            {item.is_dir && (
+              <span className="text-[9px] font-mono font-medium text-slate-500 bg-[#161825] px-1.5 py-0.2 rounded-full border border-card-border shrink-0 ml-0.5" title={`${folderNoteCount} items`}>
+                {folderNoteCount}
+              </span>
+            )}
 
 
-              {isSystemFolder && (
-                <span title="Protected system folder" className="shrink-0 flex items-center">
-                  <Lock className="h-2.5 w-2.5 text-[#fbbf24]/70" />
-                </span>
-              )}
-            </div>
+            {isSystemFolder && (
+              <span title="Protected system folder" className="shrink-0 flex items-center">
+                <Lock className="h-2.5 w-2.5 text-[#fbbf24]/70" />
+              </span>
+            )}
+          </div>
 
-            {/* Action Hover Buttons */}
-            <div className="hidden group-hover:flex items-center gap-1.5 shrink-0 opacity-80 hover:opacity-100">
-              {isTrashFolder ? (
-                <>
+          {/* Action Hover Buttons */}
+          <div className="hidden group-hover:flex items-center gap-1.5 shrink-0 opacity-80 hover:opacity-100">
+            {isTrashFolder ? (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    restoreAllTrash();
+                  }}
+                  className="p-0.5 text-emerald-400 hover:text-emerald-300"
+                  title="Restore All Trashed Files"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    emptyTrash();
+                  }}
+                  className="p-0.5 text-rose-400 hover:text-rose-300"
+                  title="Clean Trash (Permanently Delete All)"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </>
+            ) : item.is_dir && item.name.toLowerCase() !== "daily logs" ? (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (item.name.toLowerCase() === "attachments") {
+                      importAttachment(item.path);
+                    } else {
+                      setCreateFileModal({ isOpen: true, parentDir: item.path });
+                    }
+                  }}
+                  className="p-0.5 hover:text-slate-100"
+                  title={item.name.toLowerCase() === "attachments" ? "Import Attachment File" : "New File"}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+                {!isProtected(item.path) && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      restoreAllTrash();
+                      setIsCreatingSubDir(true);
+                      setInputVal("");
+                    }}
+                    className="p-0.5 hover:text-slate-100"
+                    title="New Folder"
+                  >
+                    <FolderPlus className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </>
+            ) : null}
+
+            {(!isSystemFolder || isInTrash) && !item.is_dir && (
+              <>
+                {isInTrash ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      restoreNote(item.path);
                     }}
                     className="p-0.5 text-emerald-400 hover:text-emerald-300"
-                    title="Restore All Trashed Files"
+                    title="Restore File"
                   >
                     <RotateCcw className="h-3.5 w-3.5" />
                   </button>
+                ) : (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      emptyTrash();
-                    }}
-                    className="p-0.5 text-rose-400 hover:text-rose-300"
-                    title="Clean Trash (Permanently Delete All)"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </>
-              ) : item.is_dir && item.name.toLowerCase() !== "daily logs" ? (
-                <>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (item.name.toLowerCase() === "attachments") {
-                        importAttachment(item.path);
-                      } else {
-                        setCreateFileModal({ isOpen: true, parentDir: item.path });
-                      }
+                      setInputVal(item.name);
+                      setIsRenaming(true);
                     }}
                     className="p-0.5 hover:text-slate-100"
-                    title={item.name.toLowerCase() === "attachments" ? "Import Attachment File" : "New File"}
+                    title="Rename"
                   >
-                    <Plus className="h-3.5 w-3.5" />
+                    <Edit className="h-3.5 w-3.5" />
                   </button>
-                  {!isProtected(item.path) && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setIsCreatingSubDir(true);
-                        setInputVal("");
-                      }}
-                      className="p-0.5 hover:text-slate-100"
-                      title="New Folder"
-                    >
-                      <FolderPlus className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </>
-              ) : null}
-
-              {(!isSystemFolder || isInTrash) && !item.is_dir && (
-                <>
-                  {isInTrash ? (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        restoreNote(item.path);
-                      }}
-                      className="p-0.5 text-emerald-400 hover:text-emerald-300"
-                      title="Restore File"
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                    </button>
-                  ) : (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setInputVal(item.name);
-                        setIsRenaming(true);
-                      }}
-                      className="p-0.5 hover:text-slate-100"
-                      title="Rename"
-                    >
-                      <Edit className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                  <button onClick={handleDelete} className="p-0.5 hover:text-red-400" title={isInTrash ? "Permanently Delete" : "Move to Trash (24h)"}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </>
-              )}
-            </div>
+                )}
+                <button onClick={handleDelete} className="p-0.5 hover:text-red-400" title={isInTrash ? "Permanently Delete" : "Move to Trash (24h)"}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
           </div>
+        </div>
       )}
 
       {/* Inline Forms for creating children */}
