@@ -1,0 +1,22 @@
+# root = true
+
+# GBNF Grammar for Kognote AI Copilot Tool Executions
+# Enforces strictly valid JSON action payloads for local llama-server sampling.
+
+root ::= ActionPayload
+
+ActionPayload ::= "{" ws "\"action\"" ws ":" ws ActionName ws "," ws "\"args\"" ws ":" ws ArgsObject ws "}"
+
+ActionName ::= "\"create_note\"" | "\"read_note\"" | "\"write_note\"" | "\"append_note\"" | "\"delete_note\"" | "\"rename_note\"" | "\"set_board_card\"" | "\"set_task_status\"" | "\"navigate_view\""
+
+ArgsObject ::= "{" ws ( Entry ( "," ws Entry )* )? ws "}"
+
+Entry ::= String ws ":" ws Value
+
+Value ::= String | Number | Boolean | "null"
+
+String ::= "\"" ( [^"\\] | "\\" [nrth"\\] )* "\""
+Number ::= "-"? [0-9]+ ( "." [0-9]+ )?
+Boolean ::= "true" | "false"
+
+ws ::= [ \t\n\r]*

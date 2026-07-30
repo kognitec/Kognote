@@ -1,0 +1,788 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --color-background: #090a0f;
+  --color-foreground: #f3f4f6;
+
+  --color-card: #11131c;
+  --color-card-border: #1f2335;
+  --color-card-hover: #161925;
+
+  --color-accent-primary: #6366f1;
+  --color-accent-primary-hover: #4f46e5;
+  --color-accent-secondary: #ec4899;
+
+  --color-sidebar: #0b0c10;
+
+  --animate-fade-in: fade-in 0.2s ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Custom global styles for premium scrollbars & glassmorphism */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+html, body, #root {
+  background: transparent !important;
+  background-color: transparent !important;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--color-foreground);
+  user-select: none;
+}
+
+
+
+/* Spaced Repetition Card 3D Flip Styles */
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.transform-style-3d {
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.rotate-y-180 {
+  transform: rotateY(180deg);
+}
+
+
+
+/* Custom Milkdown styles matching our dark theme */
+.custom-milkdown-container .milkdown {
+  background-color: transparent !important;
+  color: #cbd5e1 !important;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+  max-width: 100% !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.custom-milkdown-container .ProseMirror {
+  background-color: transparent !important;
+  color: #cbd5e1 !important;
+  font-size: 14px !important;
+  line-height: 1.75 !important;
+  outline: none !important;
+  padding: 16px 8px !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+.cm-editor {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+/* Make headers look gorgeous */
+.custom-milkdown-container .ProseMirror h1 {
+  font-size: 1.8rem !important;
+  font-weight: 800 !important;
+  color: #f1f5f9 !important;
+  margin-top: 1.75rem !important;
+  margin-bottom: 0.75rem !important;
+  border-bottom: 1px solid rgba(31, 35, 53, 0.4) !important;
+  padding-bottom: 0.5rem !important;
+}
+
+.custom-milkdown-container .ProseMirror h2 {
+  font-size: 1.4rem !important;
+  font-weight: 700 !important;
+  color: #e2e8f0 !important;
+  margin-top: 1.5rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.custom-milkdown-container .ProseMirror h3 {
+  font-size: 1.15rem !important;
+  font-weight: 700 !important;
+  color: #818cf8 !important;
+  margin-top: 1.25rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.custom-milkdown-container .ProseMirror blockquote {
+  border-left: 4px solid #6366f1 !important;
+  background: linear-gradient(to right, rgba(99, 102, 241, 0.05), transparent) !important;
+  padding: 8px 16px !important;
+  margin: 16px 0 !important;
+  font-style: italic !important;
+  color: #94a3b8 !important;
+  border-top-right-radius: 4px !important;
+  border-bottom-right-radius: 4px !important;
+}
+
+.custom-milkdown-container .ProseMirror code {
+  background-color: #1a1d29 !important;
+  border: 1px solid #2b314a !important;
+  color: #a5b4fc !important;
+  border-radius: 4px !important;
+  padding: 2px 6px !important;
+  font-family: monospace !important;
+}
+
+/* Checklist items stylings */
+.custom-milkdown-container .ProseMirror ul[data-type="task_list"] {
+  list-style: none !important;
+  padding-left: 1.25rem !important;
+}
+
+.custom-milkdown-container .ProseMirror li[data-type="task_item"] {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 0.5rem !important;
+  margin-bottom: 0.35rem !important;
+}
+
+.custom-milkdown-container .ProseMirror li[data-type="task_item"] input[type="checkbox"] {
+  margin-top: 0.3rem !important;
+  cursor: pointer !important;
+  accent-color: #6366f1 !important;
+}
+
+/* ProseMirror table styling */
+.custom-milkdown-container .ProseMirror table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  margin: 16px 0 !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  border: 1px solid #1f2335 !important;
+}
+
+.custom-milkdown-container .ProseMirror th {
+  background-color: #161825 !important;
+  color: #e2e8f0 !important;
+  font-weight: 700 !important;
+  padding: 8px 12px !important;
+  border: 1px solid #1f2335 !important;
+}
+
+.custom-milkdown-container .ProseMirror td {
+  padding: 8px 12px !important;
+  border: 1px solid #1f2335 !important;
+  color: #cbd5e1 !important;
+}
+
+.custom-milkdown-container .ProseMirror tr:hover {
+  background-color: rgba(26, 29, 41, 0.4) !important;
+}
+
+/* Crepe popups and toolbar styles matching our theme */
+.milkdown .crepe-floating-toolbar,
+.milkdown .crepe-slash-menu {
+  background-color: #0c0d14 !important;
+  border: 1px solid #1f2335 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7) !important;
+}
+
+.milkdown .crepe-floating-toolbar button,
+.milkdown .crepe-slash-menu button {
+  color: #94a3b8 !important;
+}
+
+.milkdown .crepe-floating-toolbar button:hover,
+.milkdown .crepe-slash-menu button:hover {
+  background-color: #1e293b70 !important;
+  color: #ffffff !important;
+}
+
+.milkdown .crepe-floating-toolbar button.active {
+  background-color: rgba(217, 70, 239, 0.2) !important;
+  color: #d946ef !important;
+}
+
+/* ── Link Tooltip: dark theme override (preview + edit panels) ── */
+.milkdown .milkdown-link-preview > .link-preview,
+.milkdown .milkdown-link-edit > .link-edit {
+  background: #11131c !important;
+  border: 1px solid #1f2335 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6) !important;
+}
+
+/* URL display text */
+.milkdown .milkdown-link-preview > .link-preview > .link-display {
+  color: #22d3ee !important;
+  font-size: 13px !important;
+}
+.milkdown .milkdown-link-preview > .link-preview > .link-display:hover {
+  color: #67e8f9 !important;
+  text-decoration: underline !important;
+}
+
+/* Icons in preview panel */
+.milkdown .milkdown-link-preview > .link-preview > .link-icon > svg,
+.milkdown .milkdown-link-preview > .link-preview > .button > svg {
+  color: #475569 !important;
+  fill: #475569 !important;
+}
+.milkdown .milkdown-link-preview > .link-preview > .link-icon:hover,
+.milkdown .milkdown-link-preview > .link-preview > .button:hover {
+  background: #1f2335 !important;
+}
+.milkdown .milkdown-link-preview > .link-preview > .link-icon:hover > svg,
+.milkdown .milkdown-link-preview > .link-preview > .button:hover > svg {
+  color: #d946ef !important;
+  fill: #d946ef !important;
+}
+
+/* Input field in edit panel */
+.milkdown .milkdown-link-edit > .link-edit > .input-area {
+  color: #e2e8f0 !important;
+  background: transparent !important;
+  caret-color: #d946ef !important;
+}
+.milkdown .milkdown-link-edit > .link-edit > .input-area::placeholder {
+  color: #475569 !important;
+}
+
+/* Buttons in edit panel */
+.milkdown .milkdown-link-edit > .link-edit > .button > svg {
+  color: #475569 !important;
+  fill: #475569 !important;
+}
+.milkdown .milkdown-link-edit > .link-edit > .button:hover {
+  background: #1f2335 !important;
+}
+.milkdown .milkdown-link-edit > .link-edit > .button:hover > svg {
+  color: #d946ef !important;
+  fill: #d946ef !important;
+}
+
+/* Custom live highlights for tags and links inside Preview mode */
+.custom-preview-tag {
+  color: #94a3b8 !important;
+  background-color: rgba(148, 163, 184, 0.12) !important;
+  border: 1px solid rgba(148, 163, 184, 0.25) !important;
+  border-radius: 4px !important;
+  padding: 1px 4px !important;
+  font-weight: 600 !important;
+  display: inline-block !important;
+  margin: 0 1px !important;
+}
+
+.custom-preview-link {
+  color: #22d3ee !important;
+  text-decoration: underline !important;
+  text-underline-offset: 3px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: color 0.15s ease !important;
+}
+
+.custom-preview-link:hover {
+  color: #67e8f9 !important;
+}
+
+/* Style standard URLs and hyperlinks inside the editor in preview/WYSIWYG mode */
+.custom-milkdown-container .ProseMirror a {
+  color: #818cf8 !important;
+  text-decoration: underline !important;
+  text-underline-offset: 3px !important;
+  font-weight: 500 !important;
+  transition: color 0.15s ease !important;
+}
+
+.custom-milkdown-container .ProseMirror a:hover {
+  color: #a5b4fc !important;
+}
+
+/* Dimmed block styles for AI suggested connections in preview mode */
+.ai-generated-block-dimmed {
+  opacity: 0.45 !important;
+  font-size: 0.88em !important;
+  transition: opacity 0.2s ease, transform 0.2s ease !important;
+}
+
+.ai-generated-block-dimmed:hover {
+  opacity: 0.8 !important;
+}
+
+/* Invisible HTML comment block in preview mode */
+.ai-generated-comment-hidden,
+.yaml-frontmatter-hidden {
+  display: none !important;
+}
+
+/* Document Outline layout tweaks */
+.document-outline-header {
+  font-family: var(--font-sans);
+}
+
+/* Milkdown Crepe block edit handle adjustments for spacing and premium feel */
+.custom-milkdown-container .ProseMirror {
+  padding-left: 80px !important;
+  padding-right: 32px !important;
+}
+
+/* Block handle positioning and hover transition animation */
+.milkdown .milkdown-block-handle {
+  margin-left: -4px !important;
+  background-color: transparent !important;
+  border-radius: 6px !important;
+  transition: all 0.15s ease-in-out !important;
+  user-select: auto !important;
+  -webkit-user-select: auto !important;
+}
+
+.milkdown .milkdown-block-handle .operation-item {
+  color: #64748b !important;
+  border-radius: 6px !important;
+  transition: all 0.15s ease-in-out !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  user-select: auto !important;
+  -webkit-user-select: auto !important;
+}
+
+.milkdown .milkdown-block-handle .operation-item svg {
+  fill: #64748b !important;
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.milkdown .milkdown-block-handle .operation-item:hover {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+.milkdown .milkdown-block-handle .operation-item:hover svg {
+  fill: #f8fafc !important;
+}
+
+/* Add custom animations for Outline and Status Bars */
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-10px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out forwards;
+}
+
+/* Hide Excalidraw branding and help buttons from the canvas layout */
+.excalidraw .help-icon,
+.excalidraw .footer-center,
+.excalidraw .github-link,
+.excalidraw .discord-link,
+/* Hide new AI metadata HTML container in WYSIWYG/preview views */
+.custom-milkdown-container .ai-metadata,
+.ai-metadata {
+  display: none !important;
+}
+
+/* Branded Active App Button Shine & Glow Animation (Static gradient with smooth transitions) */
+.active-app-glow {
+  background: linear-gradient(135deg, #4f46e5, #6366f1, #c084fc) !important;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.35) !important;
+  transition: all 0.2s ease !important;
+}
+
+.active-app-glow:hover {
+  box-shadow: 0 0 18px rgba(99, 102, 241, 0.55) !important;
+}
+
+/* Root Layout Background - isolated GPU layer */
+.root-layout-bg {
+  background-image: radial-gradient(ellipse 80% 60% at 15% 20%, rgba(99,102,241,0.10) 0%, transparent 60%), radial-gradient(ellipse 60% 50% at 85% 75%, rgba(168,85,247,0.07) 0%, transparent 55%);
+  will-change: transform;
+}
+
+/* ══ COMPACT & ELEGANT CREPE SLASH MENU STYLING ══════════════════════════════ */
+.milkdown .milkdown-slash-menu {
+  transition: opacity 0.1s ease, transform 0.1s ease !important;
+  max-height: 280px !important;
+  width: 245px !important;
+  border: 1px solid rgba(99, 102, 241, 0.3) !important;
+  background-color: #0f111a !important;
+  border-radius: 12px !important;
+  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(99, 102, 241, 0.2) !important;
+  overflow: hidden !important;
+  backdrop-filter: blur(12px) !important;
+  font-family: inherit !important;
+}
+
+/* Tabs bar at top */
+.milkdown .milkdown-slash-menu ul,
+.milkdown .milkdown-slash-menu [role="tablist"] {
+  border-bottom: 1px solid rgba(31, 35, 53, 0.8) !important;
+  padding: 4px 6px !important;
+  gap: 4px !important;
+  background-color: #0b0c13 !important;
+}
+
+.milkdown .milkdown-slash-menu ul li,
+.milkdown .milkdown-slash-menu [role="tab"] {
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  color: #94a3b8 !important;
+  padding: 3px 8px !important;
+  border-radius: 6px !important;
+  transition: all 0.12s ease !important;
+}
+
+.milkdown .milkdown-slash-menu ul li.selected,
+.milkdown .milkdown-slash-menu [role="tab"][aria-selected="true"],
+.milkdown .milkdown-slash-menu tab-group ul li.selected {
+  background-color: rgba(99, 102, 241, 0.2) !important;
+  color: #a5b4fc !important;
+  border: 1px solid rgba(99, 102, 241, 0.35) !important;
+}
+
+/* Scrollable items area */
+.milkdown .milkdown-slash-menu .menu-groups {
+  max-height: 230px !important;
+  padding: 4px 6px 8px !important;
+  overflow-y: auto !important;
+}
+
+/* Custom Scrollbar for slash menu */
+.milkdown .milkdown-slash-menu .menu-groups::-webkit-scrollbar {
+  width: 4px !important;
+}
+.milkdown .milkdown-slash-menu .menu-groups::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.3) !important;
+  border-radius: 4px !important;
+}
+
+/* Group Headers (CUSTOM, TEXT, LIST, ADVANCED) */
+.milkdown .milkdown-slash-menu .menu-groups .menu-group h6 {
+  color: #818cf8 !important; /* Bright Indigo label */
+  font-size: 9.5px !important;
+  padding: 6px 6px 3px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  margin-top: 2px !important;
+}
+
+/* Menu Items */
+.milkdown .milkdown-slash-menu .menu-groups .menu-group li,
+.milkdown .milkdown-slash-menu .menu-group-item {
+  padding: 5px 8px !important; /* Compact item padding */
+  gap: 8px !important;
+  border-radius: 6px !important;
+  color: #cbd5e1 !important; /* High contrast text */
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all 0.1s ease !important;
+}
+
+/* Item Icons */
+.milkdown .milkdown-slash-menu .menu-groups .menu-group li svg,
+.milkdown .milkdown-slash-menu .menu-groups .menu-group li .icon {
+  width: 14px !important;
+  height: 14px !important;
+  color: #818cf8 !important;
+  flex-shrink: 0 !important;
+}
+
+/* Active / Keyboard Selected Item */
+.milkdown .milkdown-slash-menu .menu-groups .menu-group li.hover,
+.milkdown .milkdown-slash-menu .menu-groups .menu-group li.active,
+.milkdown .milkdown-slash-menu .menu-groups .menu-group li:hover {
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.9), rgba(99, 102, 241, 0.9)) !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35) !important;
+}
+
+.milkdown .milkdown-slash-menu .menu-groups .menu-group li.hover svg,
+.milkdown .milkdown-slash-menu .menu-groups .menu-group li.active svg,
+.milkdown .milkdown-slash-menu .menu-groups .menu-group li:hover svg {
+  color: #ffffff !important;
+}
+
+/* Print layout for Exporting note to PDF */
+@media print {
+  html, body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    font-size: 12pt !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Hide app frame layout */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Keep only the workspace container visible */
+  #editor-workspace-container, #editor-workspace-container * {
+    visibility: visible;
+  }
+
+  #editor-workspace-container {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: transparent !important;
+    border: none !important;
+  }
+
+  /* Hide editor headers, outlines, chat, sidebars and bottom metadata panels */
+  #titlebar, 
+  .workspace-tabs, 
+  #sidebar, 
+  #copilot-chat, 
+  .h-10.items-center.justify-end.border-b, 
+  .editor-header-bar,
+  .bottom-metadata-panel, 
+  [class*="border-b"],
+  button, 
+  form,
+  .rounded-t-md {
+    display: none !important;
+    height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+  }
+
+  /* Optimize layout for print readability */
+  .custom-milkdown-container .ProseMirror {
+    color: #000000 !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+
+  .custom-milkdown-container .ProseMirror h1,
+  .custom-milkdown-container .ProseMirror h2,
+  .custom-milkdown-container .ProseMirror h3 {
+    color: #000000 !important;
+    page-break-after: avoid;
+  }
+
+  .custom-milkdown-container .ProseMirror code,
+  .custom-milkdown-container .ProseMirror pre {
+    background-color: #f3f4f6 !important;
+    border: 1px solid #d1d5db !important;
+    color: #1f2937 !important;
+  }
+}
+
+/* ── PREMIUM GLASSMORPHISM & DEPTH SYSTEMS ── */
+.glass-panel {
+  background: rgba(11, 12, 16, 0.55) !important;
+  backdrop-filter: blur(20px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(140%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  box-shadow:
+    0 8px 32px 0 rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Glass layer for cards/panels — medium blur */
+.glass-card {
+  background: rgba(17, 19, 28, 0.60) !important;
+  backdrop-filter: blur(12px) saturate(130%) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(130%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+  border-radius: 12px !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.glass-card:hover {
+  transform: translateY(-2px);
+  background: rgba(22, 25, 40, 0.72) !important;
+  border-color: rgba(99, 102, 241, 0.25) !important;
+  box-shadow:
+    0 10px 28px rgba(99, 102, 241, 0.12),
+    0 4px 12px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
+}
+
+
+/* ── MODERN KEYFRAME ANIMATIONS ── */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes scale-up {
+  from {
+    transform: scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes file-hover-slide {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+/* Helper animation classes */
+.animate-slide-in-right {
+  animation: slide-in-right 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scale-up {
+  animation: scale-up 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-breathing-glow:hover {
+  box-shadow: 0 0 16px rgba(99, 102, 241, 0.45);
+  transition: box-shadow 0.3s ease;
+}
+
+/* Segmented switcher design styles */
+.segmented-switcher-container {
+  display: flex;
+  background-color: rgba(11, 12, 16, 0.70);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  padding: 2.5px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+/* Micro-interaction icons rotate/wiggle on hover */
+.hover-wiggle:hover svg {
+  transform: rotate(6deg) scale(1.05);
+  transition: transform 0.2s ease;
+}
+
+.hover-rotate-continuous:hover svg {
+  animation: spin-clockwise 2.5s linear infinite;
+}
+
+@keyframes spin-clockwise {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Hierarchy Connector Styles */
+.tree-guide-line {
+  position: absolute;
+  left: 17px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Subtle Moving CMYK Glow Animation */
+@keyframes cmyk-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.cmyk-glow-button-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.cmyk-glow-button-wrapper::before {
+  content: "";
+  position: absolute;
+  inset: -1.5px;
+  border-top-left-radius: 1rem;
+  border-bottom-right-radius: 1rem;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 240, 255, 0.5),
+    rgba(255, 0, 150, 0.5),
+    rgba(255, 230, 0, 0.5),
+    rgba(0, 240, 255, 0.5)
+  );
+  background-size: 200% 200%;
+  filter: blur(3px);
+  opacity: 0.4;
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
+.cmyk-glow-button-wrapper:hover::before {
+  opacity: 0.85;
+  filter: blur(6px);
+  animation: cmyk-shift 4s ease infinite;
+}
