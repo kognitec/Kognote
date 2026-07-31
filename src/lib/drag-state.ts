@@ -6,7 +6,7 @@
  * drag payloads in memory ensures 100% drag-and-drop parity across Windows, macOS, and Linux.
  */
 
-export type DragType = "file" | "tab" | "card" | "filter";
+export type DragType = "file" | "tab" | "card" | "filter" | "tag";
 
 export interface DragPayload {
   type: DragType;

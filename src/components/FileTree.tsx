@@ -766,9 +766,13 @@ export const FileTree: React.FC = () => {
                       onClick={() => openFile(note)}
                       draggable
                       onDragStart={(e) => {
+                        setDragState("file", note);
                         e.dataTransfer.setData("application/kognote-file", JSON.stringify(note));
                         e.dataTransfer.setData("text/plain", note.path);
-                        e.dataTransfer.effectAllowed = "copyMove";
+                        e.dataTransfer.effectAllowed = "all";
+                      }}
+                      onDragEnd={() => {
+                        clearDragState();
                       }}
                       className="flex items-center gap-2 w-full px-2 py-1 rounded-md text-xs text-slate-300 hover:bg-[#161825] hover:text-white transition-colors text-left truncate cursor-pointer group"
                     >
@@ -894,7 +898,17 @@ export const FileTree: React.FC = () => {
               return filteredTags.map((tag) => (
                 <div
                   key={`${tag.name}-${tag.type}`}
-                  className={`flex items-center justify-between rounded-lg border bg-card px-3 py-2 text-xs transition-all ${tag.type === "manual"
+                  draggable
+                  onDragStart={(e) => {
+                    setDragState("tag", tag.name);
+                    e.dataTransfer.setData("application/kognote-tag", tag.name);
+                    e.dataTransfer.setData("text/plain", `#${tag.name}`);
+                    e.dataTransfer.effectAllowed = "all";
+                  }}
+                  onDragEnd={() => {
+                    clearDragState();
+                  }}
+                  className={`flex items-center justify-between rounded-lg border bg-card px-3 py-2 text-xs transition-all cursor-grab active:cursor-grabbing ${tag.type === "manual"
                       ? "border-card-border hover:border-indigo-500/50 hover:bg-[#161825]"
                       : "border-card-border hover:border-amber-500/50 hover:bg-[#1d1b16]"
                     }`}
@@ -963,12 +977,18 @@ export const FileTree: React.FC = () => {
                     key={item.path}
                     draggable
                     onDragStart={(e) => {
+                      setDragState("file", item);
                       e.dataTransfer.setData("application/kognote-file", JSON.stringify({
                         name: item.name,
                         path: item.path,
                         is_dir: false,
                         is_attachment: true
                       }));
+                      e.dataTransfer.setData("text/plain", item.path);
+                      e.dataTransfer.effectAllowed = "all";
+                    }}
+                    onDragEnd={() => {
+                      clearDragState();
                     }}
                     className="flex flex-col gap-2 rounded-xl border border-card-border bg-card p-3 hover:border-emerald-500/30 hover:bg-[#161825] transition-all group cursor-grab active:cursor-grabbing"
                   >
@@ -1417,7 +1437,7 @@ const TreeItem: React.FC<TreeItemProps> = ({ item, depth, isOpen, onToggleFolder
             setDragState("file", item);
             e.dataTransfer.setData("application/kognote-file", JSON.stringify(item));
             e.dataTransfer.setData("text/plain", item.path);
-            e.dataTransfer.effectAllowed = "copyMove";
+            e.dataTransfer.effectAllowed = "all";
           }}
           onDragEnd={() => {
             clearDragState();

@@ -182,9 +182,10 @@ interface CopilotChatProps {
   onClose?: () => void;
   isDetached?: boolean;
   onToggleDetach?: () => void;
+  onOpenSettings?: () => void;
 }
 
-export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: externalDetached, onToggleDetach }) => {
+export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: externalDetached, onToggleDetach, onOpenSettings }) => {
   const { 
     files, 
     activeFile, 
@@ -208,8 +209,22 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
   const isDetached = externalDetached !== undefined ? externalDetached : internalDetached;
   const toggleDetach = onToggleDetach || (() => setInternalDetached(!internalDetached));
 
-  // Model Menu Popover
+  // Model Menu Popover & Status Tracking
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [localModelsList, setLocalModelsList] = useState<any[]>([]);
+  const [sysInfo, setSysInfo] = useState<any | null>(null);
+
+  useEffect(() => {
+    async function checkModelsStatus() {
+      try {
+        const list = await aiService.listModels();
+        setLocalModelsList(list);
+        const info = await aiService.getSystemInfo().catch(() => null);
+        if (info) setSysInfo(info);
+      } catch {}
+    }
+    checkModelsStatus();
+  }, [aiProvider, aiLocalModel]);
 
   // Context Scope Toggle Mode ("active" | "vault" | "none")
   const [contextScopeMode, setContextScopeMode] = useState<"active" | "vault" | "none">("active");
@@ -1007,8 +1022,8 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
           codeBlockText = "";
           codeLanguage = "code";
           return (
-            <div key={lIdx} className="my-2.5 rounded-xl bg-[#090b12] border border-[#1f2335] overflow-hidden font-mono text-[11px] shadow-lg">
-              <div className="flex items-center justify-between px-3 py-1.5 bg-[#121422] border-b border-[#1f2335] text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">
+            <div key={lIdx} className="my-2.5 rounded-xl bg-[#090b12] border border-card-border overflow-hidden font-mono text-[11px] shadow-lg">
+              <div className="flex items-center justify-between px-3 py-1.5 bg-[#121422] border-b border-card-border text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">
                 <span className="flex items-center gap-1.5 text-indigo-400">
                   <Code2 className="h-3.5 w-3.5" />
                   <span>{langLabel}</span>
@@ -1039,7 +1054,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
 
       // Markdown Headers
       if (trimmed.startsWith("# ")) {
-        return <h1 key={lIdx} className="text-sm font-extrabold text-slate-100 my-2 border-b border-[#1f2335] pb-1">{trimmed.substring(2)}</h1>;
+        return <h1 key={lIdx} className="text-sm font-extrabold text-slate-100 my-2 border-b border-card-border pb-1">{trimmed.substring(2)}</h1>;
       }
       if (trimmed.startsWith("## ")) {
         return <h2 key={lIdx} className="text-xs font-bold text-indigo-300 my-1.5">{trimmed.substring(3)}</h2>;
@@ -1102,12 +1117,12 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
   const activeScopeName = activeFile ? activeFile.name : "Vault All Notes";
 
   return (
-    <div className={`flex flex-col w-full h-full bg-[#08090e]/70 text-slate-200 selection:bg-indigo-600/30 overflow-hidden relative transition-all duration-300 backdrop-blur-md ${isDetached ? "bg-[#090a0f]/90 rounded-2xl border border-indigo-500/40 shadow-2xl" : "rounded-2xl"}`}>
+    <div className={`flex flex-col w-full h-full bg-[#08090e]/70 text-slate-200 selection:bg-indigo-600/30 overflow-hidden relative transition-all duration-300 backdrop-blur-md ${isDetached ? "bg-background/90 rounded-2xl border border-indigo-500/40 shadow-2xl" : "rounded-2xl"}`}>
       
       {/* ── CHAT THREAD HISTORY DRAWER OVERLAY ─────────────────────────────────── */}
       {isHistoryDrawerOpen && (
-        <div className="absolute inset-0 z-50 bg-[#090a0f]/95 backdrop-blur-md flex flex-col animate-fade-in p-4 overflow-hidden">
-          <div className="flex items-center justify-between pb-3 border-b border-[#1f2335]/70 shrink-0">
+        <div className="absolute inset-0 z-50 bg-background/95 backdrop-blur-md flex flex-col animate-fade-in p-4 overflow-hidden">
+          <div className="flex items-center justify-between pb-3 border-b border-card-border/70 shrink-0">
             <div className="flex items-center gap-2">
               <History className="h-4 w-4 text-indigo-400" />
               <span className="text-xs font-extrabold uppercase tracking-wider text-slate-200">Chat Threads History</span>
@@ -1164,7 +1179,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                       className={`group p-3 rounded-xl border flex items-center justify-between gap-3 transition-all cursor-pointer ${
                         isActive
                           ? "bg-indigo-600/15 border-indigo-500/40 text-slate-100 shadow-md"
-                          : "bg-[#10121d]/70 border-[#1f2335]/70 text-slate-300 hover:bg-[#161828] hover:border-slate-700/60"
+                          : "bg-[#10121d]/70 border-card-border/70 text-slate-300 hover:bg-[#161828] hover:border-slate-700/60"
                       }`}
                     >
                       <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -1192,7 +1207,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       )}
 
       {/* ── A. LINEAR COMPACT HEADER BAR ────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#1f2335]/50 bg-[#090a0f]/50 backdrop-blur-md shrink-0 select-none z-20">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-card-border/50 bg-background/50 backdrop-blur-md shrink-0 select-none z-20">
         <div className="flex items-center gap-2">
           <img 
             src={loading ? aiAnimatedGif : aiStaticIcon} 
@@ -1205,34 +1220,59 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
             <button
               type="button"
               onClick={() => setModelMenuOpen(!modelMenuOpen)}
-              className="flex items-center gap-1 text-[9px] font-extrabold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-full uppercase tracking-widest hover:bg-indigo-500/20 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 text-[9.5px] font-extrabold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-0.5 rounded-full uppercase tracking-widest hover:bg-indigo-500/20 transition-colors cursor-pointer"
               title="Click to switch AI Model / Provider"
             >
-              <span>{aiProvider === "local" ? (aiLocalModel === "llama3.2" ? "Llama 3.2" : "Qwen 2.5") : aiProvider.toUpperCase()}</span>
+              <span>
+                {aiProvider === "local"
+                  ? (localModelsList.find(m => m.id === aiLocalModel)?.display_name || aiLocalModel)
+                  : aiProvider.toUpperCase()}
+              </span>
               <ChevronDown className="h-2.5 w-2.5" />
             </button>
 
             {modelMenuOpen && (
-              <div className="absolute left-0 top-full mt-1.5 z-[100] w-48 bg-[#121422] border border-[#24283b] rounded-xl p-1 shadow-2xl backdrop-blur-xl text-xs">
-                <div className="px-2 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-wider">Select AI Model</div>
+              <div className="absolute left-0 top-full mt-1.5 z-100 w-64 bg-[#121422] border border-[#24283b] rounded-xl p-1.5 shadow-2xl backdrop-blur-xl text-xs space-y-1">
+                <div className="px-2 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-wider">Local AI Models (Offline)</div>
                 
-                <button
-                  type="button"
-                  onClick={() => { setAiProvider("local"); setAiLocalModel("llama3.2"); setModelMenuOpen(false); }}
-                  className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${aiProvider === "local" && aiLocalModel === "llama3.2" ? "bg-indigo-600/30 text-indigo-300 font-bold" : "hover:bg-[#1a1d2e] text-slate-300"}`}
-                >
-                  <span>Llama 3.2 (Local)</span>
-                  {aiProvider === "local" && aiLocalModel === "llama3.2" && <Check className="h-3 w-3 text-indigo-400" />}
-                </button>
+                {[
+                  { id: "llama3.2-1b", name: "Llama 3.2 (1.5B)", desc: "Ultra Fast CPU" },
+                  { id: "llama3.2-3b", name: "Llama 3.2 (3B)", desc: "Balanced Default" },
+                  { id: "qwen2.5-7b", name: "Qwen 2.5 (7B)", desc: "Apple Silicon & 16GB+" },
+                  { id: "qwen2.5-14b", name: "Qwen 2.5 (14B)", desc: "Pro Workstation" },
+                ].map((m) => {
+                  const status = localModelsList.find(item => item.id === m.id);
+                  const isDownloaded = status?.downloaded;
+                  const isSelected = aiProvider === "local" && aiLocalModel === m.id;
 
-                <button
-                  type="button"
-                  onClick={() => { setAiProvider("local"); setAiLocalModel("qwen3:8b"); setModelMenuOpen(false); }}
-                  className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${aiProvider === "local" && aiLocalModel === "qwen3:8b" ? "bg-indigo-600/30 text-indigo-300 font-bold" : "hover:bg-[#1a1d2e] text-slate-300"}`}
-                >
-                  <span>Qwen 2.5 (Local)</span>
-                  {aiProvider === "local" && aiLocalModel === "qwen3:8b" && <Check className="h-3 w-3 text-indigo-400" />}
-                </button>
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => { setAiProvider("local"); setAiLocalModel(m.id); setModelMenuOpen(false); }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${
+                        isSelected
+                          ? "bg-indigo-600/30 text-indigo-300 font-bold border border-indigo-500/30"
+                          : "hover:bg-[#1a1d2e] text-slate-300"
+                      }`}
+                    >
+                      <div className="flex flex-col">
+                        <span className="flex items-center gap-1.5 font-bold text-xs">
+                          {m.name}
+                          {isDownloaded && (
+                            <span className="text-[8px] text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded font-extrabold">
+                              READY
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-[9.5px] text-slate-500">{m.desc}</span>
+                      </div>
+                      {isSelected && <Check className="h-3.5 w-3.5 text-indigo-400 shrink-0" />}
+                    </button>
+                  );
+                })}
+
+                <div className="pt-1 border-t border-card-border px-2 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-wider">Cloud AI Providers</div>
 
                 <button
                   type="button"
@@ -1240,7 +1280,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                   className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${aiProvider === "gemini" ? "bg-indigo-600/30 text-indigo-300 font-bold" : "hover:bg-[#1a1d2e] text-slate-300"}`}
                 >
                   <span>Google Gemini</span>
-                  {aiProvider === "gemini" && <Check className="h-3 w-3 text-indigo-400" />}
+                  {aiProvider === "gemini" && <Check className="h-3.5 w-3.5 text-indigo-400" />}
                 </button>
 
                 <button
@@ -1249,7 +1289,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                   className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${aiProvider === "openai" ? "bg-indigo-600/30 text-indigo-300 font-bold" : "hover:bg-[#1a1d2e] text-slate-300"}`}
                 >
                   <span>OpenAI GPT-4o</span>
-                  {aiProvider === "openai" && <Check className="h-3 w-3 text-indigo-400" />}
+                  {aiProvider === "openai" && <Check className="h-3.5 w-3.5 text-indigo-400" />}
                 </button>
 
                 <button
@@ -1258,7 +1298,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                   className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${aiProvider === "anthropic" ? "bg-indigo-600/30 text-indigo-300 font-bold" : "hover:bg-[#1a1d2e] text-slate-300"}`}
                 >
                   <span>Anthropic Claude</span>
-                  {aiProvider === "anthropic" && <Check className="h-3 w-3 text-indigo-400" />}
+                  {aiProvider === "anthropic" && <Check className="h-3.5 w-3.5 text-indigo-400" />}
                 </button>
 
                 <button
@@ -1266,8 +1306,8 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                   onClick={() => { setAiProvider("api"); setModelMenuOpen(false); }}
                   className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${aiProvider === "api" ? "bg-indigo-600/30 text-indigo-300 font-bold" : "hover:bg-[#1a1d2e] text-slate-300"}`}
                 >
-                  <span>Custom API</span>
-                  {aiProvider === "api" && <Check className="h-3 w-3 text-indigo-400" />}
+                  <span>Custom API Endpoint</span>
+                  {aiProvider === "api" && <Check className="h-3.5 w-3.5 text-indigo-400" />}
                 </button>
               </div>
             )}
@@ -1331,6 +1371,42 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       {/* ── B. MESSAGES LOG & EMPTY STATE KOGNOTE AI CHEATSHEET ───────────────────── */}
       <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-4 selection:bg-indigo-600/30 z-10 custom-scrollbar">
         
+        {/* Local AI Not Ready Guidance Banner (Only shown if NO local models are downloaded) */}
+        {aiProvider === "local" && !localModelsList.some((m) => m.downloaded) && (
+          <div className="p-4 rounded-xl bg-card border border-amber-500/30 text-xs flex flex-col gap-2.5 shadow-xl shrink-0">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4.5 w-4.5 text-amber-400 shrink-0" />
+              <span className="font-bold text-slate-100 text-sm">Local AI Model Required</span>
+            </div>
+            <p className="text-slate-300 leading-relaxed text-[11.5px]">
+              You are currently in <strong>Local Offline AI</strong> mode. To enable fast AI assistant actions, search, and note summaries, please download and boot a model for your system.
+            </p>
+            {sysInfo && (
+              <div className="p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[11px] font-medium flex flex-col gap-1">
+                <div className="flex items-center justify-between font-mono text-[10px]">
+                  <span>CPU: {sysInfo.cpu_cores} Cores | RAM: {sysInfo.total_ram_gb.toFixed(1)} GB</span>
+                  <span className="font-bold text-emerald-300">GPU: {sysInfo.gpu_name}</span>
+                </div>
+                <div className="text-[10.5px] text-indigo-200 pt-0.5 border-t border-indigo-500/20">
+                  ✨ <strong>Recommended: {sysInfo.recommended_model_id}</strong> — {sysInfo.recommendation_reason || "Best match for your system"}
+                </div>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {onOpenSettings && (
+                <button
+                  type="button"
+                  onClick={onOpenSettings}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-md transition cursor-pointer"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>Open AI Settings & Download Model</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Empty State: Sleek Hero Welcome & Quick Prompt Cards */}
         {messages.length === 1 && messages[0].id === "welcome" && (
           <div className="my-auto py-4 px-2 flex flex-col items-center justify-center animate-in fade-in duration-500 select-none">
@@ -1353,7 +1429,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                 <button
                   type="button"
                   onClick={() => submitPrompt('Create a new note titled "Project Strategy" with tags #project', attachedFile)}
-                  className="w-full bg-[#11131c] hover:bg-[#161826] text-slate-200 border border-[#1f2335] hover:border-indigo-500/40 text-xs font-medium px-3.5 py-2.5 rounded-xl cursor-pointer transition-all flex items-center justify-between group shadow-xs text-left"
+                  className="w-full bg-card hover:bg-[#161826] text-slate-200 border border-card-border hover:border-indigo-500/40 text-xs font-medium px-3.5 py-2.5 rounded-xl cursor-pointer transition-all flex items-center justify-between group shadow-xs text-left"
                 >
                   <div className="flex items-center gap-2.5">
                     <FileText className="h-4 w-4 text-indigo-400 shrink-0" />
@@ -1365,7 +1441,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                 <button
                   type="button"
                   onClick={() => submitPrompt('Extract pending task items from active note', attachedFile)}
-                  className="w-full bg-[#11131c] hover:bg-[#161826] text-slate-200 border border-[#1f2335] hover:border-indigo-500/40 text-xs font-medium px-3.5 py-2.5 rounded-xl cursor-pointer transition-all flex items-center justify-between group shadow-xs text-left"
+                  className="w-full bg-card hover:bg-[#161826] text-slate-200 border border-card-border hover:border-indigo-500/40 text-xs font-medium px-3.5 py-2.5 rounded-xl cursor-pointer transition-all flex items-center justify-between group shadow-xs text-left"
                 >
                   <div className="flex items-center gap-2.5">
                     <CheckSquare className="h-4 w-4 text-emerald-400 shrink-0" />
@@ -1377,7 +1453,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                 <button
                   type="button"
                   onClick={() => submitPrompt('Extract flashcards from active note with format (Q :: A)', attachedFile)}
-                  className="w-full bg-[#11131c] hover:bg-[#161826] text-slate-200 border border-[#1f2335] hover:border-indigo-500/40 text-xs font-medium px-3.5 py-2.5 rounded-xl cursor-pointer transition-all flex items-center justify-between group shadow-xs text-left"
+                  className="w-full bg-card hover:bg-[#161826] text-slate-200 border border-card-border hover:border-indigo-500/40 text-xs font-medium px-3.5 py-2.5 rounded-xl cursor-pointer transition-all flex items-center justify-between group shadow-xs text-left"
                 >
                   <div className="flex items-center gap-2.5">
                     <BookOpen className="h-4 w-4 text-amber-400 shrink-0" />
@@ -1389,7 +1465,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                 <button
                   type="button"
                   onClick={() => submitPrompt('Suggest wikilink connections for active note across vault', attachedFile)}
-                  className="w-full bg-[#11131c] hover:bg-[#161826] text-slate-200 border border-[#1f2335] hover:border-indigo-500/40 text-xs font-medium px-3.5 py-2.5 rounded-xl cursor-pointer transition-all flex items-center justify-between group shadow-xs text-left"
+                  className="w-full bg-card hover:bg-[#161826] text-slate-200 border border-card-border hover:border-indigo-500/40 text-xs font-medium px-3.5 py-2.5 rounded-xl cursor-pointer transition-all flex items-center justify-between group shadow-xs text-left"
                 >
                   <div className="flex items-center gap-2.5">
                     <Sparkles className="h-4 w-4 text-purple-400 shrink-0" />
@@ -1415,10 +1491,10 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
             <div 
               className={`p-3.5 rounded-2xl border transition-all ${
                 msg.sender === "user"
-                  ? "bg-gradient-to-br from-indigo-600 via-indigo-500 to-violet-600 border-indigo-400/40 rounded-tr-xs text-white shadow-lg shadow-indigo-600/20"
+                  ? "bg-linear-to-br from-indigo-600 via-indigo-500 to-violet-600 border-indigo-400/40 rounded-tr-xs text-white shadow-lg shadow-indigo-600/20"
                   : msg.sender === "system"
                   ? "bg-red-500/10 border-red-500/30 text-red-300"
-                  : "bg-[#11131c] border-[#1f2335] text-slate-200 rounded-tl-xs shadow-sm"
+                  : "bg-card border-card-border text-slate-200 rounded-tl-xs shadow-sm"
               }`}
             >
               {renderMessageText(msg.text)}
@@ -1512,7 +1588,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         
         {/* Mention Fuzzy Search Popover (@ and # triggers) */}
         {mentionPopover.active && (
-          <div className="absolute left-4 bottom-full mb-2 z-[100] w-64 max-h-48 overflow-y-auto rounded-2xl bg-[#121422] border border-indigo-500/40 p-2 shadow-2xl backdrop-blur-xl animate-fade-in text-xs text-slate-200">
+          <div className="absolute left-4 bottom-full mb-2 z-100 w-64 max-h-48 overflow-y-auto rounded-2xl bg-[#121422] border border-indigo-500/40 p-2 shadow-2xl backdrop-blur-xl animate-fade-in text-xs text-slate-200">
             <div className="px-2 py-1 border-b border-slate-800/80 mb-1 flex items-center gap-1.5 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">
               {mentionPopover.trigger === "@" ? <AtSign className="h-3 w-3" /> : <Hash className="h-3 w-3" />}
               <span>Pin Context {mentionPopover.trigger === "@" ? "Note" : "Tag"}</span>
@@ -1553,10 +1629,10 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         )}
 
         {/* C. Active Context Scope Pill */}
-        <div className="flex items-center justify-between gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-[#11131c]/60 text-indigo-300 border border-[#1f2335]/60 shadow-xs mb-2 backdrop-blur-md">
+        <div className="flex items-center justify-between gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-card/60 text-indigo-300 border border-card-border/60 shadow-xs mb-2 backdrop-blur-md">
           <div className="flex items-center gap-1.5 truncate">
             <Zap className="h-3 w-3 text-amber-400 shrink-0" />
-            <span className="truncate max-w-[240px]">
+            <span className="truncate max-w-60">
               {contextScopeMode === "none" 
                 ? "Scope: Standalone Chat (No Context)" 
                 : contextScopeMode === "vault"
@@ -1565,7 +1641,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
             </span>
           </div>
           {estimatedTokens > 0 && contextScopeMode !== "none" && (
-            <span className="text-[9px] font-mono text-slate-400 shrink-0 border-l border-[#1f2335]/60 pl-2">
+            <span className="text-[9px] font-mono text-slate-400 shrink-0 border-l border-card-border/60 pl-2">
               {estimatedTokens.toLocaleString()} tokens
             </span>
           )}
@@ -1574,7 +1650,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         {/* D. Linear Composite Floating Input Box */}
         <form 
           onSubmit={handleSendMessage}
-          className="flex flex-col rounded-2xl bg-[#0d0f17]/65 border border-[#1f2335]/70 focus-within:border-indigo-500/60 p-3 shadow-2xl backdrop-blur-md transition-all"
+          className="flex flex-col rounded-2xl bg-[#0d0f17]/65 border border-card-border/70 focus-within:border-indigo-500/60 p-3 shadow-2xl backdrop-blur-md transition-all"
         >
           {/* Hidden File Input for App Media/File Attachments */}
           <input 
@@ -1587,11 +1663,11 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
 
           {/* Pinned Context Chips Container inside input box */}
           {(pinnedContexts.length > 0 || attachedFile || attachedMediaFile) && (
-            <div className="flex flex-wrap gap-1.5 items-center pb-2 mb-1 border-b border-[#1f2335]/70">
+            <div className="flex flex-wrap gap-1.5 items-center pb-2 mb-1 border-b border-card-border/70">
               {attachedFile && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-indigo-500/15 border border-indigo-500/30 text-[10px] text-indigo-300 font-semibold shadow-xs">
                   <FileText className="h-2.5 w-2.5 text-indigo-400 shrink-0" />
-                  <span className="truncate max-w-[140px]">{attachedFile.name}</span>
+                  <span className="truncate max-w-35">{attachedFile.name}</span>
                   <button
                     type="button"
                     onClick={() => setAttachedFile(null)}
@@ -1605,7 +1681,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
               {attachedMediaFile && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-[10px] text-emerald-300 font-semibold shadow-xs">
                   <Paperclip className="h-2.5 w-2.5 text-emerald-400 shrink-0" />
-                  <span className="truncate max-w-[140px]">{attachedMediaFile.name}</span>
+                  <span className="truncate max-w-35">{attachedMediaFile.name}</span>
                   <button
                     type="button"
                     onClick={() => setAttachedMediaFile(null)}
@@ -1619,7 +1695,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
               {pinnedContexts.map((chip) => (
                 <span key={chip.id} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-indigo-950/80 border border-indigo-500/40 text-[10px] text-indigo-200 font-mono shadow-xs">
                   {chip.type === "tag" ? <Hash className="h-2.5 w-2.5 text-amber-400" /> : <AtSign className="h-2.5 w-2.5 text-indigo-400" />}
-                  <span className="truncate max-w-[140px]">{chip.label}</span>
+                  <span className="truncate max-w-35">{chip.label}</span>
                   <button
                     type="button"
                     onClick={() => setPinnedContexts((prev) => prev.filter((c) => c.id !== chip.id))}
@@ -1640,11 +1716,11 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
             onKeyDown={handleKeyDown}
             rows={1}
             placeholder="Ask KogNote... (or type @ to mention notes, # for tags)"
-            className="w-full bg-transparent border-none p-1 text-xs sm:text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-0 resize-none min-h-[42px] max-h-32 leading-relaxed"
+            className="w-full bg-transparent border-none p-1 text-xs sm:text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-0 resize-none min-h-10.5 max-h-32 leading-relaxed"
           />
 
           {/* 2. Bottom Section - Inner Tool Utility Bar */}
-          <div className="flex items-center justify-between pt-2 border-t border-[#1f2335]/70 relative select-none">
+          <div className="flex items-center justify-between pt-2 border-t border-card-border/70 relative select-none">
             
             {/* Left Side: Skills & Loops Dropdown Button + Agent Mode Toggle */}
             <div className="flex items-center gap-1.5">
@@ -1661,10 +1737,10 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
 
                 {/* Skills & Loops Dropdown Popover */}
                 {showSkillsDropdown && (
-                  <div className="absolute left-0 bottom-full mb-2 z-50 w-72 max-h-72 overflow-y-auto rounded-2xl border border-[#24283b] bg-[#11131c] p-2 shadow-2xl animate-fade-in text-xs custom-scrollbar">
+                  <div className="absolute left-0 bottom-full mb-2 z-50 w-72 max-h-72 overflow-y-auto rounded-2xl border border-[#24283b] bg-card p-2 shadow-2xl animate-fade-in text-xs custom-scrollbar">
                     {SKILLS_AND_LOOPS_GROUPS.map((group) => (
                       <div key={group.category} className="mb-2 last:mb-0">
-                        <div className="px-2.5 py-1 text-[9px] font-bold text-indigo-400 uppercase tracking-wider border-b border-[#1f2335]/80 mb-1 flex items-center justify-between">
+                        <div className="px-2.5 py-1 text-[9px] font-bold text-indigo-400 uppercase tracking-wider border-b border-card-border/80 mb-1 flex items-center justify-between">
                           <span>{group.category}</span>
                           {group.category === "Automated Loops" ? <Repeat className="h-3 w-3 text-emerald-400" /> : <Sparkles className="h-3 w-3 text-amber-400" />}
                         </div>

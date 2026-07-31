@@ -9,7 +9,7 @@ import {
   ChevronDown, FileCode, Lock, Brain, Archive,
   Info, Globe, ExternalLink, ShieldCheck, Cpu, Sparkles
 } from "lucide-react";
-import { aiService, type ModelStatus, type DownloadProgressEvent } from "../lib/local-ai";
+import { aiService, type ModelStatus, type DownloadProgressEvent, type SystemHardwareInfo } from "../lib/local-ai";
 import { DEFAULT_AGENTS_MD } from "../constants/defaultAgents";
 import logoImg from "../assets/logo.png";
 
@@ -87,12 +87,16 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
     }
   }, [agentsPath]);
 
+  const [sysInfo, setSysInfo] = useState<SystemHardwareInfo | null>(null);
+
   const refreshModels = useCallback(async () => {
     try {
       const list = await aiService.listModels();
       setModels(list);
       const current = await aiService.currentModel();
       setLoadedModel(current);
+      const info = await aiService.getSystemInfo().catch(() => null);
+      if (info) setSysInfo(info);
     } catch {
       // Tauri not ready yet
     }
@@ -326,11 +330,50 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                 {/* Provider Options */}
                 {aiProvider === "local" && (
                   <div className="flex flex-col gap-3">
+                    {sysInfo && (
+                      <div className="flex flex-col gap-2 p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-xs text-indigo-300 shadow-md">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Cpu className="h-4 w-4 text-indigo-400 shrink-0" />
+                            <span className="font-bold text-slate-100 text-xs">Hardware Auto-Detected</span>
+                          </div>
+                          <span className="text-[9.5px] font-mono bg-indigo-500/20 border border-indigo-500/40 px-2 py-0.5 rounded-full font-bold text-indigo-200">
+                            CPU • RAM • GPU Scanned
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 py-1 text-[10.5px]">
+                          <div className="p-2 rounded-lg bg-card/60 border border-indigo-500/20 flex flex-col">
+                            <span className="text-[9px] text-slate-400 uppercase font-bold">CPU & Cores</span>
+                            <span className="font-semibold text-slate-200 truncate">{sysInfo.cpu_brand || "System CPU"} ({sysInfo.cpu_cores} Cores)</span>
+                          </div>
+
+                          <div className="p-2 rounded-lg bg-card/60 border border-indigo-500/20 flex flex-col">
+                            <span className="text-[9px] text-slate-400 uppercase font-bold">Memory (RAM)</span>
+                            <span className="font-semibold text-amber-300 font-mono">{sysInfo.total_ram_gb.toFixed(1)} GB Total RAM</span>
+                          </div>
+
+                          <div className="p-2 rounded-lg bg-card/60 border border-indigo-500/20 flex flex-col">
+                            <span className="text-[9px] text-slate-400 uppercase font-bold">Graphics / GPU</span>
+                            <span className="font-semibold text-emerald-300 truncate">{sysInfo.gpu_name || "Integrated Graphics"}</span>
+                          </div>
+                        </div>
+
+                        {sysInfo.recommendation_reason && (
+                          <div className="flex items-center gap-1.5 text-[10.5px] text-indigo-200 font-medium pt-1 border-t border-indigo-500/20">
+                            <Sparkles className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                            <span><strong>Recommendation:</strong> {sysInfo.recommendation_reason}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <span className="text-xs text-slate-400">
-                      Local models run 100% offline on your device using native GPU acceleration.
+                      Local models run 100% offline on your device using native CPU & GPU acceleration.
                     </span>
 
                     {models.map((m) => {
+                      const isRecommended = sysInfo && sysInfo.recommended_model_id === m.id;
                       const isDownloaded = m.downloaded;
                       const isLoaded = loadedModel === m.id;
                       const isDownloading = downloadingId === m.id;
@@ -341,29 +384,54 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                       return (
                         <div
                           key={m.id}
-                          className="flex flex-col gap-2 p-3 rounded-xl bg-card border border-slate-800 text-xs"
+                          className={`flex flex-col gap-2.5 p-3.5 rounded-xl border text-xs transition-all ${
+                            isRecommended
+                              ? "bg-card border-indigo-500/50 shadow-lg ring-1 ring-indigo-500/30"
+                              : "bg-card border-slate-800"
+                          }`}
                         >
-                          <div className="flex items-center justify-between">
-                            <div className="flex flex-col">
-                              <span className="font-bold text-slate-200 flex items-center gap-1.5">
-                                {m.display_name || m.id}
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex flex-col gap-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-bold text-sm text-slate-100">
+                                  {m.display_name || m.id}
+                                </span>
+                                {isRecommended && (
+                                  <span className="text-[9px] font-extrabold text-indigo-300 bg-indigo-500/20 border border-indigo-500/40 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                    <Sparkles className="h-3 w-3 text-indigo-400" />
+                                    RECOMMENDED FOR YOUR SYSTEM
+                                  </span>
+                                )}
                                 {isLoaded && (
-                                  <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-1.5 py-0.5 rounded-full">
+                                  <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full">
                                     Active Model
                                   </span>
                                 )}
+                              </div>
+
+                              <span className="text-[11px] text-slate-400 leading-normal">
+                                {m.description}
                               </span>
-                              <span className="text-[10px] text-slate-500">
-                                {m.file_size_bytes ? `${(m.file_size_bytes / (1024 * 1024 * 1024)).toFixed(1)} GB` : "GGUF Model"}
-                              </span>
+
+                              <div className="flex flex-wrap items-center gap-2 pt-1 font-mono text-[10px]">
+                                <span className="px-2 py-0.5 rounded bg-[#161825] border border-slate-800 text-slate-300">
+                                  💾 {m.size_bytes ? `${(m.size_bytes / (1024 * 1024 * 1024)).toFixed(1)} GB File` : "GGUF"}
+                                </span>
+                                <span className="px-2 py-0.5 rounded bg-[#161825] border border-slate-800 text-amber-300 font-semibold">
+                                  🧠 Req: {m.ram_required}
+                                </span>
+                                <span className="px-2 py-0.5 rounded bg-[#161825] border border-slate-800 text-indigo-300 font-semibold">
+                                  {m.speed_rating}
+                                </span>
+                              </div>
                             </div>
 
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 shrink-0 pt-0.5">
                               {!isDownloaded ? (
                                 <button
                                   onClick={() => handleDownloadModel(m.id)}
                                   disabled={isDownloading}
-                                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs disabled:opacity-50 transition cursor-pointer"
+                                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs disabled:opacity-50 transition cursor-pointer shadow-md"
                                 >
                                   {isDownloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
                                   <span>{isDownloading ? "Downloading..." : "Download"}</span>
@@ -371,7 +439,7 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                               ) : isLoaded ? (
                                 <button
                                   onClick={handleUnloadModel}
-                                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition cursor-pointer"
+                                  className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition cursor-pointer"
                                 >
                                   Unload
                                 </button>
@@ -380,9 +448,9 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                                   <button
                                     onClick={() => handleLoadModel(m.id)}
                                     disabled={isLoading}
-                                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs disabled:opacity-50 transition cursor-pointer"
+                                    className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs disabled:opacity-50 transition cursor-pointer shadow-md"
                                   >
-                                    {isLoading ? "Booting..." : "Boot Model"}
+                                    {isLoading ? "Booting..." : "Select & Boot"}
                                   </button>
                                   <button
                                     onClick={() => handleDeleteModel(m.id)}
@@ -397,15 +465,20 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                           </div>
 
                           {isDownloading && prog && (
-                            <div className="flex flex-col gap-1 mt-1">
+                            <div className="flex flex-col gap-1.5 mt-1 p-2 rounded-lg bg-card border border-slate-800">
                               <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
                                 <div className="h-full bg-indigo-500 transition-all duration-200" style={{ width: `${prog.percent}%` }} />
                               </div>
-                              <span className="text-[9px] text-slate-500 font-mono">
-                                {prog.status === "downloading_runtime"
-                                  ? "Downloading & setting up AI runtime engine (llama-server)..."
-                                  : `${prog.percent}% (${(prog.downloaded_bytes / (1024 * 1024)).toFixed(1)}MB / ${(prog.total_bytes / (1024 * 1024)).toFixed(1)}MB)`}
-                              </span>
+                              <div className="flex items-center justify-between text-[9.5px] text-slate-400 font-mono">
+                                <span>
+                                  {prog.status === "downloading_runtime"
+                                    ? "Downloading & setting up AI runtime engine (llama-server)..."
+                                    : `${prog.percent}% completed`}
+                                </span>
+                                <span>
+                                  {(prog.downloaded_bytes / (1024 * 1024)).toFixed(1)} MB / {(prog.total_bytes / (1024 * 1024)).toFixed(1)} MB
+                                </span>
+                              </div>
                             </div>
                           )}
 

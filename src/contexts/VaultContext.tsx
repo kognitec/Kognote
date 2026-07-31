@@ -999,8 +999,6 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           if (dtMatch[2] && dtMatch[3]) {
             dueTime = `${dtMatch[2]}:${dtMatch[3]}`;
           }
-        } else if (fm.fields.due) {
-          dueDate = fm.fields.due;
         }
 
         // Extract inline tags (#tag)

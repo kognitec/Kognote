@@ -14,10 +14,23 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export interface AISettings {
   provider: "local" | "anthropic" | "gemini" | "openai" | "api";
-  localModel: "llama3.2" | "qwen3:8b";
+  localModel: string;
   apiUrl: string;
   apiKey: string;
   apiModel: string;
+}
+
+export interface SystemHardwareInfo {
+  os: string;
+  arch: string;
+  cpu_brand: string;
+  cpu_cores: number;
+  total_ram_gb: number;
+  gpu_name: string;
+  is_apple_silicon: boolean;
+  display_label: string;
+  recommended_model_id: string;
+  recommendation_reason: string;
 }
 
 export interface ModelStatus {
@@ -26,6 +39,10 @@ export interface ModelStatus {
   downloaded: boolean;
   size_bytes: number;
   file_size_bytes: number;
+  target_tier: string;
+  ram_required: string;
+  speed_rating: string;
+  description: string;
 }
 
 export interface DownloadProgressEvent {
@@ -94,7 +111,7 @@ class AIService {
   private inactivityTimeout: any = null;
   private settings: AISettings = {
     provider: "local",
-    localModel: "llama3.2",
+    localModel: "llama3.2-3b",
     apiUrl: "https://api.openai.com/v1",
     apiKey: "",
     apiModel: "gpt-4o-mini",
@@ -108,6 +125,11 @@ class AIService {
   // ─────────────────────────────────────────────────────────────────────────
   // Model discovery & download (local path)
   // ─────────────────────────────────────────────────────────────────────────
+
+  /** Returns system hardware detection info & recommended model ID. */
+  async getSystemInfo(): Promise<SystemHardwareInfo> {
+    return await invoke<SystemHardwareInfo>("llm_get_system_info");
+  }
 
   /** Returns download status of all bundled models. */
   async listModels(): Promise<ModelStatus[]> {

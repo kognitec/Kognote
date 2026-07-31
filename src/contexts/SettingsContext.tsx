@@ -9,7 +9,7 @@ const store = new LazyStore(".settings.json");
 interface SettingsContextType {
   vaultPath: string | null;
   aiProvider: "local" | "anthropic" | "gemini" | "openai" | "api";
-  aiLocalModel: "llama3.2" | "qwen3:8b";
+  aiLocalModel: string;
   aiApiUrl: string;
   aiApiKey: string;
   aiApiModel: string;
@@ -17,7 +17,7 @@ interface SettingsContextType {
   includeTrashInScans: boolean;
   setVaultPath: (path: string | null) => Promise<void>;
   setAiProvider: (provider: "local" | "anthropic" | "gemini" | "openai" | "api") => Promise<void>;
-  setAiLocalModel: (model: "llama3.2" | "qwen3:8b") => Promise<void>;
+  setAiLocalModel: (model: string) => Promise<void>;
   setAiApiUrl: (url: string) => Promise<void>;
   setAiApiKey: (key: string) => Promise<void>;
   setAiApiModel: (model: string) => Promise<void>;
@@ -31,7 +31,7 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [vaultPath, _setVaultPathState] = useState<string | null>(null);
   const [aiProvider, _setAiProviderState] = useState<"local" | "anthropic" | "gemini" | "openai" | "api">("local");
-  const [aiLocalModel, _setAiLocalModelState] = useState<"llama3.2" | "qwen3:8b">("llama3.2");
+  const [aiLocalModel, _setAiLocalModelState] = useState<string>("llama3.2-3b");
   const [aiApiUrl, _setAiApiUrlState] = useState<string>("https://api.openai.com/v1");
   const [aiApiKey, _setAiApiKeyState] = useState<string>("");
   const [aiApiModel, _setAiApiModelState] = useState<string>("gpt-4o-mini");
@@ -116,7 +116,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     await store.save();
   };
 
-  const setAiLocalModel = async (val: "llama3.2" | "qwen3:8b") => {
+  const setAiLocalModel = async (val: string) => {
     _setAiLocalModelState(val);
     await store.set("aiLocalModel", val);
     await store.save();

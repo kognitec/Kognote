@@ -22,6 +22,7 @@ use commands::{
 use llm::{
     LlmState,
     llm_list_models,
+    llm_get_system_info,
     llm_check_model,
     llm_download_model,
     llm_delete_model,
@@ -298,6 +299,7 @@ pub fn run() {
             scan_vault_delta,
             // LLM commands
             llm_list_models,
+            llm_get_system_info,
             llm_check_model,
             llm_download_model,
             llm_delete_model,

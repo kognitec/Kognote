@@ -1695,7 +1695,7 @@ export const GraphView: React.FC = () => {
                 draggable
                 onDragStart={(e) => {
                   e.dataTransfer.setData("text/plain", String(index));
-                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.effectAllowed = "all";
                 }}
                 onDragEnter={(e) => {
                   e.preventDefault();

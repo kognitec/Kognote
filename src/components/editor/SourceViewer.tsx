@@ -10,6 +10,20 @@ import { useVault, FileEntry } from "../../contexts/VaultContext";
 import { Copy, Check, FileCode, Edit3 } from "lucide-react";
 import { getDateSuggestions, isDateQueryCompleted } from "../../lib/date-parser";
 import { getShortestUniquePath } from "../../lib/wikilink-utils";
+import { getDragState } from "../../lib/drag-state";
+import { invokeIPC } from "../../lib/ipc";
+
+const isImageFile = (name: string): boolean => {
+  const nameLower = name.toLowerCase();
+  return (
+    nameLower.endsWith(".png") ||
+    nameLower.endsWith(".jpg") ||
+    nameLower.endsWith(".jpeg") ||
+    nameLower.endsWith(".webp") ||
+    nameLower.endsWith(".gif") ||
+    nameLower.endsWith(".svg")
+  );
+};
 
 interface SourceEditorProps {
   content: string;
@@ -20,7 +34,7 @@ interface SourceEditorProps {
 export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, onBlur }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const { files, vaultPath } = useVault();
+  const { files, vaultPath, attachmentsFolderPath, refreshFiles } = useVault();
   const [copied, setCopied] = useState(false);
 
   // Store props in refs to keep callback identities stable and prevent
@@ -29,11 +43,15 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
   const onBlurRef = useRef(onBlur);
   const filesRef = useRef(files);
   const vaultPathRef = useRef(vaultPath);
+  const attachmentsFolderPathRef = useRef(attachmentsFolderPath);
+  const refreshFilesRef = useRef(refreshFiles);
 
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
   useEffect(() => { onBlurRef.current = onBlur; }, [onBlur]);
   useEffect(() => { filesRef.current = files; }, [files]);
   useEffect(() => { vaultPathRef.current = vaultPath; }, [vaultPath]);
+  useEffect(() => { attachmentsFolderPathRef.current = attachmentsFolderPath; }, [attachmentsFolderPath]);
+  useEffect(() => { refreshFilesRef.current = refreshFiles; }, [refreshFiles]);
 
   const handleCopy = async () => {
     try {
@@ -220,12 +238,16 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
       }
     };
 
-    const handleDrop = (e: DragEvent) => {
+    const handleDrop = async (e: DragEvent) => {
       const fileDataStr = e.dataTransfer?.getData("application/kognote-file");
       const plainTextPath = e.dataTransfer?.getData("text/plain");
 
       let droppedFilePath: string | null = null;
-      if (fileDataStr) {
+      const draggedState = getDragState("file") || getDragState("card");
+      if (draggedState) {
+        droppedFilePath = draggedState.path || draggedState.file?.path || null;
+      }
+      if (!droppedFilePath && fileDataStr) {
         try {
           const parsed = JSON.parse(fileDataStr);
           if (parsed && parsed.path && !parsed.is_dir) {
@@ -233,16 +255,17 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
           }
         } catch {}
       }
-      if (!droppedFilePath && plainTextPath && (plainTextPath.endsWith(".md") || plainTextPath.endsWith(".excalidraw"))) {
-        droppedFilePath = plainTextPath;
+      if (!droppedFilePath && plainTextPath && plainTextPath.trim().length > 0) {
+        droppedFilePath = plainTextPath.trim();
       }
 
       if (droppedFilePath && viewRef.current) {
         e.preventDefault();
         e.stopPropagation();
 
+        const isImg = isImageFile(droppedFilePath);
         const linkTarget = getShortestUniquePath(droppedFilePath, vaultPathRef.current, filesRef.current);
-        const backlinkText = `[[${linkTarget}]]`;
+        const backlinkText = isImg ? `![[${linkTarget}]]` : `[[${linkTarget}]]`;
         const v = viewRef.current;
         const coords = v.posAtCoords({ x: e.clientX, y: e.clientY });
         const pos = coords ?? v.state.selection.main.head;
@@ -251,6 +274,52 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
           changes: { from: pos, insert: backlinkText },
           selection: { anchor: pos + backlinkText.length }
         });
+        return;
+      }
+
+      // External OS Image File Drop handling
+      if (!fileDataStr && e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+        const filesToProcess = Array.from(e.dataTransfer.files);
+        const imageFile = filesToProcess.find(f => isImageFile(f.name));
+        const attPath = attachmentsFolderPathRef.current;
+        if (imageFile && attPath && viewRef.current) {
+          e.preventDefault();
+          e.stopPropagation();
+
+          try {
+            const cleanName = imageFile.name ? imageFile.name.replace(/\s+/g, "_") : `dropped_${Date.now()}.png`;
+            const timestamp = Date.now();
+            const fileName = `${timestamp}_${cleanName}`;
+            const separator = attPath.includes("\\") ? "\\" : "/";
+            const destPath = `${attPath}${separator}${fileName}`;
+
+            const reader = new FileReader();
+            const base64Promise = new Promise<string>((resolve, reject) => {
+              reader.onload = () => {
+                const res = reader.result as string;
+                resolve(res.split(",")[1]);
+              };
+              reader.onerror = reject;
+            });
+            reader.readAsDataURL(imageFile);
+            const base64Str = await base64Promise;
+
+            await invokeIPC("fs_write_base64", { path: destPath, data: base64Str });
+            refreshFilesRef.current();
+
+            const backlinkText = `![[${fileName}]]`;
+            const v = viewRef.current;
+            const coords = v.posAtCoords({ x: e.clientX, y: e.clientY });
+            const pos = coords ?? v.state.selection.main.head;
+
+            v.dispatch({
+              changes: { from: pos, insert: backlinkText },
+              selection: { anchor: pos + backlinkText.length }
+            });
+          } catch (err) {
+            console.error("SourceViewer drop external image failed:", err);
+          }
+        }
       }
     };
 
@@ -281,7 +350,7 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
   return (
     <div className="relative h-full w-full overflow-hidden bg-[#07080c] flex flex-col">
       {/* Top Banner indicating editable source mode */}
-      <div className="flex items-center justify-between px-4 py-2 bg-[#0b0c10] border-b border-[#1f2335] text-xs">
+      <div className="flex items-center justify-between px-4 py-2 bg-sidebar border-b border-card-border text-xs">
         <div className="flex items-center gap-2 text-slate-400 font-medium">
           <FileCode className="h-4 w-4 text-indigo-400" />
           <span>Markdown Source Mode</span>
@@ -292,7 +361,7 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
         </div>
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#161825] hover:bg-indigo-600/20 border border-[#1f2335] text-slate-300 hover:text-indigo-300 transition-all text-[11px] font-medium cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#161825] hover:bg-indigo-600/20 border border-card-border text-slate-300 hover:text-indigo-300 transition-all text-[11px] font-medium cursor-pointer"
         >
           {copied ? (
             <>

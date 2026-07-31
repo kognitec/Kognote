@@ -18,6 +18,12 @@ pub struct ModelInfo {
     pub url: &'static str,
     pub filename: &'static str,
     pub size_bytes: u64,
+    pub target_tier: &'static str,
+    pub ram_required: &'static str,
+    pub speed_rating: &'static str,
+    pub description: &'static str,
+    pub gpu_layers: u32,
+    pub ctx_size: u32,
     /// Optional SHA256 hash of the file for integrity verification (hex string)
     #[allow(dead_code)]
     pub sha256: Option<&'static str>,
@@ -25,20 +31,60 @@ pub struct ModelInfo {
 
 pub const MODELS: &[ModelInfo] = &[
     ModelInfo {
-        id: "llama3.2",
+        id: "llama3.2-1b",
+        display_name: "Llama 3.2 (1.5B)",
+        url: "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+        filename: "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+        size_bytes: 808_200_832,
+        target_tier: "low",
+        ram_required: "1.5 GB RAM",
+        speed_rating: "⚡⚡⚡ Ultra Fast (50+ tok/s)",
+        description: "Lightweight CPU model. Best for low-spec PCs, older Intel Macs, and ultra-fast note summaries.",
+        gpu_layers: 99,
+        ctx_size: 8192,
+        sha256: None,
+    },
+    ModelInfo {
+        id: "llama3.2-3b",
         display_name: "Llama 3.2 (3B)",
         url: "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
         filename: "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
         size_bytes: 2_019_377_696,
+        target_tier: "mid",
+        ram_required: "2.5 GB RAM",
+        speed_rating: "⚡⚡ Fast & Smart (35+ tok/s)",
+        description: "Optimal balance of speed & intelligence. Default recommendation for 8GB–16GB Windows & Linux laptops.",
+        gpu_layers: 99,
+        ctx_size: 8192,
         sha256: Some("6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff"),
     },
     ModelInfo {
-        id: "qwen3:8b",
-        display_name: "Qwen3 (8B)",
-        url: "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf",
-        filename: "Qwen3-8B-Q4_K_M.gguf",
-        size_bytes: 5_027_783_488,
-        sha256: Some("d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785"),
+        id: "qwen2.5-7b",
+        display_name: "Qwen 2.5 (7B)",
+        url: "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+        filename: "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+        size_bytes: 4_683_074_240,
+        target_tier: "high_mac",
+        ram_required: "5.5 GB RAM",
+        speed_rating: "🧠 High Intelligence (50+ tok/s on Metal)",
+        description: "High-tier reasoning & long context. Recommended for Apple Silicon M-Series (M1–M4) & 16GB+ PCs.",
+        gpu_layers: 28,
+        ctx_size: 8192,
+        sha256: None,
+    },
+    ModelInfo {
+        id: "qwen2.5-14b",
+        display_name: "Qwen 2.5 (14B)",
+        url: "https://huggingface.co/bartowski/Qwen2.5-14B-Instruct-GGUF/resolve/main/Qwen2.5-14B-Instruct-Q4_K_M.gguf",
+        filename: "Qwen2.5-14B-Instruct-Q4_K_M.gguf",
+        size_bytes: 8_988_110_976,
+        target_tier: "high_gpu",
+        ram_required: "10 GB VRAM / RAM",
+        speed_rating: "💎 Pro Workstation",
+        description: "Near GPT-4 reasoning. Ideal for dedicated GPUs (RTX 4060+), M-Series Pro/Max, and 32GB+ workstations.",
+        gpu_layers: 24,
+        ctx_size: 4096,
+        sha256: None,
     },
 ];
 
@@ -95,7 +141,172 @@ fn models_dir(app: &AppHandle) -> Result<PathBuf, String> {
 // Tauri Commands
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// List available models with download status.
+#[cfg(target_os = "windows")]
+fn detect_gpu() -> String {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let output = std::process::Command::new("powershell")
+        .args(&[
+            "-NoProfile",
+            "-Command",
+            "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    if let Ok(out) = output {
+        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !text.is_empty() {
+            let lines: Vec<&str> = text.lines().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+            return lines.join(" + ");
+        }
+    }
+    "Integrated Graphics".to_string()
+}
+
+#[cfg(target_os = "macos")]
+fn detect_gpu() -> String {
+    #[cfg(target_arch = "aarch64")]
+    {
+        return "Apple Metal GPU (Unified Memory)".to_string();
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        return "Intel / AMD GPU".to_string();
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn detect_gpu() -> String {
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("lspci | grep -i 'vga\\|3d\\|display'")
+        .output();
+
+    if let Ok(out) = output {
+        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !text.is_empty() {
+            if let Some(line) = text.lines().next() {
+                if let Some(idx) = line.find(':') {
+                    return line[idx + 1..].trim().to_string();
+                }
+            }
+        }
+    }
+    "Standard Graphics".to_string()
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct SystemHardwareInfo {
+    pub os: String,
+    pub arch: String,
+    pub cpu_brand: String,
+    pub cpu_cores: usize,
+    pub total_ram_gb: f32,
+    pub gpu_name: String,
+    pub is_apple_silicon: bool,
+    pub display_label: String,
+    pub recommended_model_id: String,
+    pub recommendation_reason: String,
+}
+
+#[tauri::command]
+pub async fn llm_get_system_info() -> Result<SystemHardwareInfo, String> {
+    let mut sys = sysinfo::System::new_all();
+    sys.refresh_all();
+
+    #[cfg(target_os = "windows")]
+    let os = "windows".to_string();
+    #[cfg(target_os = "macos")]
+    let os = "macos".to_string();
+    #[cfg(target_os = "linux")]
+    let os = "linux".to_string();
+
+    #[cfg(target_arch = "aarch64")]
+    let arch = "aarch64".to_string();
+    #[cfg(target_arch = "x86_64")]
+    let arch = "x86_64".to_string();
+
+    let is_apple_silicon = os == "macos" && arch == "aarch64";
+
+    let total_ram_bytes = sys.total_memory();
+    let total_ram_gb = (total_ram_bytes as f64 / (1024.0 * 1024.0 * 1024.0)) as f32;
+    let cpu_cores = sys.cpus().len();
+
+    let cpu_brand = sys
+        .cpus()
+        .first()
+        .map(|c| c.brand().trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            if is_apple_silicon {
+                "Apple Silicon CPU".to_string()
+            } else {
+                "Standard CPU".to_string()
+            }
+        });
+
+    let gpu_name = detect_gpu();
+    let gpu_lower = gpu_name.to_lowercase();
+    let is_high_end_gpu = gpu_lower.contains("rtx")
+        || gpu_lower.contains("radeon rx")
+        || gpu_lower.contains("max")
+        || gpu_lower.contains("ultra")
+        || gpu_lower.contains("pro");
+    let has_discrete_gpu = is_high_end_gpu
+        || gpu_lower.contains("nvidia")
+        || gpu_lower.contains("amd")
+        || gpu_lower.contains("geforce");
+
+    // Smart Hardware Recommendation Scoring
+    let (recommended_model_id, recommendation_reason) = if (total_ram_gb >= 24.0 && is_high_end_gpu) || (is_apple_silicon && total_ram_gb >= 32.0) {
+        (
+            "qwen2.5-14b".to_string(),
+            format!("Detected Pro Workstation ({:.1} GB RAM + Dedicated High-End GPU) — Qwen 2.5 (14B) recommended for highest reasoning accuracy", total_ram_gb),
+        )
+    } else if is_apple_silicon || (total_ram_gb >= 15.0 && (has_discrete_gpu || cpu_cores >= 8)) {
+        (
+            "qwen2.5-7b".to_string(),
+            format!("Detected High Performance System ({:.1} GB RAM, {} cores, GPU: {}) — Qwen 2.5 (7B) recommended", total_ram_gb, cpu_cores, gpu_name),
+        )
+    } else if total_ram_gb >= 7.5 {
+        (
+            "llama3.2-3b".to_string(),
+            format!("Detected Standard System ({:.1} GB RAM, {} cores) — Llama 3.2 (3B) recommended for speed & efficiency", total_ram_gb, cpu_cores),
+        )
+    } else {
+        (
+            "llama3.2-1b".to_string(),
+            format!("Detected Entry Hardware ({:.1} GB RAM, {} cores) — Llama 3.2 (1.5B) recommended for low memory footprint", total_ram_gb, cpu_cores),
+        )
+    };
+
+    let display_label = format!(
+        "{} {} • {} ({} Cores) • {:.1} GB RAM • GPU: {}",
+        if os == "windows" { "Windows" } else if os == "macos" { "macOS" } else { "Linux" },
+        arch,
+        cpu_brand,
+        cpu_cores,
+        total_ram_gb,
+        gpu_name
+    );
+
+    Ok(SystemHardwareInfo {
+        os,
+        arch,
+        cpu_brand,
+        cpu_cores,
+        total_ram_gb,
+        gpu_name,
+        is_apple_silicon,
+        display_label,
+        recommended_model_id,
+        recommendation_reason,
+    })
+}
+
+/// List available models with download status & metadata.
 #[derive(Serialize)]
 pub struct ModelStatus {
     pub id: String,
@@ -103,6 +314,10 @@ pub struct ModelStatus {
     pub downloaded: bool,
     pub size_bytes: u64,
     pub file_size_bytes: u64, // actual downloaded bytes on disk (0 if not downloaded)
+    pub target_tier: String,
+    pub ram_required: String,
+    pub speed_rating: String,
+    pub description: String,
 }
 
 #[tauri::command]
@@ -125,6 +340,10 @@ pub async fn llm_list_models(app: AppHandle) -> Result<Vec<ModelStatus>, String>
             downloaded,
             size_bytes: m.size_bytes,
             file_size_bytes,
+            target_tier: m.target_tier.to_string(),
+            ram_required: m.ram_required.to_string(),
+            speed_rating: m.speed_rating.to_string(),
+            description: m.description.to_string(),
         });
     }
     Ok(result)
@@ -575,11 +794,11 @@ pub async fn llm_load_model(
        .arg("--port")
        .arg(port.to_string())
        .arg("--ctx-size")
-       .arg("8192")
+       .arg(info.ctx_size.to_string())
        .arg("--threads")
        .arg(num_cpus().to_string())
        .arg("-ngl")
-       .arg("99");
+       .arg(info.gpu_layers.to_string());
 
     #[cfg(target_os = "windows")]
     {

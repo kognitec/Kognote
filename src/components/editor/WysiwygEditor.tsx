@@ -740,8 +740,39 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
 
     const handleDrop = async (e: DragEvent) => {
       const fileDataStr = e.dataTransfer?.getData("application/kognote-file");
+      const tagDataStr = e.dataTransfer?.getData("application/kognote-tag");
       const plainTextPath = e.dataTransfer?.getData("text/plain");
 
+      // 1. Tag drop handling
+      let tagText: string | null = null;
+      const draggedTag = getDragState("tag");
+      if (draggedTag) {
+        tagText = `#${draggedTag}`;
+      } else if (tagDataStr) {
+        tagText = `#${tagDataStr}`;
+      } else if (plainTextPath && plainTextPath.startsWith("#")) {
+        tagText = plainTextPath;
+      }
+
+      if (tagText) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const crepe = crepeRef.current;
+        if (crepe) {
+          crepe.editor.action((ctx) => {
+            const view = ctx.get(editorViewCtx);
+            const { state, dispatch } = view;
+            const coordinates = view.posAtCoords({ left: e.clientX, top: e.clientY });
+            const pos = coordinates ? coordinates.pos : state.selection.from;
+            const tr = state.tr.insertText(tagText, pos);
+            dispatch(tr.scrollIntoView());
+          });
+        }
+        return;
+      }
+
+      // 2. Note / File Backlink drop handling
       let droppedFilePath: string | null = null;
       const draggedState = getDragState("file") || getDragState("card");
       if (draggedState) {
@@ -756,7 +787,7 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
           }
         } catch {}
       }
-      if (!droppedFilePath && plainTextPath && plainTextPath.trim().length > 0) {
+      if (!droppedFilePath && plainTextPath && plainTextPath.trim().length > 0 && !plainTextPath.startsWith("#")) {
         droppedFilePath = plainTextPath.trim();
       }
 
@@ -775,14 +806,14 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
             const { state, dispatch } = view;
             const coordinates = view.posAtCoords({ left: e.clientX, top: e.clientY });
             const pos = coordinates ? coordinates.pos : state.selection.from;
-            const textNode = state.schema.text(backlinkText);
-            const tr = state.tr.insert(pos, textNode);
+            const tr = state.tr.insertText(backlinkText, pos);
             dispatch(tr.scrollIntoView());
           });
         }
         return;
       }
 
+      // 3. External OS Image File Drop handling
       if (!fileDataStr && e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
         const filesToProcess = Array.from(e.dataTransfer.files);
         const imageFile = filesToProcess.find(f => isImageFile(f.name));
@@ -812,16 +843,16 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
             refreshFiles();
 
             const assetUrl = convertFileSrc(destPath);
+            const imageMarkdown = `![${imageFile.name}](${assetUrl})`;
             const crepe = crepeRef.current;
             if (crepe) {
               crepe.editor.action((ctx) => {
                 const view = ctx.get(editorViewCtx);
                 const { state, dispatch } = view;
-                const schema = state.schema;
-                const imageNode = schema.nodes.image ? schema.nodes.image.create({ src: assetUrl, alt: imageFile.name }) : null;
-                if (imageNode) {
-                  dispatch(state.tr.replaceSelectionWith(imageNode).scrollIntoView());
-                }
+                const coordinates = view.posAtCoords({ left: e.clientX, top: e.clientY });
+                const pos = coordinates ? coordinates.pos : state.selection.from;
+                const tr = state.tr.insertText(imageMarkdown, pos);
+                dispatch(tr.scrollIntoView());
               });
             }
           } catch (err) {

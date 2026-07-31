@@ -212,7 +212,7 @@ function resolveNotePath(
 
 export const Canvas: React.FC = () => {
   const { vaultPath } = useSettings();
-  const { openFile, activeFile, noteCache, files } = useVault();
+  const { openFile, activeFile, noteCache, files, attachmentsFolderPath, refreshFiles } = useVault();
   const [excalidrawAPI, setExcalidrawAPI] = useState<any>(null);
   const [isReady, setIsReady] = useState(false);
   const [initialData, setInitialData] = useState<any>(null);
@@ -508,6 +508,39 @@ export const Canvas: React.FC = () => {
       if (plainPath) {
         const fileName = plainPath.split(/[/\\]/).pop() || "File";
         item = { name: fileName, path: plainPath, is_dir: false };
+      }
+    }
+    if ((!item || !item.path) && e.dataTransfer?.files && e.dataTransfer.files.length > 0 && attachmentsFolderPath) {
+      const filesToProcess = Array.from(e.dataTransfer.files);
+      const imageFile = filesToProcess.find(f => {
+        const ext = f.name.toLowerCase().split('.').pop() || '';
+        return ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'ico'].includes(ext);
+      });
+      if (imageFile) {
+        try {
+          const cleanName = imageFile.name ? imageFile.name.replace(/\s+/g, "_") : `canvas_${Date.now()}.png`;
+          const timestamp = Date.now();
+          const fileName = `${timestamp}_${cleanName}`;
+          const separator = attachmentsFolderPath.includes("\\") ? "\\" : "/";
+          const destPath = `${attachmentsFolderPath}${separator}${fileName}`;
+
+          const reader = new FileReader();
+          const base64Promise = new Promise<string>((resolve, reject) => {
+            reader.onload = () => {
+              const res = reader.result as string;
+              resolve(res.split(",")[1]);
+            };
+            reader.onerror = reject;
+          });
+          reader.readAsDataURL(imageFile);
+          const base64Str = await base64Promise;
+
+          await invokeIPC("fs_write_base64", { path: destPath, data: base64Str });
+          refreshFiles();
+          item = { name: fileName, path: destPath, is_dir: false };
+        } catch (err) {
+          console.error("Canvas external OS image drop failed:", err);
+        }
       }
     }
     if (!item || !item.path) return;
@@ -829,6 +862,33 @@ export const Canvas: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleDragOverCapture = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "copy";
+      }
+    };
+
+    const handleDropCapture = (e: DragEvent) => {
+      handleDrop(e as any);
+      clearDragState();
+    };
+
+    container.addEventListener("dragenter", handleDragOverCapture, true);
+    container.addEventListener("dragover", handleDragOverCapture, true);
+    container.addEventListener("drop", handleDropCapture, true);
+
+    return () => {
+      container.removeEventListener("dragenter", handleDragOverCapture, true);
+      container.removeEventListener("dragover", handleDragOverCapture, true);
+      container.removeEventListener("drop", handleDropCapture, true);
+    };
+  }, [excalidrawAPI, attachmentsFolderPath]);
+
   if (!isReady || !initialData) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-background text-slate-400">
@@ -841,21 +901,6 @@ export const Canvas: React.FC = () => {
     <div
       ref={containerRef}
       className="h-full w-full relative flex flex-col bg-background"
-      onDrop={(e) => {
-        handleDrop(e);
-        clearDragState();
-      }}
-      onDragEnter={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-      }}
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.dataTransfer) {
-          e.dataTransfer.dropEffect = "copy";
-        }
-      }}
     >
       <Excalidraw
         excalidrawAPI={(api) => setExcalidrawAPI(api)}

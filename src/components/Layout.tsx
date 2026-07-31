@@ -108,7 +108,7 @@ export const Layout: React.FC = () => {
     setDraggedPath(path);
     setDragState("tab", path);
     e.dataTransfer.setData("text/plain", path);
-    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.effectAllowed = "all";
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -253,7 +253,7 @@ export const Layout: React.FC = () => {
 
 
   return (
-    <div className="flex h-screen w-screen flex-col bg-background rounded-2xl border border-white/10 overflow-hidden select-none root-layout-bg shadow-2xl relative">
+    <div className="flex h-screen w-screen flex-col bg-background select-none root-layout-bg relative">
       {/* Titlebar */}
       <Titlebar
         onOpenSettings={() => setIsSettingsOpen(true)}
@@ -437,6 +437,7 @@ export const Layout: React.FC = () => {
             onClose={() => setIsChatOpen(false)}
             isDetached={isChatDetached}
             onToggleDetach={() => setIsChatDetached(!isChatDetached)}
+            onOpenSettings={() => setIsSettingsOpen(true)}
           />
         </div>
       )}

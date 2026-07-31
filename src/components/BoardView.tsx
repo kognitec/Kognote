@@ -174,9 +174,11 @@ export const BoardView: React.FC = () => {
   // Drag and Drop helpers
   const handleDragStart = (e: React.DragEvent, card: BoardCard) => {
     setDragState("card", card);
+    setDragState("file", card.file);
     e.dataTransfer.setData("application/kognote-card", JSON.stringify(card));
+    e.dataTransfer.setData("application/kognote-file", JSON.stringify({ name: card.file.name, path: card.file.path, is_dir: false }));
     e.dataTransfer.setData("text/plain", card.file.path);
-    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.effectAllowed = "all";
     setDraggedCard(card);
   };
 
@@ -188,15 +190,10 @@ export const BoardView: React.FC = () => {
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-    if (e.dataTransfer) {
-      e.dataTransfer.dropEffect = "move";
-    }
   };
 
   const handleDragEnter = (e: React.DragEvent, columnName: string) => {
     e.preventDefault();
-    e.stopPropagation();
     if (dragOverColumn !== columnName) {
       setDragOverColumn(columnName);
     }
@@ -204,17 +201,10 @@ export const BoardView: React.FC = () => {
 
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-    // Only clear highlight if the drag actually left the column element entirely
-    const relatedTarget = e.relatedTarget as Node | null;
-    if (!relatedTarget || !e.currentTarget.contains(relatedTarget)) {
-      setDragOverColumn(null);
-    }
   };
 
   const handleDrop = async (e: React.DragEvent, targetStatus: "Backlog" | "Todo" | "In Progress" | "In Review" | "Done") => {
     e.preventDefault();
-    e.stopPropagation();
     setDragOverColumn(null);
 
     let filePath = "";
@@ -247,12 +237,15 @@ export const BoardView: React.FC = () => {
       return;
     }
 
-    const existingCard = cards.find(c => c.file.path === filePath);
+    const normPath = filePath.replace(/\\/g, "/").toLowerCase();
+    const existingCard = cards.find(c => c.file.path.replace(/\\/g, "/").toLowerCase() === normPath);
+    const targetFilePath = existingCard ? existingCard.file.path : filePath;
+
     if (existingCard && existingCard.status === targetStatus) {
       return;
     }
 
-    await handleStatusChangeByPath(filePath, targetStatus);
+    await handleStatusChangeByPath(targetFilePath, targetStatus);
   };
 
   const handleStatusChangeByPath = async (filePath: string, targetStatus: "Backlog" | "Todo" | "In Progress" | "In Review" | "Done") => {
@@ -712,6 +705,7 @@ export const BoardView: React.FC = () => {
                 className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5 max-h-full scrollbar-thin select-none"
                 onDragOver={handleDragOver}
                 onDragEnter={(e) => handleDragEnter(e, col.name)}
+                onDrop={(e) => handleDrop(e, col.name)}
               >
                 {colCards.map((card) => {
                   const hasTasks = card.todoTasks + card.completedTasks > 0;
@@ -726,7 +720,8 @@ export const BoardView: React.FC = () => {
                       onDragStart={(e) => handleDragStart(e, card)}
                       onDragEnd={handleDragEnd}
                       onDragOver={handleDragOver}
-                      onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                      onDragEnter={(e) => handleDragEnter(e, col.name)}
+                      onDrop={(e) => handleDrop(e, col.name)}
                       onClick={() => openFile(card.file)}
                       className={`group flex flex-col gap-2.5 rounded-xl border p-3.5 transition-all duration-300 cursor-pointer relative glass-card overflow-hidden w-full ${card.priority === "high"
                           ? "border-red-500/30 hover:border-red-500/50"

@@ -69,6 +69,18 @@ body {
   user-select: none;
 }
 
+[draggable="true"],
+[draggable] {
+  -webkit-user-drag: element !important;
+  -webkit-app-region: no-drag !important;
+}
+
+.glass-card,
+.board-column,
+.board-container {
+  -webkit-app-region: no-drag !important;
+}
+
 
 
 /* Spaced Repetition Card 3D Flip Styles */

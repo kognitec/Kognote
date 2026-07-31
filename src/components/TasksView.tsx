@@ -705,10 +705,10 @@ export const TasksView: React.FC = () => {
   }).length;
 
   return (
-    <div className="flex h-full w-full bg-[#090a0f] text-slate-200 select-none overflow-hidden">
+    <div className="flex h-full w-full bg-background text-slate-200 select-none overflow-hidden">
       
       {/* ══ SIDEBAR ═══════════════════════════════════════════════════════════ */}
-      <div className="w-72 border-r border-[#1f2335] bg-[#0b0c11] flex flex-col shrink-0 overflow-hidden">
+      <div className="w-72 border-r border-card-border bg-[#0b0c11] flex flex-col shrink-0 overflow-hidden">
         <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-6 p-4">
           
           {/* Header title */}
@@ -725,7 +725,7 @@ export const TasksView: React.FC = () => {
           </div>
 
           {/* 📈 Stats & Progress Circle */}
-          <div className="flex items-center gap-4 bg-[#11131c]/40 border border-[#1f2335]/60 rounded-xl p-3 shadow-md">
+          <div className="flex items-center gap-4 bg-card/40 border border-card-border/60 rounded-xl p-3 shadow-md">
             <div className="relative shrink-0 flex items-center justify-center">
               <svg className="w-14 h-14 transform -rotate-90">
                 <circle cx="28" cy="28" r="24" className="stroke-slate-800" strokeWidth="3" fill="transparent" />
@@ -744,24 +744,24 @@ export const TasksView: React.FC = () => {
           {/* Quick Filters Grid */}
           <div className="grid grid-cols-3 gap-1.5">
             <button onClick={() => { setActiveTab("due"); setSelectedTag(null); setSearchQuery(""); }}
-              className="flex flex-col items-center bg-[#11131c]/30 hover:bg-[#1a1d29] border border-[#1f2335] rounded-lg py-2 transition-colors cursor-pointer">
+              className="flex flex-col items-center bg-card/30 hover:bg-[#1a1d29] border border-card-border rounded-lg py-2 transition-colors cursor-pointer">
               <span className="text-[14px] font-extrabold text-red-400">{overdueCount}</span>
               <span className="text-[8px] text-slate-500 font-bold uppercase mt-0.5">Overdue</span>
             </button>
             <button onClick={() => { setActiveTab("pending"); setSelectedTag(null); setSearchQuery(todayStr); }}
-              className="flex flex-col items-center bg-[#11131c]/30 hover:bg-[#1a1d29] border border-[#1f2335] rounded-lg py-2 transition-colors cursor-pointer">
+              className="flex flex-col items-center bg-card/30 hover:bg-[#1a1d29] border border-card-border rounded-lg py-2 transition-colors cursor-pointer">
               <span className="text-[14px] font-extrabold text-amber-400">{dueTodayCount}</span>
               <span className="text-[8px] text-slate-500 font-bold uppercase mt-0.5">Today</span>
             </button>
             <button onClick={() => { setActiveTab("pending"); setSelectedTag(null); setSearchQuery(""); }}
-              className="flex flex-col items-center bg-[#11131c]/30 hover:bg-[#1a1d29] border border-[#1f2335] rounded-lg py-2 transition-colors cursor-pointer">
+              className="flex flex-col items-center bg-card/30 hover:bg-[#1a1d29] border border-card-border rounded-lg py-2 transition-colors cursor-pointer">
               <span className="text-[14px] font-extrabold text-indigo-400">{dueWeekCount}</span>
               <span className="text-[8px] text-slate-500 font-bold uppercase mt-0.5">7 Days</span>
             </button>
           </div>
 
           {/* ⚡ Roll forward tasks */}
-          <div className="flex flex-col gap-2 bg-gradient-to-br from-[#161825]/60 to-[#0e1017]/60 border border-[#1f2335] rounded-xl p-3 shadow-md">
+          <div className="flex flex-col gap-2 bg-linear-to-br from-[#161825]/60 to-[#0e1017]/60 border border-card-border rounded-xl p-3 shadow-md">
             <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest flex items-center gap-1">
               <Sparkles className="h-3 w-3 text-amber-400" /> Daily Note Rollover
             </span>
@@ -779,7 +779,7 @@ export const TasksView: React.FC = () => {
           </div>
 
           {/* Quick Add Form */}
-          <div className="flex flex-col gap-3 border-t border-[#1f2335]/70 pt-4">
+          <div className="flex flex-col gap-3 border-t border-card-border/70 pt-4">
             <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">
               Quick Log Task
             </span>
@@ -790,21 +790,21 @@ export const TasksView: React.FC = () => {
                 placeholder="Task description..."
                 value={newTaskText}
                 onChange={(e) => setNewTaskText(e.target.value)}
-                className="rounded-lg bg-[#090a0f] p-2 text-xs text-slate-200 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 placeholder-slate-600 transition-colors"
+                className="rounded-lg bg-background p-2 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 placeholder-slate-600 transition-colors"
               />
               <div className="grid grid-cols-2 gap-1.5">
                 <input
                   type="date"
                   value={newTaskDate}
                   onChange={(e) => setNewTaskDate(e.target.value)}
-                  className="rounded-lg bg-[#090a0f] p-1.5 text-[10px] text-slate-400 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+                  className="rounded-lg bg-background p-1.5 text-[10px] text-slate-400 border border-card-border focus:outline-none focus:border-indigo-500/50 cursor-pointer"
                   title="Due Date"
                 />
                 <input
                   type="time"
                   value={newTaskTime}
                   onChange={(e) => setNewTaskTime(e.target.value)}
-                  className="rounded-lg bg-[#090a0f] p-1.5 text-[10px] text-slate-400 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+                  className="rounded-lg bg-background p-1.5 text-[10px] text-slate-400 border border-card-border focus:outline-none focus:border-indigo-500/50 cursor-pointer"
                   title="Due Time"
                 />
                 <input
@@ -812,12 +812,12 @@ export const TasksView: React.FC = () => {
                   placeholder="#tag"
                   value={newTaskTag}
                   onChange={(e) => setNewTaskTag(e.target.value)}
-                  className="rounded-lg bg-[#090a0f] p-1.5 text-[10px] text-slate-200 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 placeholder-slate-600"
+                  className="rounded-lg bg-background p-1.5 text-[10px] text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 placeholder-slate-600"
                 />
                 <select
                   value={newTaskPriority}
                   onChange={(e) => setNewTaskPriority(e.target.value as any)}
-                  className="rounded-lg bg-[#090a0f] p-1.5 text-[10px] text-slate-300 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+                  className="rounded-lg bg-background p-1.5 text-[10px] text-slate-300 border border-card-border focus:outline-none focus:border-indigo-500/50 cursor-pointer"
                 >
                   <option value="none">Priority: None</option>
                   <option value="low">! Low</option>
@@ -837,7 +837,7 @@ export const TasksView: React.FC = () => {
           </div>
 
           {/* Tags list */}
-          <div className="flex flex-col gap-2 border-t border-[#1f2335]/70 pt-4">
+          <div className="flex flex-col gap-2 border-t border-card-border/70 pt-4">
             <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">
               Tags Filter
             </span>
@@ -847,7 +847,7 @@ export const TasksView: React.FC = () => {
                 className={`px-2 py-0.5 rounded-md text-[10.5px] font-semibold border transition-colors cursor-pointer ${
                   !selectedTag
                     ? "bg-indigo-600 border-indigo-500 text-white"
-                    : "bg-[#11131c] border-[#1f2335] text-slate-400 hover:text-slate-200"
+                    : "bg-card border-card-border text-slate-400 hover:text-slate-200"
                 }`}
               >
                 All Tags
@@ -859,7 +859,7 @@ export const TasksView: React.FC = () => {
                   className={`px-2 py-0.5 rounded-md text-[10.5px] font-semibold border transition-colors flex items-center gap-1 cursor-pointer ${
                     selectedTag === tag
                       ? "bg-indigo-600 border-indigo-500 text-white"
-                      : "bg-[#11131c] border-[#1f2335] text-slate-400 hover:text-slate-200"
+                      : "bg-card border-card-border text-slate-400 hover:text-slate-200"
                   }`}
                 >
                   <Hash className="h-2.5 w-2.5" />
@@ -875,11 +875,11 @@ export const TasksView: React.FC = () => {
       <div className="flex-1 h-full flex flex-col bg-[#07080c] overflow-hidden min-w-0">
         
         {/* ── Toolbar ─────────────────────────────────────────────────────── */}
-        <div className="flex flex-col gap-3 border-b border-[#1f2335]/70 px-5 py-3 shrink-0 bg-[#07080c]/80 backdrop-blur-sm">
+        <div className="flex flex-col gap-3 border-b border-card-border/70 px-5 py-3 shrink-0 bg-[#07080c]/80 backdrop-blur-sm">
           {/* Row 1: Tabs & Layout View Switcher */}
           <div className="flex items-center justify-between gap-3 min-w-0 w-full">
             {/* Tabs */}
-            <div className="flex items-center gap-0.5 bg-[#10121a] p-0.5 rounded-lg border border-[#1f2335] shrink-0">
+            <div className="flex items-center gap-0.5 bg-[#10121a] p-0.5 rounded-lg border border-card-border shrink-0">
               {["pending", "completed", "due"].map((tab) => (
                 <button
                   key={tab}
@@ -894,7 +894,7 @@ export const TasksView: React.FC = () => {
             </div>
 
             {/* Layout Mode Switcher (List vs Kanban Board) */}
-            <div className="flex items-center gap-0.5 bg-[#10121a] p-0.5 rounded-lg border border-[#1f2335] shrink-0">
+            <div className="flex items-center gap-0.5 bg-[#10121a] p-0.5 rounded-lg border border-card-border shrink-0">
               <button
                 type="button"
                 onClick={() => setViewLayout("list")}
@@ -930,7 +930,7 @@ export const TasksView: React.FC = () => {
                 <select
                   value={groupBy}
                   onChange={(e) => setGroupBy(e.target.value as any)}
-                  className="appearance-none bg-[#11131c] border border-[#1f2335] hover:border-slate-800 rounded-md pl-2.5 pr-8 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
+                  className="appearance-none bg-card border border-card-border hover:border-slate-800 rounded-md pl-2.5 pr-8 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
                 >
                   <option value="none">Flat List</option>
                   <option value="note">By Note Name</option>
@@ -942,14 +942,14 @@ export const TasksView: React.FC = () => {
             </div>
 
             {/* Sort By selector */}
-            <div className="flex items-center gap-1.5 text-slate-500 border-l border-[#1f2335]/70 pl-3.5">
+            <div className="flex items-center gap-1.5 text-slate-500 border-l border-card-border/70 pl-3.5">
               <ArrowUpDown className="h-3.5 w-3.5 text-slate-500 shrink-0" />
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Sort:</span>
               <div className="relative flex items-center">
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
-                  className="appearance-none bg-[#11131c] border border-[#1f2335] hover:border-slate-800 rounded-md pl-2.5 pr-8 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
+                  className="appearance-none bg-card border border-card-border hover:border-slate-800 rounded-md pl-2.5 pr-8 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
                 >
                   <option value="priority">Priority First</option>
                   <option value="dueDate">Due Date</option>
@@ -961,7 +961,7 @@ export const TasksView: React.FC = () => {
 
             {/* Select All / Deselect All */}
             {filteredTasks.length > 0 && (
-              <div className="flex items-center border-l border-[#1f2335]/70 pl-3.5">
+              <div className="flex items-center border-l border-card-border/70 pl-3.5">
                 <button
                   onClick={() => toggleSelectAll(filteredTasks)}
                   className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-1 rounded-lg border border-indigo-500/20 hover:border-indigo-500/30 transition-all cursor-pointer whitespace-nowrap shrink-0"
@@ -972,7 +972,7 @@ export const TasksView: React.FC = () => {
             )}
 
             {/* Keyboard Shortcuts Hint Pill */}
-            <div className="hidden lg:flex items-center gap-1.5 border-l border-[#1f2335]/70 pl-3.5 text-[10px] font-semibold text-slate-500 select-none">
+            <div className="hidden lg:flex items-center gap-1.5 border-l border-card-border/70 pl-3.5 text-[10px] font-semibold text-slate-500 select-none">
               <span className="bg-[#141624] border border-[#22263a] px-1.5 py-0.5 rounded text-slate-400 font-mono">↑↓ / jk</span>
               <span>Navigate</span>
               <span className="bg-[#141624] border border-[#22263a] px-1.5 py-0.5 rounded text-slate-400 font-mono ml-1.5">Space / X</span>
@@ -982,14 +982,14 @@ export const TasksView: React.FC = () => {
             </div>
 
             {/* Search (Flexible width, floats to right on larger screens, stacks on narrow screens) */}
-            <div className="relative flex-1 max-w-xs min-w-[140px] sm:ml-auto">
+            <div className="relative flex-1 max-w-xs min-w-35 sm:ml-auto">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
               <input
                 type="text"
                 placeholder="Search..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-lg bg-[#10121a] pl-8 pr-8 py-1 text-xs text-slate-200 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 hover:border-slate-800 transition-colors placeholder-slate-600"
+                className="w-full rounded-lg bg-[#10121a] pl-8 pr-8 py-1 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 hover:border-slate-800 transition-colors placeholder-slate-600"
               />
               {searchQuery && (
                 <button onClick={() => setSearchQuery("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 cursor-pointer">
@@ -1004,9 +1004,9 @@ export const TasksView: React.FC = () => {
         {viewLayout === "kanban" ? (
           <div className="flex-1 overflow-x-auto overflow-y-hidden custom-scrollbar p-5 flex gap-4 items-start min-h-0">
             {groupedTasks.map(([groupName, groupList]) => (
-              <div key={groupName} className="w-80 shrink-0 bg-[#0c0e17]/90 border border-[#1f2335] rounded-2xl flex flex-col max-h-full overflow-hidden shadow-xl">
+              <div key={groupName} className="w-80 shrink-0 bg-[#0c0e17]/90 border border-card-border rounded-2xl flex flex-col max-h-full overflow-hidden shadow-xl">
                 {/* Column Header */}
-                <div className="p-3 border-b border-[#1f2335] flex items-center justify-between bg-[#11131c]/80 shrink-0">
+                <div className="p-3 border-b border-card-border flex items-center justify-between bg-card/80 shrink-0">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-slate-200">{groupName}</span>
                     <span className="text-[10px] text-slate-400 font-extrabold bg-slate-800/60 px-2 py-0.5 rounded-full">
@@ -1050,12 +1050,12 @@ export const TasksView: React.FC = () => {
                         }}
                         className={`p-3 rounded-xl border flex flex-col gap-2.5 transition-all cursor-pointer group select-none ${
                           task.completed
-                            ? "bg-[#090a0f]/60 border-slate-900 opacity-60"
+                            ? "bg-background/60 border-slate-900 opacity-60"
                             : isSelected
                             ? "bg-indigo-600/15 border-indigo-500/60 shadow-md shadow-indigo-500/10"
                             : isFocused
                             ? "bg-[#141728] border-indigo-500/50 ring-1 ring-indigo-500/40"
-                            : "bg-[#10121d] border-[#1f2335] hover:border-slate-700"
+                            : "bg-[#10121d] border-card-border hover:border-slate-700"
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -1069,7 +1069,7 @@ export const TasksView: React.FC = () => {
                                   : "border-slate-600 hover:border-indigo-400 text-transparent"
                               }`}
                             >
-                              <Check className="h-2.5 w-2.5 stroke-[3]" />
+                              <Check className="h-2.5 w-2.5 stroke-3" />
                             </button>
                             <span className={`text-xs font-semibold leading-snug line-clamp-2 ${task.completed ? "line-through text-slate-500" : "text-slate-200"}`}>
                               {cleanDisplayContent || "Untitled task"}
@@ -1086,7 +1086,7 @@ export const TasksView: React.FC = () => {
                         </div>
 
                         {/* Card Metadata Footer */}
-                        <div className="flex items-center justify-between gap-1 pt-2 border-t border-[#1f2335]/40 text-[9.5px]">
+                        <div className="flex items-center justify-between gap-1 pt-2 border-t border-card-border/40 text-[9.5px]">
                           <button
                             type="button"
                             onClick={(e) => handlePriorityCycle(task, e)}
@@ -1107,7 +1107,7 @@ export const TasksView: React.FC = () => {
                                 window.dispatchEvent(new CustomEvent("scroll-to-line", { detail: { lineNumber: task.lineNumber } }));
                               }, 150);
                             }}
-                            className="text-indigo-400 hover:text-indigo-300 font-bold truncate max-w-[110px]"
+                            className="text-indigo-400 hover:text-indigo-300 font-bold truncate max-w-27.5"
                             title={`Open note: ${task.noteName}`}
                           >
                             {task.noteName}
@@ -1133,7 +1133,7 @@ export const TasksView: React.FC = () => {
               <div key={groupName} className="flex flex-col gap-2">
                 
                 {/* Collapsible Header */}
-                <div className="flex items-center justify-between border-b border-[#1f2335]/50 pb-1 cursor-pointer select-none"
+                <div className="flex items-center justify-between border-b border-card-border/50 pb-1 cursor-pointer select-none"
                   onClick={() => setCollapsedGroups(prev => ({ ...prev, [groupName]: !isCollapsed }))}>
                   <div className="flex items-center gap-2">
                     <span className={`text-[11px] font-extrabold uppercase tracking-widest text-slate-400 ${isCollapsed ? "opacity-60" : ""}`}>
@@ -1144,7 +1144,7 @@ export const TasksView: React.FC = () => {
                     {groupBy !== "none" && (
                       <button
                         onClick={e => { e.stopPropagation(); toggleSelectAll(groupList); }}
-                        className="text-[9px] font-bold text-slate-500 hover:text-indigo-400 bg-slate-900 border border-[#1f2335] px-1.5 py-0.5 rounded cursor-pointer"
+                        className="text-[9px] font-bold text-slate-500 hover:text-indigo-400 bg-slate-900 border border-card-border px-1.5 py-0.5 rounded cursor-pointer"
                       >
                         {allGroupSelected ? "Deselect Group" : "Select Group"}
                       </button>
@@ -1209,7 +1209,7 @@ export const TasksView: React.FC = () => {
                               }`}
                               title="Toggle completion status (Enter)"
                             >
-                              <Check className="h-2.5 w-2.5 stroke-[3]" />
+                              <Check className="h-2.5 w-2.5 stroke-3" />
                             </button>
 
                             {/* Task Content Text */}
@@ -1280,7 +1280,7 @@ export const TasksView: React.FC = () => {
                                   window.dispatchEvent(new CustomEvent("scroll-to-line", { detail: { lineNumber: task.lineNumber } }));
                                 }, 150);
                               }}
-                              className="text-[9.5px] font-bold text-indigo-400 hover:text-indigo-300 hover:underline max-w-[100px] truncate cursor-pointer ml-1"
+                              className="text-[9.5px] font-bold text-indigo-400 hover:text-indigo-300 hover:underline max-w-25 truncate cursor-pointer ml-1"
                               title={`Open note: ${task.noteName} (L${task.lineNumber + 1})`}
                             >
                               {task.noteName}
@@ -1316,7 +1316,7 @@ export const TasksView: React.FC = () => {
 
         {/* ══ BATCH ACTIONS DRAWER ════════════════════════════════════════════ */}
         {selectedTaskIds.length > 0 && (
-          <div className="border-t border-[#1f2335] bg-[#0b0c11] p-4 flex items-center justify-between shadow-2xl relative z-30 animate-slide-up shrink-0">
+          <div className="border-t border-card-border bg-[#0b0c11] p-4 flex items-center justify-between shadow-2xl relative z-30 animate-slide-up shrink-0">
             <div className="flex items-center gap-3">
               <CheckCircle2 className="h-5 w-5 text-indigo-400" />
               <span className="text-xs font-bold text-slate-200">{selectedTaskIds.length} tasks selected</span>
@@ -1354,8 +1354,8 @@ export const TasksView: React.FC = () => {
       {/* ══ EDIT MODAL POPUP OVERLAY ═══════════════════════════════════════════ */}
       {editingTask && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="w-[420px] rounded-2xl border border-[#1f2335] bg-[#0f1117] p-6 shadow-2xl flex flex-col gap-4">
-            <div className="flex items-center justify-between border-b border-[#1f2335]/50 pb-2.5">
+          <div className="w-105 rounded-2xl border border-card-border bg-[#0f1117] p-6 shadow-2xl flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-card-border/50 pb-2.5">
               <span className="text-xs font-extrabold text-slate-300 uppercase tracking-widest flex items-center gap-1.5">
                 <Edit className="h-4 w-4 text-indigo-400" /> Edit Task
               </span>
@@ -1374,7 +1374,7 @@ export const TasksView: React.FC = () => {
                   required
                   value={editContent}
                   onChange={(e) => setEditContent(e.target.value)}
-                  className="rounded-lg bg-[#090a0f] p-2.5 text-xs text-slate-200 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 w-full transition-colors"
+                  className="rounded-lg bg-background p-2.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 w-full transition-colors"
                 />
               </div>
 
@@ -1387,7 +1387,7 @@ export const TasksView: React.FC = () => {
                     type="date"
                     value={editDate}
                     onChange={(e) => setEditDate(e.target.value)}
-                    className="rounded-lg bg-[#090a0f] p-2 text-xs text-slate-300 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 w-full"
+                    className="rounded-lg bg-background p-2 text-xs text-slate-300 border border-card-border focus:outline-none focus:border-indigo-500/50 w-full"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -1398,7 +1398,7 @@ export const TasksView: React.FC = () => {
                     type="time"
                     value={editTime}
                     onChange={(e) => setEditTime(e.target.value)}
-                    className="rounded-lg bg-[#090a0f] p-2 text-xs text-slate-300 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 w-full"
+                    className="rounded-lg bg-background p-2 text-xs text-slate-300 border border-card-border focus:outline-none focus:border-indigo-500/50 w-full"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -1410,7 +1410,7 @@ export const TasksView: React.FC = () => {
                     placeholder="e.g. #work"
                     value={editTags}
                     onChange={(e) => setEditTags(e.target.value)}
-                    className="rounded-lg bg-[#090a0f] p-2 text-xs text-slate-300 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 w-full placeholder-slate-600"
+                    className="rounded-lg bg-background p-2 text-xs text-slate-300 border border-card-border focus:outline-none focus:border-indigo-500/50 w-full placeholder-slate-600"
                   />
                 </div>
               </div>
@@ -1422,7 +1422,7 @@ export const TasksView: React.FC = () => {
                 <select
                   value={editPriority}
                   onChange={(e) => setEditPriority(e.target.value as any)}
-                  className="rounded-lg bg-[#090a0f] p-2 text-xs text-slate-200 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 w-full cursor-pointer"
+                  className="rounded-lg bg-background p-2 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 w-full cursor-pointer"
                 >
                   <option value="high">High Priority (!!!)</option>
                   <option value="medium">Medium Priority (!!)</option>
@@ -1431,7 +1431,7 @@ export const TasksView: React.FC = () => {
                 </select>
               </div>
 
-              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[#1f2335]/50 mt-2">
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-card-border/50 mt-2">
                 <button
                   type="button"
                   onClick={() => setEditingTask(null)}
@@ -1454,9 +1454,9 @@ export const TasksView: React.FC = () => {
       {/* ── NOTE PICKER MODAL FOR QUICK LOG TASK ───────────────────────── */}
       {isNotePickerOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-[#0b0c11] border border-[#1f2335] rounded-2xl w-full max-w-md shadow-2xl flex flex-col overflow-hidden animate-scale-up">
+          <div className="bg-[#0b0c11] border border-card-border rounded-2xl w-full max-w-md shadow-2xl flex flex-col overflow-hidden animate-scale-up">
             {/* Modal Header */}
-            <div className="flex items-center justify-between p-4 border-b border-[#1f2335] bg-[#0e1017]">
+            <div className="flex items-center justify-between p-4 border-b border-card-border bg-[#0e1017]">
               <div className="flex items-center gap-2">
                 <FileText className="h-4 w-4 text-indigo-400" />
                 <h3 className="text-sm font-bold text-slate-200">Select Target Note</h3>
@@ -1470,7 +1470,7 @@ export const TasksView: React.FC = () => {
             </div>
 
             {/* Search Input */}
-            <div className="p-3 border-b border-[#1f2335]/70 bg-[#07080c]">
+            <div className="p-3 border-b border-card-border/70 bg-[#07080c]">
               <div className="relative flex items-center">
                 <Search className="absolute left-3 h-3.5 w-3.5 text-slate-500" />
                 <input
@@ -1479,7 +1479,7 @@ export const TasksView: React.FC = () => {
                   placeholder="Search destination note..."
                   value={pickerSearchQuery}
                   onChange={(e) => setPickerSearchQuery(e.target.value)}
-                  className="w-full bg-[#11131c] border border-[#1f2335] rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-600"
+                  className="w-full bg-card border border-card-border rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-600"
                 />
               </div>
             </div>
@@ -1516,7 +1516,7 @@ export const TasksView: React.FC = () => {
                   <button
                     key={n.path}
                     onClick={() => executeQuickAdd(n.path)}
-                    className="flex items-center justify-between p-2.5 rounded-xl hover:bg-[#151722] border border-transparent hover:border-[#1f2335] text-left transition-all group cursor-pointer"
+                    className="flex items-center justify-between p-2.5 rounded-xl hover:bg-[#151722] border border-transparent hover:border-card-border text-left transition-all group cursor-pointer"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <FileText className="h-4 w-4 text-slate-400 group-hover:text-indigo-400 shrink-0 transition-colors" />

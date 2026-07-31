@@ -845,7 +845,7 @@ export const CalendarView: React.FC = () => {
             <div className="flex items-center gap-1 shrink-0">
               {/* For Notes: Show Board Status Badge & Icon */}
               {isDueNote && (
-                <span className="flex items-center gap-1 text-[8.5px] font-extrabold uppercase px-1.5 py-0.5 rounded border border-[#1f2335] bg-[#11131c]">
+                <span className="flex items-center gap-1 text-[8.5px] font-extrabold uppercase px-1.5 py-0.5 rounded border border-card-border bg-card">
                   {getBoardStatusIcon(evt.status, "h-2.5 w-2.5")}
                   <span className="text-slate-300 capitalize">{evt.status || "none"}</span>
                 </span>
@@ -888,14 +888,14 @@ export const CalendarView: React.FC = () => {
 
   // ════════════════════════════════════════════════════════════════════════════
   return (
-    <div className="flex h-full w-full bg-[#090a0f] text-slate-200 select-none overflow-hidden font-sans">
+    <div className="flex h-full w-full bg-background text-slate-200 select-none overflow-hidden font-sans">
 
       {/* ══ SIDEBAR ═══════════════════════════════════════════════════════════ */}
-      <div className="w-72 border-r border-[#1f2335] bg-[#0b0c11] flex flex-col shrink-0 overflow-hidden">
+      <div className="w-72 border-r border-card-border bg-[#0b0c11] flex flex-col shrink-0 overflow-hidden">
         <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-0">
 
           {/* Header */}
-          <div className="px-4 pt-4 pb-3 border-b border-[#1f2335]/60">
+          <div className="px-4 pt-4 pb-3 border-b border-card-border/60">
             <div className="flex items-center justify-between mb-1">
               <span className="text-[10.5px] font-extrabold text-indigo-400 tracking-widest uppercase flex items-center gap-1.5">
                 <CalendarIcon className="h-3.5 w-3.5" /> Calendar Engine
@@ -908,7 +908,7 @@ export const CalendarView: React.FC = () => {
           </div>
 
           {/* ── Mini Calendar ─────────────────────────────────────────────── */}
-          <div className="px-3 py-3 border-b border-[#1f2335]/60">
+          <div className="px-3 py-3 border-b border-card-border/60">
             <div className="flex items-center justify-between mb-2">
               <button onClick={() => setCurrentDate(d => { const n = new Date(d); n.setMonth(n.getMonth()-1); return n; })} className="p-1 rounded-md hover:bg-slate-800 text-slate-500 hover:text-slate-300 transition-colors cursor-pointer">
                 <ChevronLeft className="h-3 w-3" />
@@ -954,7 +954,7 @@ export const CalendarView: React.FC = () => {
           </div>
 
           {/* ── Category Filters & Source Toggles ─────────────────────────── */}
-          <div className="px-3 py-2.5 border-b border-[#1f2335]/60 flex flex-col gap-1.5">
+          <div className="px-3 py-2.5 border-b border-card-border/60 flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[9px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1">
                 <Filter className="h-2.5 w-2.5 text-indigo-400" /> Category Filter
@@ -969,7 +969,7 @@ export const CalendarView: React.FC = () => {
                   className={`px-2 py-0.5 rounded text-[9.5px] font-bold transition-all cursor-pointer border capitalize ${
                     activeCategoryFilter === cat
                       ? "bg-indigo-600 border-indigo-500 text-white shadow-sm"
-                      : "bg-[#11131c] border-[#1f2335] text-slate-400 hover:text-slate-200 hover:border-slate-700"
+                      : "bg-card border-card-border text-slate-400 hover:text-slate-200 hover:border-slate-700"
                   }`}
                 >
                   {cat.replace("-", " ")}
@@ -1056,7 +1056,7 @@ export const CalendarView: React.FC = () => {
           </div>
 
           {/* ── My Calendars / Feeds ──────────────────────────────────────── */}
-          <div className="px-3 py-3 border-t border-[#1f2335]/60 bg-[#08090d]">
+          <div className="px-3 py-3 border-t border-card-border/60 bg-[#08090d]">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Calendars & Feeds</span>
               <button onClick={() => setIsLinkModalOpen(true)} className="p-1 rounded-md hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer" title="Add iCal Feed">
@@ -1064,18 +1064,18 @@ export const CalendarView: React.FC = () => {
               </button>
             </div>
             <div className="flex flex-col gap-1 text-[10.5px]">
-              <div className="flex items-center gap-2 px-2 py-1 rounded bg-[#11131c]">
+              <div className="flex items-center gap-2 px-2 py-1 rounded bg-card">
                 <span className="h-2 w-2 rounded-full bg-indigo-500 shrink-0" />
                 <span className="text-slate-300 flex-1">Note Tasks</span>
                 {getCategoryIcon("tasks", "h-2.5 w-2.5")}
               </div>
-              <div className="flex items-center gap-2 px-2 py-1 rounded bg-[#11131c]">
+              <div className="flex items-center gap-2 px-2 py-1 rounded bg-card">
                 <span className="h-2 w-2 rounded-full bg-[#d946ef] shrink-0" />
                 <span className="text-slate-300 flex-1">Due Notes</span>
                 {getCategoryIcon("due-notes", "h-2.5 w-2.5")}
               </div>
               {feeds.map(feed => (
-                <div key={feed.id} className="flex items-center gap-2 px-2 py-1 rounded bg-[#11131c] group">
+                <div key={feed.id} className="flex items-center gap-2 px-2 py-1 rounded bg-card group">
                   <span className="h-2 w-2 rounded-full shrink-0" style={{ background: feed.color }} />
                   <span className="text-slate-300 flex-1 truncate">{feed.name}</span>
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
@@ -1097,9 +1097,9 @@ export const CalendarView: React.FC = () => {
       <div className="flex-1 h-full flex flex-col min-w-0">
 
         {/* ── Toolbar ─────────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between border-b border-[#1f2335]/70 px-5 py-2.5 shrink-0 bg-[#07080c]/90 backdrop-blur-md">
+        <div className="flex items-center justify-between border-b border-card-border/70 px-5 py-2.5 shrink-0 bg-[#07080c]/90 backdrop-blur-md">
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-0.5 bg-[#10121a] p-0.5 rounded-lg border border-[#1f2335]">
+            <div className="flex items-center gap-0.5 bg-[#10121a] p-0.5 rounded-lg border border-card-border">
               <button onClick={() => navigate(-1)} className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded-md transition-colors cursor-pointer" title="Previous (←)">
                 <ChevronLeft className="h-3.5 w-3.5" />
               </button>
@@ -1110,7 +1110,7 @@ export const CalendarView: React.FC = () => {
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
             </div>
-            <h1 className="text-sm font-extrabold tracking-tight bg-gradient-to-r from-slate-100 to-slate-400 bg-clip-text text-transparent min-w-[200px]">
+            <h1 className="text-sm font-extrabold tracking-tight bg-linear-to-r from-slate-100 to-slate-400 bg-clip-text text-transparent min-w-50">
               {getHeaderLabel()}
             </h1>
             {loading && <RefreshCw className="h-3.5 w-3.5 text-indigo-400 animate-spin" />}
@@ -1123,14 +1123,14 @@ export const CalendarView: React.FC = () => {
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer select-none ${
                 selectedDayStr
                   ? "bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/30"
-                  : "bg-[#10121a] border border-[#1f2335] text-slate-600 cursor-default"
+                  : "bg-[#10121a] border border-card-border text-slate-600 cursor-default"
               }`}
             >
               <Plus className="h-3.5 w-3.5" />
               Add Event
             </button>
 
-            <div className="flex items-center gap-0.5 bg-[#10121a] p-0.5 rounded-lg border border-[#1f2335]">
+            <div className="flex items-center gap-0.5 bg-[#10121a] p-0.5 rounded-lg border border-card-border">
               {VIEW_MODES.map(vm => (
                 <button
                   key={vm.key}
@@ -1152,14 +1152,14 @@ export const CalendarView: React.FC = () => {
         {/* ── Month Grid View ─────────────────────────────────────────────── */}
         {viewMode === "month" && (
           <div className="flex-1 flex flex-col min-h-0">
-            <div className="grid grid-cols-7 border-b border-[#1f2335] bg-[#0b0c11]/80 shrink-0">
+            <div className="grid grid-cols-7 border-b border-card-border bg-[#0b0c11]/80 shrink-0">
               {DAY_NAMES_SHORT.map((d, i) => (
                 <div key={i} className="py-2 text-center text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                   {d}
                 </div>
               ))}
             </div>
-            <div className="flex-1 grid grid-cols-7 grid-rows-6 border-b border-[#1f2335] bg-[#090a0f]">
+            <div className="flex-1 grid grid-cols-7 grid-rows-6 border-b border-card-border bg-background">
               {getMonthDays().map((day, idx) => {
                 const ds = toLocalDateStr(day.date);
                 const isToday = ds === todayStr;
@@ -1188,7 +1188,7 @@ export const CalendarView: React.FC = () => {
                         ? "bg-indigo-950/20 text-slate-200 ring-1 ring-inset ring-indigo-500/50"
                         : isWeekend
                         ? "bg-[#07080d]"
-                        : "bg-[#090a0f] hover:bg-[#0f111a]"
+                        : "bg-background hover:bg-[#0f111a]"
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
@@ -1230,15 +1230,15 @@ export const CalendarView: React.FC = () => {
 
         {/* ── Time Grid View (Week / 3Day / Day) ───────────────────────────── */}
         {viewMode !== "month" && (
-          <div ref={timeGridRef} className="flex-1 overflow-y-auto custom-scrollbar flex flex-col bg-[#090a0f]">
-            <div className="flex border-b border-[#1f2335] bg-[#0b0c11] sticky top-0 z-10 shrink-0">
-              <div className="w-14 border-r border-[#1f2335] shrink-0" />
+          <div ref={timeGridRef} className="flex-1 overflow-y-auto custom-scrollbar flex flex-col bg-background">
+            <div className="flex border-b border-card-border bg-[#0b0c11] sticky top-0 z-10 shrink-0">
+              <div className="w-14 border-r border-card-border shrink-0" />
               {getViewDays().map((day, idx) => {
                 const ds = toLocalDateStr(day);
                 const isToday = ds === todayStr;
                 const dayIdx = (day.getDay() + 6) % 7;
                 return (
-                  <div key={idx} className="flex-1 py-2.5 text-center border-r border-[#1f2335] last:border-r-0">
+                  <div key={idx} className="flex-1 py-2.5 text-center border-r border-card-border last:border-r-0">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                       {DAY_NAMES_SHORT[dayIdx]}
                     </span>
@@ -1255,7 +1255,7 @@ export const CalendarView: React.FC = () => {
             {/* Time Grid Rows */}
             <div className="relative flex flex-1">
               {/* Time Column */}
-              <div className="w-14 border-r border-[#1f2335] bg-[#07080c] shrink-0">
+              <div className="w-14 border-r border-card-border bg-[#07080c] shrink-0">
                 {HOURS.map(h => (
                   <div key={h} className="h-16 text-right pr-2 pt-1 text-[9.5px] font-mono font-semibold text-slate-600 border-b border-[#1a1d28]/30">
                     {formatHour(h)}
@@ -1350,7 +1350,7 @@ export const CalendarView: React.FC = () => {
       {/* ══ ADD FEED MODAL ════════════════════════════════════════════════════ */}
       {isLinkModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm" onClick={() => setIsLinkModalOpen(false)}>
-          <div className="w-[420px] rounded-2xl border border-[#1f2335] bg-[#0f1117] p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="w-105 rounded-2xl border border-card-border bg-[#0f1117] p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-1">
               <h3 className="text-sm font-extrabold text-slate-100 flex items-center gap-2">
                 <Link2 className="h-4 w-4 text-indigo-400" /> Link iCal / Google Calendar
@@ -1366,12 +1366,12 @@ export const CalendarView: React.FC = () => {
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Calendar Name</label>
                 <input type="text" required autoFocus placeholder="e.g. Work Calendar" value={feedName} onChange={e => setFeedName(e.target.value)}
-                  className="rounded-lg bg-[#090a0f] p-2.5 text-xs text-slate-200 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-600" />
+                  className="rounded-lg bg-background p-2.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-600" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">iCal Feed URL</label>
                 <input type="url" required placeholder="https://calendar.google.com/calendar/ical/..." value={feedUrl} onChange={e => setFeedUrl(e.target.value)}
-                  className="rounded-lg bg-[#090a0f] p-2.5 text-xs text-slate-200 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-600" />
+                  className="rounded-lg bg-background p-2.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-600" />
               </div>
               <div className="flex flex-col gap-2">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Color</label>
@@ -1400,7 +1400,7 @@ export const CalendarView: React.FC = () => {
       {/* ══ ADD EVENT MODAL ═══════════════════════════════════════════════════ */}
       {isEventModalOpen && selectedDayStr && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm" onClick={() => setIsEventModalOpen(false)}>
-          <div className="w-[420px] rounded-2xl border border-[#1f2335] bg-[#0f1117] p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="w-105 rounded-2xl border border-card-border bg-[#0f1117] p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-1">
               <h3 className="text-sm font-extrabold text-slate-100 flex items-center gap-2">
                 <AlarmClock className="h-4 w-4 text-indigo-400" /> New Event
@@ -1416,29 +1416,29 @@ export const CalendarView: React.FC = () => {
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Event Title</label>
                 <input type="text" required autoFocus placeholder="e.g. Design Review" value={eventSummary} onChange={e => setEventSummary(e.target.value)}
-                  className="rounded-lg bg-[#090a0f] p-2.5 text-xs text-slate-200 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-600" />
+                  className="rounded-lg bg-background p-2.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-600" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1"><Clock className="h-3 w-3" /> Start Time</label>
                   <input type="time" value={eventStartTime} onChange={e => setEventStartTime(e.target.value)}
-                    className="rounded-lg bg-[#090a0f] p-2.5 text-xs text-slate-200 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 transition-colors" />
+                    className="rounded-lg bg-background p-2.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors" />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1"><Clock className="h-3 w-3" /> End Time</label>
                   <input type="time" value={eventEndTime} onChange={e => setEventEndTime(e.target.value)}
-                    className="rounded-lg bg-[#090a0f] p-2.5 text-xs text-slate-200 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 transition-colors" />
+                    className="rounded-lg bg-background p-2.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors" />
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1"><MapPin className="h-3 w-3" /> Location</label>
                 <input type="text" placeholder="e.g. Room 204 or Online" value={eventLoc} onChange={e => setEventLoc(e.target.value)}
-                  className="rounded-lg bg-[#090a0f] p-2.5 text-xs text-slate-200 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-600" />
+                  className="rounded-lg bg-background p-2.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-600" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Notes</label>
                 <textarea placeholder="Optional description..." value={eventDesc} onChange={e => setEventDesc(e.target.value)} rows={2}
-                  className="rounded-lg bg-[#090a0f] p-2.5 text-xs text-slate-200 border border-[#1f2335] focus:outline-none focus:border-indigo-500/50 transition-colors resize-none placeholder-slate-600" />
+                  className="rounded-lg bg-background p-2.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors resize-none placeholder-slate-600" />
               </div>
               <div className="flex flex-col gap-2">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Color</label>
@@ -1467,7 +1467,7 @@ export const CalendarView: React.FC = () => {
       {/* ══ EVENT DETAIL MODAL ═══════════════════════════════════════════════ */}
       {activeDetailEvent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm animate-fade-in" onClick={() => setActiveDetailEvent(null)}>
-          <div className="w-[420px] rounded-2xl border border-[#1f2335] bg-[#0f1117] p-6 shadow-2xl flex flex-col gap-4 text-xs" onClick={e => e.stopPropagation()}>
+          <div className="w-105 rounded-2xl border border-card-border bg-[#0f1117] p-6 shadow-2xl flex flex-col gap-4 text-xs" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border" style={{ color: getPriorityHighlightColor(activeDetailEvent.priority, getEventColor(activeDetailEvent, feeds)), borderColor: getPriorityHighlightColor(activeDetailEvent.priority, getEventColor(activeDetailEvent, feeds)) + "40", backgroundColor: getPriorityHighlightColor(activeDetailEvent.priority, getEventColor(activeDetailEvent, feeds)) + "15" }}>
                 {activeDetailEvent.calendarId === "tasks" ? "Note Task" : activeDetailEvent.calendarId === "due-notes" ? "Due Note" : activeDetailEvent.calendarId === "local" ? "Local Event" : "Calendar Feed"}
@@ -1481,7 +1481,7 @@ export const CalendarView: React.FC = () => {
               {activeDetailEvent.summary}
             </h3>
 
-            <div className="flex flex-col gap-2 bg-[#090a0f] p-3 rounded-xl border border-[#1f2335] text-slate-300">
+            <div className="flex flex-col gap-2 bg-background p-3 rounded-xl border border-card-border text-slate-300">
               <div className="flex items-center gap-2 text-slate-400 font-mono text-[11px]">
                 <Clock className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
                 <span>{activeDetailEvent.date} {activeDetailEvent.startTime ? `@ ${formatTime12(activeDetailEvent.startTime)}` : ""}</span>
