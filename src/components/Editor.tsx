@@ -8,7 +8,7 @@ import { aiService } from "../lib/local-ai";
 import {
   Eye, FileCode, MoreVertical, List, Sparkles, Paintbrush,
   ChevronDown, Search, X, Tag, Clock, CheckSquare, FileText, Paperclip,
-  Globe, Bookmark, Archive, Trash2, LayoutTemplate, RotateCcw, GraduationCap,
+  Globe, Bookmark, Archive, Trash2, LayoutTemplate, RotateCcw, GraduationCap, RotateCw,
   ArrowUpRight, ArrowDownLeft, Copy, ExternalLink, FolderOpen, CopyCheck,
   Layers, GitMerge
 } from "lucide-react";
@@ -52,6 +52,7 @@ export const Editor: React.FC = () => {
   const crepeRef = useRef<Crepe | null>(null);
 
   const [content, setContent] = useState<string>("");
+  const [metadataContent, setMetadataContent] = useState<string>("");
   const saveTimeoutRef = useRef<number | null>(null);
   const prevFilePathRef = useRef<string | null>(null);
   const latestContentRef = useRef<string>("");
@@ -66,6 +67,15 @@ export const Editor: React.FC = () => {
   const [floatingSelection, setFloatingSelection] = useState<FloatingAiSelection | null>(null);
   const [floatingResult, setFloatingResult] = useState<FloatingAiResult | null>(null);
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleClearFloating = () => {
+      setFloatingSelection(null);
+      setFloatingResult(null);
+    };
+    window.addEventListener("clear-floating-ai-selection", handleClearFloating);
+    return () => window.removeEventListener("clear-floating-ai-selection", handleClearFloating);
+  }, []);
 
   const { registerSyncHandler, unregisterSyncHandler } = useSync();
 
@@ -243,21 +253,30 @@ export const Editor: React.FC = () => {
 
     setSaveStatus("saving");
     try {
+      const fileName = filePath.substring(Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\")) + 1);
+      const noteName = fileName.replace(/\.md$/, "");
+      const { fullContent: syncedContent } = ensureAndSyncFrontmatter(contentToSave, {
+        noteName,
+        forceUpdateTimestamp: true,
+      });
+
       await invokeIPC("write_note", {
         path: filePath,
-        content: contentToSave,
+        content: syncedContent,
       });
 
       // SQLite Block & FTS Dual-Sync
       await invokeIPC("sync_note_blocks", {
         filePath,
-        content: contentToSave,
+        content: syncedContent,
       }).catch((e) => console.warn("Background block sync warning:", e));
 
-      originalContentRef.current = contentToSave;
+      originalContentRef.current = syncedContent;
+      latestContentRef.current = syncedContent;
+      setContent(syncedContent);
       isDirtyRef.current = false;
       setSaveStatus("saved");
-      updateNoteCache(filePath, contentToSave);
+      updateNoteCache(filePath, syncedContent);
       refreshFiles();
     } catch (err) {
       console.error("Failed to save note:", err);
@@ -282,6 +301,11 @@ export const Editor: React.FC = () => {
   useEffect(() => {
     let isCancelled = false;
 
+    // Reset floating AI toolbar when switching active notes
+    setFloatingSelection(null);
+    setFloatingResult(null);
+    setIsAiLoading(false);
+
     if (prevFilePathRef.current && prevFilePathRef.current !== activeFile?.path && isDirtyRef.current) {
       flushSaveImmediately(latestContentRef.current, prevFilePathRef.current);
     }
@@ -292,6 +316,7 @@ export const Editor: React.FC = () => {
 
     if (!activeFile) {
       setContent("");
+      setMetadataContent("");
       latestContentRef.current = "";
       originalContentRef.current = "";
       isDirtyRef.current = false;
@@ -310,12 +335,12 @@ export const Editor: React.FC = () => {
         const noteName = activeFile.name.replace(/\.md$/, "");
         const { fullContent } = ensureAndSyncFrontmatter(rawContent, {
           noteName,
-          updater: "user",
         });
 
         if (isCancelled) return;
 
         setContent(fullContent);
+        setMetadataContent(fullContent);
         latestContentRef.current = fullContent;
         originalContentRef.current = fullContent;
         isDirtyRef.current = false;
@@ -335,11 +360,11 @@ export const Editor: React.FC = () => {
 
   // Listen for real-time external disk changes / AI edit commands to update open active file
   useEffect(() => {
-    const handleReload = (e: CustomEvent<{ path: string }>) => {
+    const handleReload = (e: CustomEvent<{ path?: string }>) => {
       const activeClean = activeFile?.path.replace(/\\/g, "/").toLowerCase();
       const targetClean = e.detail?.path?.replace(/\\/g, "/").toLowerCase();
 
-      if (activeFile && targetClean && activeClean === targetClean) {
+      if (activeFile && (!targetClean || activeClean === targetClean)) {
         invokeIPC("read_note", {
           path: activeFile.path,
         })
@@ -347,7 +372,6 @@ export const Editor: React.FC = () => {
             const noteName = activeFile.name.replace(/\.md$/, "");
             const { fullContent } = ensureAndSyncFrontmatter(rawContent as string, {
               noteName,
-              updater: "user",
             });
             setContent(fullContent);
             latestContentRef.current = fullContent;
@@ -408,6 +432,17 @@ export const Editor: React.FC = () => {
   const handleContentChangeTyping = (newVal: string, filePath: string) => {
     setContent(newVal);
     latestContentRef.current = newVal;
+
+    if (newVal === originalContentRef.current) {
+      isDirtyRef.current = false;
+      setSaveStatus("saved");
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      return;
+    }
+
     isDirtyRef.current = true;
     setSaveStatus("saving");
 
@@ -418,21 +453,30 @@ export const Editor: React.FC = () => {
     saveTimeoutRef.current = window.setTimeout(async () => {
       if (!isDirtyRef.current) return;
       try {
+        const fileName = filePath.substring(Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\")) + 1);
+        const noteName = fileName.replace(/\.md$/, "");
+        const { fullContent: syncedContent } = ensureAndSyncFrontmatter(newVal, {
+          noteName,
+          forceUpdateTimestamp: true,
+        });
+
         await invokeIPC("write_note", {
           path: filePath,
-          content: newVal,
+          content: syncedContent,
         });
 
         // Dual-sync to SQLite blocks
         await invokeIPC("sync_note_blocks", {
           filePath,
-          content: newVal,
+          content: syncedContent,
         }).catch(() => { });
 
-        originalContentRef.current = newVal;
+        originalContentRef.current = syncedContent;
+        latestContentRef.current = syncedContent;
+        setMetadataContent(syncedContent);
         isDirtyRef.current = false;
         setSaveStatus("saved");
-        updateNoteCache(filePath, newVal);
+        updateNoteCache(filePath, syncedContent);
         refreshFiles();
       } catch (err) {
         console.error("Auto-save failed:", err);
@@ -444,7 +488,10 @@ export const Editor: React.FC = () => {
 
 
   // AI Selection Action execution
-  const handleExecuteAiAction = async (action: "rewrite" | "explain" | "summarize" | "fix" | "custom", customInstruction?: string) => {
+  const handleExecuteAiAction = async (
+    action: "rewrite" | "explain" | "summarize" | "fix" | "expand" | "shorten" | "flashcard" | "tasks" | "tone" | "custom",
+    customInstruction?: string
+  ) => {
     if (!floatingSelection || !floatingSelection.text) return;
     setIsAiLoading(true);
 
@@ -458,6 +505,16 @@ export const Editor: React.FC = () => {
         resultText = await aiService.summarizeNote(floatingSelection.text);
       } else if (action === "fix") {
         resultText = await aiService.formatMarkdown(floatingSelection.text);
+      } else if (action === "expand") {
+        resultText = await aiService.expandText(floatingSelection.text);
+      } else if (action === "shorten") {
+        resultText = await aiService.shortenText(floatingSelection.text);
+      } else if (action === "flashcard") {
+        resultText = await aiService.makeFlashcards(floatingSelection.text);
+      } else if (action === "tasks") {
+        resultText = await aiService.extractTasks(floatingSelection.text);
+      } else if (action === "tone" && customInstruction) {
+        resultText = await aiService.changeTone(floatingSelection.text, customInstruction);
       } else if (action === "custom" && customInstruction) {
         resultText = await aiService.chat(customInstruction, floatingSelection.text);
       }
@@ -465,7 +522,7 @@ export const Editor: React.FC = () => {
       setFloatingResult({
         originalText: floatingSelection.text,
         aiResultText: resultText || "No response received.",
-        actionType: action,
+        actionType: action === "tone" ? `${customInstruction || "Tone"}` : action,
         coords: floatingSelection.coords
       });
     } catch (err) {
@@ -653,10 +710,10 @@ export const Editor: React.FC = () => {
 
   if (!activeFile) {
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center bg-[#07080c] text-slate-500 select-none">
-        <Sparkles className="h-10 w-10 text-indigo-400/40 mb-3 animate-pulse" />
-        <h3 className="text-sm font-bold text-slate-400">No Note Selected</h3>
-        <p className="text-xs text-slate-600 mt-1 max-w-xs text-center leading-relaxed">
+      <div className="flex h-full w-full flex-col items-center justify-center bg-background text-slate-500 select-none">
+        <Sparkles className="h-10 w-10 text-indigo-500/50 mb-3 animate-pulse" />
+        <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">No Note Selected</h3>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xs text-center leading-relaxed">
           Select a note from the file tree sidebar or create a new note to start writing.
         </p>
       </div>
@@ -828,7 +885,7 @@ export const Editor: React.FC = () => {
   }, [content, activeFile]);
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-[#07080c] relative">
+    <div className="flex h-full w-full overflow-hidden bg-background relative">
       <div className="flex-1 flex flex-col h-full overflow-hidden border-r border-card-border">
 
         {/* Editor Info Bar & Mode Switcher Header */}
@@ -847,9 +904,22 @@ export const Editor: React.FC = () => {
               {activeFile.name.replace(/\.md$/, "")}
             </span>
 
-            <span className="text-[9px] text-slate-600 font-medium ml-2">
-              {saveStatus === "saving" ? "Saving..." : "Saved"}
-            </span>
+            <div className="flex items-center gap-1.5 ml-2">
+              <button
+                onClick={() => {
+                  if (activeFile) {
+                    window.dispatchEvent(new CustomEvent("reload-active-file", { detail: { path: activeFile.path } }));
+                  }
+                }}
+                className="p-1 rounded text-slate-500 hover:text-indigo-400 hover:bg-[#161825] transition-colors cursor-pointer flex items-center justify-center"
+                title="Refresh active note from disk"
+              >
+                <RotateCw className="h-3 w-3" />
+              </button>
+              <span className="text-[9px] text-slate-600 font-medium">
+                {saveStatus === "saving" ? "Saving..." : "Saved"}
+              </span>
+            </div>
           </div>
 
           {/* Right: Mode Switcher (Preview vs Source), Format, Menu */}
@@ -857,12 +927,12 @@ export const Editor: React.FC = () => {
             {!isLogFile && (
               <>
                 {/* Simplified Mode Switcher: Preview (Sole Editor) vs Source (Read-only Markdown) */}
-                <div className="flex items-center gap-0.5 bg-[#161825] border border-slate-800 rounded-lg p-0.5">
+                <div className="flex items-center gap-0.5 bg-card border border-card-border rounded-lg p-0.5">
                   <button
                     onClick={() => setEditMode("preview")}
                     className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${editMode === "preview"
                         ? "bg-indigo-600 text-white shadow-sm"
-                        : "text-slate-400 hover:text-slate-200 hover:bg-card-border"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-card-hover"
                       }`}
                     title="Interactive Rich WYSIWYG Editor"
                   >
@@ -873,7 +943,7 @@ export const Editor: React.FC = () => {
                     onClick={() => setEditMode("source")}
                     className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${editMode === "source"
                         ? "bg-indigo-600 text-white shadow-sm"
-                        : "text-slate-400 hover:text-slate-200 hover:bg-card-border"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-card-hover"
                       }`}
                     title="Read-Only Raw Markdown Syntax View"
                   >
@@ -887,7 +957,7 @@ export const Editor: React.FC = () => {
                   <button
                     onClick={() => setShowFormatDropdown((prev) => !prev)}
                     disabled={isFormatting}
-                    className="flex items-center gap-1 rounded-md bg-[#161825] border border-slate-800 px-2.5 py-1 text-[10px] font-bold text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+                    className="flex items-center gap-1 rounded-md bg-card border border-card-border px-2.5 py-1 text-[10px] font-bold text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-card-hover transition-colors cursor-pointer"
                   >
                     <Paintbrush className={`h-3 w-3 ${isFormatting ? "animate-spin" : "text-indigo-400"}`} />
                     {isFormatting ? "Formatting..." : "Format"}
@@ -895,16 +965,16 @@ export const Editor: React.FC = () => {
                   </button>
 
                   {showFormatDropdown && (
-                    <div className="absolute right-0 top-7 z-200 w-44 rounded-lg border border-card-border bg-card p-1 shadow-xl text-slate-300 animate-fade-in">
+                    <div className="absolute right-0 top-7 z-200 w-44 rounded-lg border border-card-border bg-card p-1 shadow-xl text-foreground animate-fade-in">
                       <button
                         onClick={handleFastFormat}
-                        className="w-full rounded-md px-2.5 py-1.5 text-left text-[10px] font-semibold hover:bg-indigo-600/20 hover:text-indigo-300 transition-colors cursor-pointer"
+                        className="w-full rounded-md px-2.5 py-1.5 text-left text-[10px] font-semibold hover:bg-card-hover hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors cursor-pointer"
                       >
                         Clean Formatting
                       </button>
                       <button
                         onClick={handleAiFormat}
-                        className="w-full rounded-md px-2.5 py-1.5 text-left text-[10px] font-semibold hover:bg-indigo-600/20 hover:text-indigo-300 transition-colors cursor-pointer"
+                        className="w-full rounded-md px-2.5 py-1.5 text-left text-[10px] font-semibold hover:bg-card-hover hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors cursor-pointer"
                       >
                         AI Format &amp; Polish
                       </button>
@@ -924,7 +994,7 @@ export const Editor: React.FC = () => {
                 <MoreVertical className="h-4 w-4" />
               </button>
               {isMoreOptionsOpen && (
-                <div className="absolute right-0 top-7 z-250 w-56 rounded-xl border border-card-border bg-card p-1.5 shadow-2xl animate-fade-in text-slate-300 text-[11px] space-y-0.5">
+                <div className="absolute right-0 top-7 z-250 w-56 rounded-xl border border-card-border bg-card p-1.5 shadow-2xl animate-fade-in text-foreground text-[11px] space-y-0.5">
                   {!isLogFile && (
                     <>
                       <button
@@ -964,13 +1034,13 @@ export const Editor: React.FC = () => {
                       setIsMoreOptionsOpen(false);
                       setTimeout(() => findInputRef.current?.focus(), 50);
                     }}
-                    className="w-full rounded-lg px-2.5 py-1.5 text-left font-medium hover:bg-indigo-600/20 hover:text-indigo-300 transition-colors cursor-pointer flex items-center justify-between"
+                    className="w-full rounded-lg px-2.5 py-1.5 text-left font-medium hover:bg-card-hover hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors cursor-pointer flex items-center justify-between"
                   >
                     <span className="flex items-center gap-2">
                       <Search className="h-3.5 w-3.5 text-sky-400" />
                       <span>Find &amp; Replace</span>
                     </span>
-                    <span className="text-[9px] font-mono text-slate-500 bg-[#161825] px-1.5 py-0.5 rounded border border-slate-800">⌘F</span>
+                    <span className="text-[9px] font-mono text-slate-500 bg-sidebar px-1.5 py-0.5 rounded border border-card-border">⌘F</span>
                   </button>
 
                   {/* Export to PDF */}
@@ -979,13 +1049,13 @@ export const Editor: React.FC = () => {
                       window.print();
                       setIsMoreOptionsOpen(false);
                     }}
-                    className="w-full rounded-lg px-2.5 py-1.5 text-left font-medium hover:bg-indigo-600/20 hover:text-indigo-300 transition-colors cursor-pointer flex items-center justify-between"
+                    className="w-full rounded-lg px-2.5 py-1.5 text-left font-medium hover:bg-card-hover hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors cursor-pointer flex items-center justify-between"
                   >
                     <span className="flex items-center gap-2">
                       <FileText className="h-3.5 w-3.5 text-emerald-400" />
                       <span>Export to PDF</span>
                     </span>
-                    <span className="text-[9px] font-mono text-slate-500 bg-[#161825] px-1.5 py-0.5 rounded border border-slate-800">⌘P</span>
+                    <span className="text-[9px] font-mono text-slate-500 bg-sidebar px-1.5 py-0.5 rounded border border-card-border">⌘P</span>
                   </button>
 
                   <div className="h-px bg-card-border my-1" />
@@ -1026,7 +1096,7 @@ export const Editor: React.FC = () => {
                       <FolderOpen className="h-3.5 w-3.5 text-amber-400" />
                       <span>Reveal in Finder / Explorer</span>
                     </span>
-                    <span className="text-[9px] font-mono text-slate-500 bg-[#161825] px-1.5 py-0.5 rounded border border-slate-800">⌘⇧R</span>
+                    <span className="text-[9px] font-mono text-slate-500 bg-sidebar px-1.5 py-0.5 rounded border border-card-border">⌘⇧R</span>
                   </button>
 
                   {/* Open with Default External Editor */}
@@ -1132,7 +1202,7 @@ export const Editor: React.FC = () => {
         {/* Persistent Interactive Metadata Options & Details Strip (Attached directly below top toolbar) */}
         {activeFile && (
           <MetadataBar
-            content={content}
+            content={metadataContent || content}
             onUpdateContent={(newVal) => handleContentChangeTyping(newVal, activeFile.path)}
             onBookmarkNote={() => activeFile && bookmarkNote(activeFile.path)}
             onArchiveNote={() => activeFile && archiveNote(activeFile.path)}
@@ -1239,7 +1309,7 @@ export const Editor: React.FC = () => {
         )}
 
         {/* Main Editor Pane: Preview (WYSIWYG) vs Source (Read-only CodeMirror) */}
-        <div id="editor-workspace-container" className="flex-1 overflow-hidden relative flex bg-[#07080c]">
+        <div id="editor-workspace-container" className="flex-1 overflow-hidden relative flex bg-background">
           {editMode === "preview" ? (
             <div className="flex-1 h-full overflow-hidden relative">
               <WysiwygEditor
@@ -1251,7 +1321,12 @@ export const Editor: React.FC = () => {
                 }}
                 onSelectionChange={(text, coords) => {
                   if (!text || !coords) {
-                    setFloatingSelection(null);
+                    // Don't clear the toolbar while AI is processing or a result card is showing —
+                    // pressing Enter in the custom input causes a selectionchange that would
+                    // otherwise close the toolbar before the response arrives.
+                    if (!isAiLoading && !floatingResult) {
+                      setFloatingSelection(null);
+                    }
                   } else {
                     setFloatingSelection({ text, coords });
                   }
@@ -1279,7 +1354,7 @@ export const Editor: React.FC = () => {
 
         {/* Bottom Status Bar: Partitioned into 3 Sections (TAGS, INCOMING, OUTGOING) */}
         <div className="h-7 border-t border-card-border bg-sidebar grid grid-cols-3 text-[10px] text-slate-400 shrink-0 select-none w-full">
-          {/* Section 1: TAGS */}
+          {/* Section 1: TAGS BAR */}
           <div className="flex items-center gap-1.5 px-3 border-r border-card-border overflow-x-auto scrollbar-none h-full">
             <span className="text-[8.5px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 shrink-0">
               <Tag className="h-2.5 w-2.5 text-indigo-400" />
@@ -1294,13 +1369,13 @@ export const Editor: React.FC = () => {
                       const event = new CustomEvent("kognote-select-tag", { detail: { tag } });
                       window.dispatchEvent(event);
                     }}
-                    className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 font-semibold hover:bg-indigo-600/20 hover:text-white transition-colors cursor-pointer shrink-0"
+                    className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-300 font-semibold hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600/30 dark:hover:text-indigo-200 transition-colors cursor-pointer shrink-0"
                   >
                     #{tag}
                   </button>
                 ))
               ) : (
-                <span className="text-[9px] text-slate-600 italic">No tags</span>
+                <span className="text-[9px] text-slate-500 italic">No tags</span>
               )}
             </div>
           </div>
@@ -1317,14 +1392,14 @@ export const Editor: React.FC = () => {
                   <button
                     key={linkTarget}
                     onClick={() => openNoteByName(linkTarget)}
-                    className="text-[9px] px-1.5 py-0.5 rounded bg-sky-500/10 border border-sky-500/20 text-sky-300 font-semibold hover:bg-sky-500/20 hover:text-white transition-colors cursor-pointer shrink-0 flex items-center gap-0.5"
+                    className="text-[9px] px-1.5 py-0.5 rounded bg-sky-500/10 border border-sky-500/20 text-sky-600 dark:text-sky-300 font-semibold hover:bg-sky-500 hover:text-white dark:hover:bg-sky-500/20 dark:hover:text-sky-200 transition-colors cursor-pointer shrink-0 flex items-center gap-0.5"
                     title={`Incoming backlink from [[${linkTarget}]]`}
                   >
                     <span>[[{linkTarget}]]</span>
                   </button>
                 ))
               ) : (
-                <span className="text-[9px] text-slate-600 italic">No incoming</span>
+                <span className="text-[9px] text-slate-500 italic">No incoming</span>
               )}
             </div>
           </div>
@@ -1341,14 +1416,14 @@ export const Editor: React.FC = () => {
                   <button
                     key={linkTarget}
                     onClick={() => openNoteByName(linkTarget)}
-                    className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-600/15 border border-cyan-400/30 text-cyan-200 font-semibold hover:bg-cyan-600/25 hover:text-white transition-colors cursor-pointer shrink-0 flex items-center gap-0.5"
+                    className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-600/15 border border-cyan-400/30 text-cyan-600 dark:text-cyan-200 font-semibold hover:bg-cyan-600 hover:text-white dark:hover:bg-cyan-600/25 dark:hover:text-cyan-200 transition-colors cursor-pointer shrink-0 flex items-center gap-0.5"
                     title={`Outgoing link to [[${linkTarget}]]`}
                   >
                     <span>[[{linkTarget}]]</span>
                   </button>
                 ))
               ) : (
-                <span className="text-[9px] text-slate-600 italic">No outgoing</span>
+                <span className="text-[9px] text-slate-500 italic">No outgoing</span>
               )}
             </div>
 
@@ -1361,7 +1436,7 @@ export const Editor: React.FC = () => {
         </div>
 
         {/* Secondary Telemetry & Note Stats Bar */}
-        <div className="h-7 border-t border-card-border bg-[#07080c] px-4 flex items-center justify-between text-[10px] text-slate-500 shrink-0 select-none font-mono">
+        <div className="h-7 border-t border-card-border bg-sidebar px-4 flex items-center justify-between text-[10px] text-slate-500 shrink-0 select-none font-mono">
           {/* Left Side: Tasks, Flashcards, Attachments & Web Links */}
           <div className="flex items-center gap-4">
             {/* Task Completion */}

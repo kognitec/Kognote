@@ -17,7 +17,7 @@ import { CopilotChat } from "./CopilotChat";
 import { CommandPalette } from "./CommandPalette";
 import { CreateFileModal } from "./CreateFileModal";
 import { AttachmentViewer } from "./AttachmentViewer";
-import { FileText, Network, X, Plus, FolderX } from "lucide-react";
+import { FileText, Network, X, SquareX } from "lucide-react";
 import { FileEntry, NoteCachedData } from "../types/note";
 import aiStaticIcon from "../assets/ai-static.png";
 import { getFileIcon } from "../lib/file-icons";
@@ -90,7 +90,6 @@ export const Layout: React.FC = () => {
     openFile,
     closeFile,
     setActiveView,
-    setCreateFileModal,
     noteCache,
     triggerNotesScan
   } = useVault();
@@ -103,6 +102,36 @@ export const Layout: React.FC = () => {
   const isResizingRef = useRef(false);
 
   const [draggedPath, setDraggedPath] = useState<string | null>(null);
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
+  const [isTabsSquished, setIsTabsSquished] = useState(false);
+
+  useEffect(() => {
+    const handleOpenAiPrompt = () => {
+      setIsChatOpen(true);
+      window.dispatchEvent(new CustomEvent("clear-floating-ai-selection"));
+    };
+    window.addEventListener("open-ai-chat-with-prompt", handleOpenAiPrompt);
+    return () => window.removeEventListener("open-ai-chat-with-prompt", handleOpenAiPrompt);
+  }, []);
+
+  // Dynamic detection for tab squishing / crowded workspace
+  useEffect(() => {
+    const checkSquished = () => {
+      if (tabsContainerRef.current) {
+        const { clientWidth, scrollWidth } = tabsContainerRef.current;
+        const avgTabWidth = clientWidth / (openFiles.length || 1);
+        const squished = scrollWidth > clientWidth || (openFiles.length >= 4 && avgTabWidth < 125);
+        setIsTabsSquished(squished);
+      }
+    };
+
+    checkSquished();
+    const observer = new ResizeObserver(checkSquished);
+    if (tabsContainerRef.current) {
+      observer.observe(tabsContainerRef.current);
+    }
+    return () => observer.disconnect();
+  }, [openFiles.length, sidebarWidth, isSidebarVisible]);
 
   const handleDragStart = (e: React.DragEvent, path: string) => {
     setDraggedPath(path);
@@ -283,7 +312,7 @@ export const Layout: React.FC = () => {
           {(activeView === "editor" || activeView === "canvas") && openFiles.length > 0 && (
             <div className="flex items-end bg-sidebar/80 backdrop-blur-sm border-b border-white/5 px-2 h-9 select-none shrink-0 gap-px w-full" style={{ boxShadow: 'inset 0 -1px 0 rgba(255,255,255,0.04)' }}>
               {/* Tabs List */}
-              <div className="flex items-end flex-1 min-w-0 h-full overflow-hidden gap-px">
+              <div ref={tabsContainerRef} className="flex items-end flex-1 min-w-0 h-full overflow-hidden gap-px">
                 {openFiles.map((tab) => {
                   const isActive = activeFile?.path === tab.path;
                   // Strip only .excalidraw and .md extensions — preserve attachment extensions for clarity
@@ -325,28 +354,22 @@ export const Layout: React.FC = () => {
                     </div>
                   );
                 })}
-
               </div>
 
-              {/* Close Others Button */}
+              {/* Right-Aligned Close Other Tabs Button with Dynamic Faint Glow when squished */}
               {openFiles.length > 1 && (
                 <button
                   onClick={handleCloseOthers}
                   title="Close other tabs"
-                  className="mb-1 p-1 rounded-md text-slate-500 hover:text-rose-400 hover:bg-slate-800/80 transition-colors cursor-pointer shrink-0 ml-1"
+                  className={`mb-1 p-1 rounded-md transition-all cursor-pointer shrink-0 ml-1.5 flex items-center justify-center ${
+                    isTabsSquished
+                      ? "bg-rose-500/20 text-rose-400 border border-rose-500/40 shadow-[0_0_12px_rgba(244,63,94,0.4)] animate-pulse hover:bg-rose-500/30 hover:shadow-[0_0_16px_rgba(244,63,94,0.6)]"
+                      : "text-slate-500 hover:text-rose-400 hover:bg-slate-800/80 border border-transparent"
+                  }`}
                 >
-                  <FolderX className="h-3.5 w-3.5" />
+                  <SquareX className="h-3.5 w-3.5" />
                 </button>
               )}
-
-              {/* Chrome-style New Tab "+" Button */}
-              <button
-                onClick={() => setCreateFileModal({ isOpen: true, parentDir: null })}
-                title="New File"
-                className="mb-1 p-1 rounded-md text-slate-500 hover:text-slate-200 hover:bg-slate-800/80 transition-colors cursor-pointer shrink-0 ml-1"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
             </div>
           )}
 
@@ -366,9 +389,9 @@ export const Layout: React.FC = () => {
                       <div className="p-4 rounded-full bg-white/5 border border-white/6 backdrop-blur-md shadow-xl">
                         <FileText className="h-8 w-8 text-[#d946ef]" />
                       </div>
-                      <h3 className="text-sm font-semibold text-slate-300">No open notes</h3>
+                      <h3 className="text-sm font-semibold text-foreground">No open notes</h3>
                       <p className="text-xs text-slate-500 leading-relaxed">
-                        Select a note from the file tree sidebar, or press <kbd className="bg-white/5 px-1 py-0.5 rounded border border-white/10 text-indigo-400 font-bold">Cmd + K</kbd> to find notes or run quick commands.
+                        Select a note from the file tree sidebar, or press <kbd className="bg-sidebar px-1.5 py-0.5 rounded border border-card-border text-indigo-500 dark:text-indigo-400 font-bold font-mono">Cmd + K</kbd> to find notes or run quick commands.
                       </p>
                     </div>
                   </div>
@@ -425,13 +448,14 @@ export const Layout: React.FC = () => {
         </div>
       </div>
 
-      {/* Floating Linear AI Chat Panel (Attached vs Independent Detached Window) */}
+      {/* Floating Linear AI Chat Panel (Attached Dock vs Independent Detached Window) */}
       {isChatOpen && (
         <div
-          className={`fixed transition-all duration-300 backdrop-blur-md flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 ${isChatDetached
-              ? "top-14 right-8 z-250 w-125 sm:w-140 h-170 max-h-[calc(100vh-80px)] bg-background/95 border border-indigo-500/50 rounded-2xl shadow-[0_35px_80px_rgba(0,0,0,0.9)] shadow-indigo-500/20 resize drop-shadow-2xl"
-              : "bottom-10 right-2 z-100 w-97.5 sm:w-107.5 h-137.5 max-h-[calc(100vh-60px)] bg-background/80 border border-card-border/80 rounded-2xl shadow-[0_25px_60px_rgba(0,0,0,0.75)]"
-            }`}
+          className={`fixed transition-all duration-300 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 ${
+            isChatDetached
+              ? "top-14 right-6 z-250 w-145 h-187.5 max-w-[92vw] max-h-[85vh] bg-background/95 border border-indigo-500/50 rounded-2xl shadow-[0_35px_80px_rgba(0,0,0,0.9)] shadow-indigo-500/20 backdrop-blur-2xl resize overflow-auto drop-shadow-2xl"
+              : "bottom-10 right-3 z-100 w-100 sm:w-110 h-145 max-h-[calc(100vh-60px)] bg-background/90 border border-card-border/80 rounded-2xl shadow-[0_25px_60px_rgba(0,0,0,0.75)] backdrop-blur-xl"
+          }`}
         >
           <CopilotChat
             onClose={() => setIsChatOpen(false)}

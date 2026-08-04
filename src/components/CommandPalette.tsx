@@ -14,11 +14,10 @@ import {
   Tag,
   ArrowRight,
   Filter,
-  Brain,
 } from "lucide-react";
 import { getFileIcon } from "../lib/file-icons";
 
-type SearchMode = "all" | "files" | "commands" | "semantic" | "tags";
+type SearchMode = "all" | "files" | "commands" | "semantic" | "tags" | "ai";
 
 interface CommandItem {
   id: string;
@@ -77,6 +76,10 @@ export const CommandPalette: React.FC = () => {
       { id: "v-board", name: "Switch to Kanban Project Board View", desc: "Manage project kanban task columns", shortcut: "/board", category: "Navigation", action: () => window.dispatchEvent(new CustomEvent("cmd-switch-view", { detail: "board" })), type: "command" },
 
       // AI & Formatting
+      { id: "ai-ask", name: "✨ Ask Kognote AI...", desc: "Send direct query or instruction to AI Copilot assistant", shortcut: "/ask", category: "AI & Formatting", action: () => {
+        setQuery("ai:");
+        setActiveMode("ai");
+      }, type: "command" },
       { id: "ai-format", name: "AI Format & Polish Document", desc: "Polishes grammar, styling, and markdown structure using AI", shortcut: "/aiformat", category: "AI & Formatting", action: () => window.dispatchEvent(new CustomEvent("trigger-ai-format")), type: "command" },
       { id: "ai-continue", name: "AI Continue Writing Note", desc: "Appends style-matched text predictions at active cursor", shortcut: "/continue", category: "AI & Formatting", action: () => window.dispatchEvent(new CustomEvent("trigger-continue-writing")), type: "command" },
       { id: "ai-rewrite", name: "AI Rewrite Selected Text Selection", desc: "Polishes highlighted note paragraph inline for clarity", shortcut: "/rewrite", category: "AI & Formatting", action: () => window.dispatchEvent(new CustomEvent("trigger-rewrite")), type: "command" },
@@ -158,6 +161,8 @@ export const CommandPalette: React.FC = () => {
       if (activeMode !== "semantic") setActiveMode("semantic");
     } else if (query.startsWith("#")) {
       if (activeMode !== "tags") setActiveMode("tags");
+    } else if (query.startsWith("ai:")) {
+      if (activeMode !== "ai") setActiveMode("ai");
     }
   }, [query, activeMode, isOpen]);
 
@@ -170,8 +175,8 @@ export const CommandPalette: React.FC = () => {
     const lowercaseQuery = rawQuery.toLowerCase();
 
     let cleanQuery = lowercaseQuery;
-    if (cleanQuery.startsWith("/") || cleanQuery.startsWith("?") || cleanQuery.startsWith("#")) {
-      cleanQuery = cleanQuery.substring(1).trim();
+    if (cleanQuery.startsWith("/") || cleanQuery.startsWith("?") || cleanQuery.startsWith("#") || cleanQuery.startsWith("ai:")) {
+      cleanQuery = cleanQuery.replace(/^(\/|\?|\#|ai:)\s*/i, "").trim();
     }
 
     // 1. Commands matching
@@ -181,7 +186,23 @@ export const CommandPalette: React.FC = () => {
       cmd.desc.toLowerCase().includes(cleanQuery)
     );
 
-    // 2. Empty Query State
+    // 2. AI Prompt Direct Mode
+    if (activeMode === "ai" || rawQuery.startsWith("ai:")) {
+      const aiPrompt = rawQuery.replace(/^ai:\s*/i, "").trim();
+      setResults([
+        {
+          id: "ask-ai-prompt",
+          name: aiPrompt ? `✨ Ask Kognote AI: "${aiPrompt}"` : "✨ Ask Kognote AI...",
+          desc: "Send query directly to AI Copilot assistant",
+          promptText: aiPrompt,
+          type: "ask-ai",
+        }
+      ]);
+      setSelectedIndex(0);
+      return;
+    }
+
+    // 3. Empty Query State
     if (!rawQuery) {
       const recentItems: any[] = [];
       recentPaths.forEach((path) => {
@@ -304,6 +325,21 @@ export const CommandPalette: React.FC = () => {
         }
       });
 
+      // Rank file title matches by relevance (Exact match > Starts with > Substring)
+      fileMatches.sort((a, b) => {
+        const aName = a.name.toLowerCase().replace(/\.md$/, "");
+        const bName = b.name.toLowerCase().replace(/\.md$/, "");
+        const aExact = aName === cleanQuery;
+        const bExact = bName === cleanQuery;
+        if (aExact !== bExact) return aExact ? -1 : 1;
+
+        const aStarts = aName.startsWith(cleanQuery);
+        const bStarts = bName.startsWith(cleanQuery);
+        if (aStarts !== bStarts) return aStarts ? -1 : 1;
+
+        return aName.localeCompare(bName);
+      });
+
       const exactTitleMatch = flatFiles.some((f) => f.name.replace(/\.md$/, "").toLowerCase() === cleanQuery);
       const createActionItem = !exactTitleMatch && cleanQuery.length > 0 ? [{
         id: "create-note-action",
@@ -317,10 +353,10 @@ export const CommandPalette: React.FC = () => {
         mergedResults = [...createActionItem, ...fileMatches, ...contentMatches];
       } else {
         mergedResults = [
-          ...matchingCmds.slice(0, 2),
+          ...matchingCmds.slice(0, 3),
           ...createActionItem,
-          ...fileMatches.slice(0, 6),
-          ...contentMatches.slice(0, 4),
+          ...fileMatches.slice(0, 8),
+          ...contentMatches.slice(0, 5),
         ];
       }
 
@@ -332,12 +368,44 @@ export const CommandPalette: React.FC = () => {
     return () => clearTimeout(timer);
   }, [query, files, activeMode, COMMANDS, getFlatFiles, recentPaths, noteCache, isOpen]);
 
+  const highlightMatch = useCallback((text: string, searchStr: string) => {
+    if (!searchStr || !text) return text;
+    const cleanQ = searchStr.trim().replace(/^[\/\?\#]/, "").toLowerCase();
+    if (!cleanQ) return text;
+    const lower = text.toLowerCase();
+    const idx = lower.indexOf(cleanQ);
+    if (idx === -1) return text;
+    return (
+      <>
+        {text.slice(0, idx)}
+        <span className="bg-indigo-500/35 text-indigo-100 font-bold px-0.5 rounded border border-indigo-400/30">
+          {text.slice(idx, idx + cleanQ.length)}
+        </span>
+        {text.slice(idx + cleanQ.length)}
+      </>
+    );
+  }, []);
+
   // Keyboard navigation inside modal
   useEffect(() => {
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "ArrowDown") {
+      if (e.key === "Tab") {
+        e.preventDefault();
+        const modes: SearchMode[] = ["all", "files", "commands", "semantic", "tags"];
+        setActiveMode((prev) => {
+          const nextIdx = (modes.indexOf(prev) + 1) % modes.length;
+          const nextMode = modes[nextIdx];
+          if (nextMode === "commands" && !query.startsWith("/")) setQuery("/");
+          else if (nextMode === "semantic" && !query.startsWith("?")) setQuery("?");
+          else if (nextMode === "tags" && !query.startsWith("#")) setQuery("#");
+          else if (nextMode === "all" || nextMode === "files") {
+            if (query.startsWith("/") || query.startsWith("?") || query.startsWith("#")) setQuery("");
+          }
+          return nextMode;
+        });
+      } else if (e.key === "ArrowDown") {
         e.preventDefault();
         setSelectedIndex((prev) => (prev + 1) % Math.max(1, results.length));
       } else if (e.key === "ArrowUp") {
@@ -353,7 +421,7 @@ export const CommandPalette: React.FC = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, results, selectedIndex]);
+  }, [isOpen, results, selectedIndex, query]);
 
   // Select item action
   const handleSelect = async (item: any) => {
@@ -361,6 +429,8 @@ export const CommandPalette: React.FC = () => {
 
     if (item.type === "command") {
       item.action();
+    } else if (item.type === "ask-ai") {
+      window.dispatchEvent(new CustomEvent("open-ai-chat-with-prompt", { detail: item.promptText || "" }));
     } else if (item.type === "create-note") {
       try {
         const title = item.queryTitle;
@@ -410,10 +480,10 @@ export const CommandPalette: React.FC = () => {
       <div className="absolute inset-0" onClick={() => setIsOpen(false)} />
 
       {/* Palette Card */}
-      <div className="relative w-full max-w-2xl rounded-xl border border-[#1e2338] bg-[#0c0e17]/95 shadow-2xl overflow-hidden text-slate-200 flex flex-col max-h-[75vh] animate-modal-pop">
+      <div className="relative w-full max-w-2xl rounded-xl border border-card-border bg-card shadow-2xl overflow-hidden text-foreground flex flex-col max-h-[75vh] animate-modal-pop">
         
         {/* Top Input Bar */}
-        <div className="flex h-13 items-center gap-3 px-4 border-b border-[#1e2338] bg-[#0f111d]">
+        <div className="flex h-13 items-center gap-3 px-4 border-b border-card-border bg-card">
           {activeMode === "semantic" || query.startsWith("?") ? (
             <Sparkles className="h-5 w-5 text-indigo-400 animate-pulse shrink-0" />
           ) : activeMode === "commands" || query.startsWith("/") ? (
@@ -430,26 +500,26 @@ export const CommandPalette: React.FC = () => {
             placeholder="Search notes, type '/' for commands, '?' for AI semantic search, '#' for tags..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="flex-1 bg-transparent text-sm placeholder-slate-500 focus:outline-none text-slate-100 font-medium"
+            className="flex-1 bg-transparent text-sm placeholder-slate-400 focus:outline-none text-foreground font-medium"
           />
 
           {query && (
             <button
               onClick={() => { setQuery(""); setActiveMode("all"); }}
-              className="text-xs text-slate-500 hover:text-slate-300 cursor-pointer px-1.5 py-0.5 rounded bg-[#181b2a]"
+              className="text-xs text-slate-500 hover:text-slate-300 cursor-pointer px-1.5 py-0.5 rounded bg-sidebar border border-card-border"
             >
               Clear
             </button>
           )}
 
-          <div className="rounded-md bg-[#161928] px-2 py-0.5 text-[10px] font-bold text-slate-400 border border-[#232840] shrink-0 font-mono">
+          <div className="rounded-md bg-sidebar px-2 py-0.5 text-[10px] font-bold text-slate-500 border border-card-border shrink-0 font-mono">
             ESC
           </div>
         </div>
 
         {/* Filter Mode Switcher Bar */}
-        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[#1a1e30] bg-[#090b12] text-[11px] font-semibold text-slate-400 overflow-x-auto shrink-0">
-          <span className="text-[10px] text-slate-600 uppercase tracking-widest px-1 font-bold flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-card-border bg-sidebar text-[11px] font-semibold text-slate-500 overflow-x-auto shrink-0">
+          <span className="text-[10px] text-slate-500 uppercase tracking-widest px-1 font-bold flex items-center gap-1 shrink-0">
             <Filter className="h-3 w-3" /> Mode:
           </span>
           {[
@@ -476,8 +546,8 @@ export const CommandPalette: React.FC = () => {
                 }}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all cursor-pointer whitespace-nowrap ${
                   isActive
-                    ? "bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 font-bold"
-                    : "hover:bg-[#151828] text-slate-400 hover:text-slate-200 border border-transparent"
+                    ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/40 font-bold"
+                    : "hover:bg-card-hover text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 border border-transparent"
                 }`}
               >
                 <Icon className={`h-3 w-3 ${isActive ? "text-indigo-400" : "text-slate-500"}`} />
@@ -507,12 +577,12 @@ export const CommandPalette: React.FC = () => {
                   onMouseEnter={() => setSelectedIndex(idx)}
                   className={`flex flex-col gap-1 rounded-lg p-2.5 cursor-pointer border transition-all ${
                     isSelected
-                      ? "bg-indigo-600/15 text-slate-100 border-indigo-500/40 shadow-sm"
-                      : "hover:bg-[#141624] border-transparent text-slate-300"
+                      ? "bg-indigo-600/15 text-foreground border-indigo-500/40 shadow-sm"
+                      : "hover:bg-card-hover border-transparent text-slate-700 dark:text-slate-300"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-200 min-w-0 flex-1">
+                    <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-800 dark:text-slate-200 min-w-0 flex-1">
                       {item.type === "command" ? (
                         <Terminal className="h-4 w-4 text-amber-400 shrink-0" />
                       ) : item.type === "create-note" ? (
@@ -525,7 +595,9 @@ export const CommandPalette: React.FC = () => {
                         getFileIcon(item, noteCache, { className: "h-4 w-4 shrink-0 text-indigo-300" })
                       )}
 
-                      <span className="truncate font-medium text-[13px]">{item.name}</span>
+                      <span className="truncate font-medium text-[13px]">
+                        {highlightMatch(item.name, query)}
+                      </span>
                     </div>
 
                     {/* Right Badges */}
@@ -551,7 +623,7 @@ export const CommandPalette: React.FC = () => {
                         {item.count} notes
                       </span>
                     ) : item.type === "recent" ? (
-                      <span className="text-[9.5px] font-semibold text-slate-500 bg-[#161928] px-1.5 py-0.5 rounded border border-[#232840] shrink-0">
+                      <span className="text-[9.5px] font-semibold text-slate-500 bg-sidebar px-1.5 py-0.5 rounded border border-card-border shrink-0">
                         Recent
                       </span>
                     ) : null}
@@ -559,26 +631,26 @@ export const CommandPalette: React.FC = () => {
 
                   {/* Description / Path / Snippet */}
                   {item.desc && (
-                    <p className="text-[11px] text-slate-400 leading-relaxed pl-6 font-normal">
-                      {item.desc}
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed pl-6 font-normal">
+                      {highlightMatch(item.desc, query)}
                     </p>
                   )}
 
                   {item.path && item.type !== "command" && (
                     <p className="text-[10.5px] text-slate-500 pl-6 truncate font-mono">
-                      {item.path}
+                      {highlightMatch(item.path, query)}
                     </p>
                   )}
 
                   {item.snippet && (
                     <p className="text-[11px] text-slate-300 leading-relaxed pl-6 border-l-2 border-indigo-500/50 italic bg-indigo-500/5 py-1 px-2 rounded-r mt-0.5">
-                      "{item.snippet}"
+                      "{highlightMatch(item.snippet, query)}"
                     </p>
                   )}
 
                   {item.chunkText && (
                     <p className="text-[11px] text-slate-300 line-clamp-2 leading-relaxed pl-6 border-l-2 border-indigo-500/50 italic bg-indigo-500/5 py-1 px-2 rounded-r mt-0.5">
-                      "{item.chunkText}"
+                      "{highlightMatch(item.chunkText, query)}"
                     </p>
                   )}
 
@@ -609,23 +681,23 @@ export const CommandPalette: React.FC = () => {
         </div>
 
         {/* Footer Navigation Bar */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-t border-[#1e2338] bg-[#090b12] text-[10.5px] text-slate-500 font-medium shrink-0">
+        <div className="flex items-center justify-between px-4 py-2.5 border-t border-card-border bg-sidebar text-[10.5px] text-slate-500 font-medium shrink-0">
           <div className="flex items-center gap-2">
-            <Brain className="h-3.5 w-3.5 text-indigo-400" />
+            <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
             <span>Kognote Global Palette & Vector Search</span>
           </div>
 
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1">
-              <kbd className="rounded bg-[#161928] px-1.5 py-0.5 text-[9.5px] font-mono border border-[#232840] text-slate-400">↑↓</kbd>
+              <kbd className="rounded bg-card px-1.5 py-0.5 text-[9.5px] font-mono border border-card-border text-slate-600 dark:text-slate-400">↑↓</kbd>
               <span>navigate</span>
             </div>
             <div className="flex items-center gap-1">
-              <kbd className="rounded bg-[#161928] px-1.5 py-0.5 text-[9.5px] font-mono border border-[#232840] text-slate-400">↵</kbd>
+              <kbd className="rounded bg-card px-1.5 py-0.5 text-[9.5px] font-mono border border-card-border text-slate-600 dark:text-slate-400">↵</kbd>
               <span>run</span>
             </div>
             <div className="flex items-center gap-1">
-              <kbd className="rounded bg-[#161928] px-1.5 py-0.5 text-[9.5px] font-mono border border-[#232840] text-slate-400">ESC</kbd>
+              <kbd className="rounded bg-card px-1.5 py-0.5 text-[9.5px] font-mono border border-card-border text-slate-600 dark:text-slate-400">ESC</kbd>
               <span>close</span>
             </div>
           </div>

@@ -8,45 +8,52 @@ import { Plugin, TextSelection } from "@milkdown/kit/prose/state";
 import { prosePluginsCtx, editorViewCtx, commandsCtx } from "@milkdown/kit/core";
 import { clearTextInCurrentBlockCommand } from "@milkdown/kit/preset/commonmark";
 import { useVault, FileEntry } from "../../contexts/VaultContext";
+import { useSettings } from "../../contexts/SettingsContext";
 import { invokeIPC } from "../../lib/ipc";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { FileText, Tag as TagIcon, Calendar } from "lucide-react";
-import { getDateSuggestions, formatDateISO, isDateQueryCompleted } from "../../lib/date-parser";
-import { parseFrontmatter } from "../../lib/frontmatter";
-import { getShortestUniquePath } from "../../lib/wikilink-utils";
+import { getDateSuggestions, formatDateISO, isDateQueryCompleted, formatUtcIsoFromDateAndTime, formatTime12 } from "../../lib/date-parser";
+import { parseFrontmatter, getZonedDateParts } from "../../lib/frontmatter";
+import { getShortestUniquePath, processMarkdownImages, resolveLocalImagePath, cleanEscapedWikilinks } from "../../lib/wikilink-utils";
 import { getDragState } from "../../lib/drag-state";
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
+import { FloatingAiCoords } from "./FloatingAiToolbar";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ProseMirror Plugins for Tags, Wikilinks, Comments & Smart Queries
 // ─────────────────────────────────────────────────────────────────────────────
 
+function buildAiCommentHiderDecorations(doc: any): DecorationSet {
+  const decorations: Decoration[] = [];
+  doc.descendants((node: any, pos: number) => {
+    if (node.isBlock && node.type.name !== "doc") {
+      const text = node.textContent || "";
+      if (
+        text.includes("ai-metadata") ||
+        text.includes("AI Tags:") ||
+        text.includes("AI Backlinks:") ||
+        text.includes("</div>")
+      ) {
+        decorations.push(
+          Decoration.node(pos, pos + node.nodeSize, {
+            class: "ai-generated-comment-hidden"
+          })
+        );
+      }
+    }
+  });
+  return DecorationSet.create(doc, decorations);
+}
+
 const aiCommentHiderPlugin = new Plugin({
   state: {
-    init() { return DecorationSet.empty; },
+    init(_config, instance) {
+      return buildAiCommentHiderDecorations(instance.doc);
+    },
     apply(tr, oldState) {
       if (!tr.docChanged) return oldState;
-      const doc = tr.doc;
-      const decorations: Decoration[] = [];
-      doc.descendants((node, pos) => {
-        if (node.isBlock && node.type.name !== "doc") {
-          const text = node.textContent || "";
-          if (
-            text.includes("ai-metadata") ||
-            text.includes("AI Tags:") ||
-            text.includes("AI Backlinks:") ||
-            text.includes("</div>")
-          ) {
-            decorations.push(
-              Decoration.node(pos, pos + node.nodeSize, {
-                class: "ai-generated-comment-hidden"
-              })
-            );
-          }
-        }
-      });
-      return DecorationSet.create(doc, decorations);
+      return buildAiCommentHiderDecorations(tr.doc);
     }
   },
   props: {
@@ -54,41 +61,146 @@ const aiCommentHiderPlugin = new Plugin({
   }
 });
 
+function buildHighlightDecorations(doc: any): DecorationSet {
+  const decorations: Decoration[] = [];
+  doc.descendants((node: any, pos: number) => {
+    if (node.isText) {
+      const text = node.text || "";
+
+      // Match tags (#tag)
+      const tagRegex = /\\?#[a-zA-Z0-9_\-\/]+/g;
+      let match;
+      while ((match = tagRegex.exec(text)) !== null) {
+        const start = pos + match.index;
+        const end = start + match[0].length;
+        decorations.push(
+          Decoration.inline(start, end, { class: "custom-preview-tag" })
+        );
+      }
+
+      // Match Wiki links ([[Note]])
+      const linkRegex = /(?:\\?\[){2}(.*?)(?:\\?\]){2}/g;
+      while ((match = linkRegex.exec(text)) !== null) {
+        const start = pos + match.index;
+        const end = start + match[0].length;
+        decorations.push(
+          Decoration.inline(start, end, { class: "custom-preview-link" })
+        );
+      }
+
+      // Match Flashcards syntax (@flashcard (Question :: Answer))
+      const flashcardRegex = /@flashcards?\s*\(([\s\S]*?)::([\s\S]*?)\)/gi;
+      while ((match = flashcardRegex.exec(text)) !== null) {
+        const start = pos + match.index;
+        const end = start + match[0].length;
+        decorations.push(
+          Decoration.inline(start, end, { class: "custom-preview-flashcard" })
+        );
+      }
+    }
+  });
+  return DecorationSet.create(doc, decorations);
+}
+
 const highlightPlugin = new Plugin({
   state: {
-    init() { return DecorationSet.empty; },
+    init(_config, instance) {
+      return buildHighlightDecorations(instance.doc);
+    },
     apply(tr, oldState) {
       if (!tr.docChanged) return oldState;
-      const doc = tr.doc;
-      const decorations: Decoration[] = [];
+      return buildHighlightDecorations(tr.doc);
+    }
+  },
+  props: {
+    decorations(state) { return this.getState(state); }
+  }
+});
 
-      doc.descendants((node, pos) => {
-        if (node.isText) {
-          const text = node.text || "";
-          
-          // Match tags (#tag)
-          const tagRegex = /\\?#[a-zA-Z0-9_\-\/]+/g;
-          let match;
-          while ((match = tagRegex.exec(text)) !== null) {
-            const start = pos + match.index;
-            const end = start + match[0].length;
-            decorations.push(
-              Decoration.inline(start, end, { class: "custom-preview-tag" })
-            );
-          }
+function buildDatePillDecorations(doc: any, selection?: any): DecorationSet {
+  const decorations: Decoration[] = [];
+  const userTimezone = (window as any).__KOGNOTE_USER_TIMEZONE__ || localStorage.getItem("kognote-user-timezone") || "auto";
 
-          // Match Wiki links ([[Note]])
-          const linkRegex = /(?:\\?\[){2}(.*?)(?:\\?\]){2}/g;
-          while ((match = linkRegex.exec(text)) !== null) {
-            const start = pos + match.index;
-            const end = start + match[0].length;
-            decorations.push(
-              Decoration.inline(start, end, { class: "custom-preview-link" })
-            );
-          }
+  doc.descendants((node: any, pos: number) => {
+    if (node.isText) {
+      const text = node.text || "";
+      const dateTokenRegex = /(?:@due:?|@|due:\s*)(20\d{2}[-/]\d{2}[-/]\d{2}(?:T[^\s]+|[ T]\d{2}:\d{2})?)/gi;
+      let match;
+      while ((match = dateTokenRegex.exec(text)) !== null) {
+        const start = pos + match.index;
+        const end = start + match[0].length;
+        const rawToken = match[0];
+        const isoRaw = match[1];
+        const isDue = rawToken.toLowerCase().includes("due");
+
+        const isEditing = selection ? (selection.from <= end && selection.to >= start) : false;
+
+        if (!isEditing) {
+          decorations.push(
+            Decoration.inline(start, end, { class: "custom-date-pill-hidden-raw" })
+          );
+
+          decorations.push(
+            Decoration.widget(start, () => {
+              const span = document.createElement("span");
+              span.title = `Raw value: ${rawToken}`;
+
+              const { dateStr, timeStr } = getZonedDateParts(isoRaw, userTimezone);
+              if (dateStr) {
+                const todayStr = new Date().toISOString().split("T")[0];
+                const tomorrowObj = new Date();
+                tomorrowObj.setDate(tomorrowObj.getDate() + 1);
+                const tomorrowStr = tomorrowObj.toISOString().split("T")[0];
+
+                let dateDisplay = dateStr;
+                if (dateStr === todayStr) dateDisplay = "Today";
+                else if (dateStr === tomorrowStr) dateDisplay = "Tomorrow";
+                else {
+                  const [y, m, d] = dateStr.split("-");
+                  if (y && m && d) {
+                    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                    const mIdx = parseInt(m, 10) - 1;
+                    if (months[mIdx]) {
+                      dateDisplay = `${months[mIdx]} ${parseInt(d, 10)}${y !== new Date().getFullYear().toString() ? `, ${y}` : ""}`;
+                    }
+                  }
+                }
+
+                const timeDisplay = timeStr ? ` ${formatTime12(timeStr).trim()}` : "";
+                const fullLabel = isDue ? `Due: ${dateDisplay}${timeDisplay}` : `${dateDisplay}${timeDisplay}`;
+
+                span.className = `inline-flex items-baseline gap-[0.3em] font-semibold text-[inherit] select-none transition-all cursor-pointer hover:underline ${
+                  isDue ? "text-rose-400" : "text-indigo-400"
+                }`;
+
+                span.innerHTML = `<svg class="w-[0.9em] h-[0.9em] shrink-0 opacity-85 self-center" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg><span>${fullLabel}</span>`;
+              } else {
+                span.className = "inline-flex items-baseline gap-[0.3em] font-semibold text-[inherit] text-indigo-400 hover:underline cursor-pointer";
+                span.innerText = rawToken;
+              }
+
+              return span;
+            }, { side: -1 })
+          );
+        } else {
+          decorations.push(
+            Decoration.inline(start, end, { class: "custom-date-pill-active-editing" })
+          );
         }
-      });
-      return DecorationSet.create(doc, decorations);
+      }
+    }
+  });
+  return DecorationSet.create(doc, decorations);
+}
+
+const datePillPlugin = new Plugin({
+  state: {
+    init(_config, instance) {
+      return buildDatePillDecorations(instance.doc, null);
+    },
+    apply(tr, oldState) {
+      if (!tr.docChanged && !tr.selectionSet && !tr.getMeta("timezone-changed")) return oldState;
+      return buildDatePillDecorations(tr.doc, tr.selection);
     }
   },
   props: {
@@ -126,6 +238,39 @@ const queryWidgetPlugin = new Plugin({
   },
   props: {
     decorations(state) { return this.getState(state); }
+  }
+});
+
+const imageResolverPlugin = new Plugin({
+  view() {
+    const fixImages = (dom: HTMLElement) => {
+      const images = dom.querySelectorAll("img");
+      images.forEach((img) => {
+        const rawSrc = img.getAttribute("src");
+        if (
+          rawSrc &&
+          !rawSrc.startsWith("http://asset.localhost") &&
+          !rawSrc.startsWith("https://asset.localhost") &&
+          !rawSrc.startsWith("asset://") &&
+          !/^(https?:|data:|blob:)/i.test(rawSrc)
+        ) {
+          const resolved = resolveLocalImagePath(
+            rawSrc,
+            (window as any).__KOGNOTE_VAULT_PATH__,
+            (window as any).__KOGNOTE_ATTACHMENTS_PATH__
+          );
+          if (resolved && resolved !== rawSrc) {
+            img.setAttribute("src", resolved);
+          }
+        }
+      });
+    };
+
+    return {
+      update(view) {
+        fixImages(view.dom);
+      }
+    };
   }
 });
 
@@ -272,7 +417,7 @@ interface WysiwygEditorProps {
   content: string;
   onChange: (val: string) => void;
   onEditorReady: (crepe: Crepe) => void;
-  onSelectionChange?: (selectedText: string, coords: { x: number; y: number } | null) => void;
+  onSelectionChange?: (selectedText: string, coords: FloatingAiCoords | null) => void;
 }
 
 const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
@@ -284,9 +429,26 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
   const crepeRef = useRef<Crepe | null>(null);
   const isExternalUpdateRef = useRef(false);
   const isWysiwygEditingRef = useRef(false);
+  const isInitialRenderRef = useRef(true);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lastContentRef = useRef(content);
   const { attachmentsFolderPath, refreshFiles, files, vaultPath, openNoteByName } = useVault();
+  const { userTimezone } = useSettings();
+
+  // Keep window global in sync and force ProseMirror view update when active timezone changes
+  useEffect(() => {
+    (window as any).__KOGNOTE_USER_TIMEZONE__ = userTimezone;
+    if (crepeRef.current) {
+      try {
+        crepeRef.current.editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          if (view && view.state) {
+            view.dispatch(view.state.tr.setMeta("timezone-changed", true));
+          }
+        });
+      } catch (err) {}
+    }
+  }, [userTimezone]);
 
   // Click handler for decorated [[wikilinks]] inside the editor
   const handleContainerClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -385,9 +547,10 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
   }, [autocompletePopup]);
 
   const { get, loading } = useEditor((root) => {
+    isExternalUpdateRef.current = true;
     const crepe = new Crepe({
       root,
-      defaultValue: frontmatterInfo.bodyContent,
+      defaultValue: processMarkdownImages(cleanEscapedWikilinks(frontmatterInfo.bodyContent), vaultPath, attachmentsFolderPath),
       features: {
         [Crepe.Feature.Cursor]: true,
         [Crepe.Feature.Toolbar]: false,
@@ -469,7 +632,7 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
     });
 
     crepe.editor.config((ctx) => {
-      ctx.update(prosePluginsCtx, (prev) => [...prev, highlightPlugin, aiCommentHiderPlugin, queryWidgetPlugin, yamlFrontmatterPlugin]);
+      ctx.update(prosePluginsCtx, (prev) => [...prev, highlightPlugin, aiCommentHiderPlugin, queryWidgetPlugin, yamlFrontmatterPlugin, datePillPlugin, imageResolverPlugin]);
     });
     crepe.editor.use(diagram);
 
@@ -478,14 +641,22 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
 
     crepe.on((listener) => {
       listener.markdownUpdated((_ctx, bodyMarkdown) => {
+        if (isInitialRenderRef.current) {
+          isInitialRenderRef.current = false;
+          lastBodyContentRef.current = bodyMarkdown;
+          return;
+        }
         if (!isExternalUpdateRef.current) {
           isWysiwygEditingRef.current = true;
-          lastBodyContentRef.current = bodyMarkdown;
+          const cleanedBody = cleanEscapedWikilinks(bodyMarkdown);
+          lastBodyContentRef.current = cleanedBody;
           const fullContent = frontmatterRawRef.current
-            ? `${frontmatterRawRef.current}\n\n${bodyMarkdown.replace(/^\n+/, "")}`
-            : bodyMarkdown;
+            ? `${frontmatterRawRef.current}\n\n${cleanedBody.replace(/^\n+/, "")}`
+            : cleanedBody;
           lastContentRef.current = fullContent;
           onChange(fullContent);
+        } else {
+          isExternalUpdateRef.current = false;
         }
       });
     });
@@ -529,7 +700,8 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
     lastBodyContentRef.current = frontmatterInfo.bodyContent;
 
     try {
-      crepe.editor.action(replaceAll(frontmatterInfo.bodyContent));
+      const processedBody = processMarkdownImages(cleanEscapedWikilinks(frontmatterInfo.bodyContent), vaultPath, attachmentsFolderPath);
+      crepe.editor.action(replaceAll(processedBody));
     } catch (e) {
       console.warn("Milkdown replaceAll failed:", e);
     } finally {
@@ -537,7 +709,7 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
         isExternalUpdateRef.current = false;
       }, 50);
     }
-  }, [content, frontmatterInfo.bodyContent, get, loading]);
+  }, [content, frontmatterInfo.bodyContent, get, loading, vaultPath, attachmentsFolderPath]);
 
   // Selection Tracking & Autocomplete Popup Scanner
   useEffect(() => {
@@ -550,13 +722,31 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
         if (selectedText.length >= 2 && containerRef.current && containerRef.current.contains(selection.anchorNode)) {
           const range = selection.getRangeAt(0);
           const rect = range.getBoundingClientRect();
+          const containerRect = containerRef.current.getBoundingClientRect();
           onSelectionChange(selectedText, {
-            x: rect.left + rect.width / 2 - 120,
-            y: rect.bottom
+            x: rect.left + rect.width / 2,
+            y: rect.top,
+            selectionTop: rect.top,
+            selectionBottom: rect.bottom,
+            selectionLeft: rect.left,
+            selectionRight: rect.right,
+            containerRect: {
+              top: containerRect.top,
+              bottom: containerRect.bottom,
+              left: containerRect.left,
+              right: containerRect.right,
+              width: containerRect.width,
+              height: containerRect.height
+            }
           });
         }
       } else {
-        onSelectionChange?.("", null);
+        // Do not clear selection if user is interacting with the floating AI toolbar
+        const activeEl = document.activeElement;
+        const isToolbarActive = activeEl?.closest?.('[data-floating-toolbar="true"]');
+        if (!isToolbarActive) {
+          onSelectionChange?.("", null);
+        }
       }
 
       // 2. Wikilinks [[ and #Tags Autocomplete Scanner
@@ -725,16 +915,41 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
       });
     };
 
+    const isVaultFile = (pathStr: string): boolean => {
+      if (!pathStr || typeof pathStr !== "string") return false;
+      const norm = pathStr.replace(/\\/g, "/").toLowerCase().trim();
+      const check = (entries: FileEntry[]): boolean => {
+        for (const e of entries) {
+          if (!e.is_dir && e.path.replace(/\\/g, "/").toLowerCase() === norm) return true;
+          if (e.is_dir && e.children && check(e.children)) return true;
+        }
+        return false;
+      };
+      return check(files);
+    };
+
     const handleDragEnter = (e: DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+      const isAppDrag = getDragState() !== null ||
+        (e.dataTransfer?.types && Array.from(e.dataTransfer.types).some(t => t.startsWith("application/kognote")));
+      const isOsFileDrag = e.dataTransfer?.types && Array.from(e.dataTransfer.types).includes("Files");
+
+      if (isAppDrag || isOsFileDrag) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
     };
 
     const handleDragOver = (e: DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.dataTransfer) {
-        e.dataTransfer.dropEffect = "copy";
+      const isAppDrag = getDragState() !== null ||
+        (e.dataTransfer?.types && Array.from(e.dataTransfer.types).some(t => t.startsWith("application/kognote")));
+      const isOsFileDrag = e.dataTransfer?.types && Array.from(e.dataTransfer.types).includes("Files");
+
+      if (isAppDrag || isOsFileDrag) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer) {
+          e.dataTransfer.dropEffect = "copy";
+        }
       }
     };
 
@@ -743,15 +958,29 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
       const tagDataStr = e.dataTransfer?.getData("application/kognote-tag");
       const plainTextPath = e.dataTransfer?.getData("text/plain");
 
+      const draggedTag = getDragState("tag");
+      const draggedState = getDragState("file") || getDragState("card");
+      const isOsFileDrop = e.dataTransfer?.files && e.dataTransfer.files.length > 0;
+
+      // If this is an internal drag (not from sidebar, not a vault file, not external files), let ProseMirror handle native block/text reordering
+      const isExternalOrSidebarDrag =
+        draggedTag !== null ||
+        draggedState !== null ||
+        !!tagDataStr ||
+        !!fileDataStr ||
+        isOsFileDrop ||
+        (!!plainTextPath && isVaultFile(plainTextPath.trim()));
+
+      if (!isExternalOrSidebarDrag) {
+        return; // Allow native editor drag-and-drop to handle block reordering
+      }
+
       // 1. Tag drop handling
       let tagText: string | null = null;
-      const draggedTag = getDragState("tag");
       if (draggedTag) {
         tagText = `#${draggedTag}`;
       } else if (tagDataStr) {
         tagText = `#${tagDataStr}`;
-      } else if (plainTextPath && plainTextPath.startsWith("#")) {
-        tagText = plainTextPath;
       }
 
       if (tagText) {
@@ -774,7 +1003,6 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
 
       // 2. Note / File Backlink drop handling
       let droppedFilePath: string | null = null;
-      const draggedState = getDragState("file") || getDragState("card");
       if (draggedState) {
         droppedFilePath = draggedState.path || draggedState.file?.path || null;
       }
@@ -787,7 +1015,7 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
           }
         } catch {}
       }
-      if (!droppedFilePath && plainTextPath && plainTextPath.trim().length > 0 && !plainTextPath.startsWith("#")) {
+      if (!droppedFilePath && plainTextPath && isVaultFile(plainTextPath.trim())) {
         droppedFilePath = plainTextPath.trim();
       }
 
@@ -796,9 +1024,6 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
         e.stopPropagation();
 
         const isImg = isImageFile(droppedFilePath);
-        const linkTarget = getShortestUniquePath(droppedFilePath, vaultPath, files);
-        const backlinkText = isImg ? `![[${linkTarget}]]` : `[[${linkTarget}]]`;
-
         const crepe = crepeRef.current;
         if (crepe) {
           crepe.editor.action((ctx) => {
@@ -806,8 +1031,30 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
             const { state, dispatch } = view;
             const coordinates = view.posAtCoords({ left: e.clientX, top: e.clientY });
             const pos = coordinates ? coordinates.pos : state.selection.from;
-            const tr = state.tr.insertText(backlinkText, pos);
-            dispatch(tr.scrollIntoView());
+
+            if (isImg) {
+              const assetUrl = convertFileSrc(droppedFilePath);
+              const fileName = droppedFilePath.split(/[/\\]/).pop() || "image";
+
+              const imageType = state.schema.nodes.image || state.schema.nodes.image_block;
+              if (imageType) {
+                try {
+                  const node = imageType.createAndFill({ src: assetUrl, alt: fileName }) ||
+                               imageType.create({ src: assetUrl, alt: fileName });
+                  if (node) {
+                    const tr = state.tr.insert(pos, node);
+                    dispatch(tr.scrollIntoView());
+                    return;
+                  }
+                } catch (_) {}
+              }
+              const tr = state.tr.insertText(`![[${fileName}]]`, pos);
+              dispatch(tr.scrollIntoView());
+            } else {
+              const linkTarget = getShortestUniquePath(droppedFilePath, vaultPath, files);
+              const tr = state.tr.insertText(`[[${linkTarget}]]`, pos);
+              dispatch(tr.scrollIntoView());
+            }
           });
         }
         return;
@@ -843,7 +1090,6 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
             refreshFiles();
 
             const assetUrl = convertFileSrc(destPath);
-            const imageMarkdown = `![${imageFile.name}](${assetUrl})`;
             const crepe = crepeRef.current;
             if (crepe) {
               crepe.editor.action((ctx) => {
@@ -851,7 +1097,20 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
                 const { state, dispatch } = view;
                 const coordinates = view.posAtCoords({ left: e.clientX, top: e.clientY });
                 const pos = coordinates ? coordinates.pos : state.selection.from;
-                const tr = state.tr.insertText(imageMarkdown, pos);
+
+                const imageType = state.schema.nodes.image || state.schema.nodes.image_block;
+                if (imageType) {
+                  try {
+                    const node = imageType.createAndFill({ src: assetUrl, alt: fileName }) ||
+                                 imageType.create({ src: assetUrl, alt: fileName });
+                    if (node) {
+                      const tr = state.tr.insert(pos, node);
+                      dispatch(tr.scrollIntoView());
+                      return;
+                    }
+                  } catch (_) {}
+                }
+                const tr = state.tr.insertText(`![[${fileName}]]`, pos);
                 dispatch(tr.scrollIntoView());
               });
             }
@@ -880,7 +1139,7 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
       ref={containerRef}
       onKeyDown={handleKeyDown}
       onClick={handleContainerClick}
-      className="h-full w-full overflow-y-auto px-6 py-6 font-sans text-slate-200 focus:outline-none custom-milkdown-container selection:bg-indigo-600/35 relative"
+      className="h-full w-full overflow-y-auto px-6 py-6 font-sans text-foreground focus:outline-none custom-milkdown-container bg-background selection:bg-indigo-600/35 relative"
     >
 
 
@@ -921,7 +1180,7 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
                   title="Pick Date"
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-[#1a1d29] border border-[#2a2e3d] rounded text-[10px] px-1.5 py-0.5 text-slate-200 outline-none cursor-pointer hover:border-cyan-500/50 transition-colors"
+                  className="bg-sidebar border border-card-border rounded text-[10px] px-1.5 py-0.5 text-foreground outline-none cursor-pointer hover:border-indigo-500/50 transition-colors"
                   onChange={(e) => {
                     const d = e.target.value;
                     setPickerDate(d);
@@ -933,7 +1192,7 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
                   title="Pick Time"
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-[#1a1d29] border border-[#2a2e3d] rounded text-[10px] px-1.5 py-0.5 text-slate-200 outline-none cursor-pointer hover:border-cyan-500/50 transition-colors"
+                  className="bg-sidebar border border-card-border rounded text-[10px] px-1.5 py-0.5 text-foreground outline-none cursor-pointer hover:border-indigo-500/50 transition-colors"
                   onChange={(e) => {
                     const t = e.target.value;
                     setPickerTime(t);
@@ -947,7 +1206,8 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
                     e.stopPropagation();
                     const d = pickerDate || formatDateISO(new Date());
                     const prefix = autocompletePopup.query.toLowerCase().startsWith("due") ? "@due:" : "@";
-                    const val = pickerTime ? `${prefix}${d} ${pickerTime}` : `${prefix}${d}`;
+                    const valWithTime = pickerTime ? formatUtcIsoFromDateAndTime(d, pickerTime) : d;
+                    const val = `${prefix}${valWithTime}`;
                     handleSelectSuggestion({ label: d, value: val, sublabel: val });
                   }}
                   className="px-1.5 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] transition-colors cursor-pointer shrink-0"
@@ -965,7 +1225,7 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
               className={`w-full text-left rounded-lg px-2.5 py-1.5 text-xs font-medium flex items-center justify-between transition-colors cursor-pointer ${
                 idx === selectedIndex
                   ? "bg-indigo-600 text-white font-semibold shadow-md"
-                  : "text-slate-300 hover:bg-[#161825] hover:text-indigo-300"
+                  : "text-slate-700 dark:text-slate-300 hover:bg-card-hover hover:text-indigo-600 dark:hover:text-indigo-300"
               }`}
             >
               <span className="truncate">{item.label}</span>
@@ -974,7 +1234,7 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
                   className={`text-[9.5px] font-mono shrink-0 ml-2 px-1.5 py-0.5 rounded ${
                     idx === selectedIndex
                       ? "bg-indigo-700/60 text-indigo-100"
-                      : "bg-[#181a26] text-slate-400"
+                      : "bg-sidebar border border-card-border text-slate-600 dark:text-slate-400"
                   }`}
                 >
                   {item.sublabel}

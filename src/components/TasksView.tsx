@@ -13,6 +13,7 @@ import {
 } from "../lib/task-scanner";
 
 import { DAILY_NOTES_FOLDER } from "../contexts/VaultContext";
+import { ensureAndSyncFrontmatter, getZonedDateParts } from "../lib/frontmatter";
 import { 
   CheckSquare, 
   Calendar, 
@@ -79,7 +80,7 @@ function formatDueDate(dateStr: string, todayStr: string, tomorrowStr: string): 
 
 export const TasksView: React.FC = () => {
   const { files, noteCache, openNoteByName, refreshFiles, triggerNotesScan, updateNoteCache } = useVault();
-  const { vaultPath, includeArchivedInScans } = useSettings();
+  const { vaultPath, includeArchivedInScans, userTimezone } = useSettings();
 
   // Compute tasks list from central note cache respecting archive & trash scan settings
   const tasks = useMemo<ScannedTask[]>(() => {
@@ -248,7 +249,10 @@ export const TasksView: React.FC = () => {
       }
 
       const separatorNewline = fileContent ? "\n" : "";
-      const updatedContent = `${fileContent}${separatorNewline}${taskLine}`;
+      const rawNewContent = `${fileContent}${separatorNewline}${taskLine}`;
+      const { fullContent: updatedContent } = ensureAndSyncFrontmatter(rawNewContent, {
+        forceUpdateTimestamp: true,
+      });
 
       await invokeIPC("write_note", {
         path: finalPath,
@@ -296,7 +300,7 @@ export const TasksView: React.FC = () => {
       let targetIndex = editingTask.lineNumber;
 
       const checkboxRegex = /^\s*[-*]\s*\[([ xX])\]\s+(.+)$/;
-      const cleanForMatching = (str: string) => str.toLowerCase().replace(/@task(!*)/gi, "").replace(/(?:@due:?|@|due:\s*)?20\d{2}[-/]\d{2}[-/]\d{2}(?:[ T]\d{2}:\d{2})?/gi, "").replace(/#([a-zA-Z0-9_\-\/]+)/g, "").replace(/\s+/g, " ").trim();
+      const cleanForMatching = (str: string) => str.toLowerCase().replace(/@task(!*)/gi, "").replace(/(?:@due:?|@|due:\s*)?20\d{2}[-/]\d{2}[-/]\d{2}(?:T[^\s]+|[ T]\d{2}:\d{2})?/gi, "").replace(/#([a-zA-Z0-9_\-\/]+)/g, "").replace(/\s+/g, " ").trim();
 
       const isValidLine = (idx: number): boolean => {
         if (idx < 0 || idx >= lines.length) return false;
@@ -356,7 +360,10 @@ export const TasksView: React.FC = () => {
       if (tagsArray.length > 0) newLine += " " + tagsArray.join(" ");
 
       lines[targetIndex] = newLine;
-      const updatedContent = lines.join("\n");
+      const rawContent = lines.join("\n");
+      const { fullContent: updatedContent } = ensureAndSyncFrontmatter(rawContent, {
+        forceUpdateTimestamp: true,
+      });
 
       await invokeIPC("write_note", {
         path: editingTask.notePath,
@@ -705,10 +712,10 @@ export const TasksView: React.FC = () => {
   }).length;
 
   return (
-    <div className="flex h-full w-full bg-background text-slate-200 select-none overflow-hidden">
+    <div className="flex h-full w-full bg-background text-foreground select-none overflow-hidden">
       
       {/* ══ SIDEBAR ═══════════════════════════════════════════════════════════ */}
-      <div className="w-72 border-r border-card-border bg-[#0b0c11] flex flex-col shrink-0 overflow-hidden">
+      <div className="w-72 border-r border-card-border bg-sidebar flex flex-col shrink-0 overflow-hidden">
         <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-6 p-4">
           
           {/* Header title */}
@@ -720,7 +727,7 @@ export const TasksView: React.FC = () => {
               {loading && <RefreshCw className="h-3.5 w-3.5 text-indigo-400 animate-spin" />}
             </div>
             <p className="text-[9.5px] text-slate-500 mt-1 leading-normal">
-              Scans checklists (`- [ ]`) across notes in real-time.
+              Scans checklists (`- [ ]`) across notes in real-time ({userTimezone === "auto" ? "System Timezone" : userTimezone}).
             </p>
           </div>
 
@@ -732,11 +739,11 @@ export const TasksView: React.FC = () => {
                 <circle cx="28" cy="28" r="24" className="stroke-indigo-500 transition-all duration-500" strokeWidth="3" fill="transparent"
                   strokeDasharray={2 * Math.PI * 24} strokeDashoffset={2 * Math.PI * 24 * (1 - percentComplete / 100)} />
               </svg>
-              <span className="absolute text-[10px] font-extrabold text-slate-300">{percentComplete}%</span>
+              <span className="absolute text-[10px] font-extrabold text-foreground">{percentComplete}%</span>
             </div>
             <div className="flex-1 min-w-0 flex flex-col gap-0.5">
               <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wide">Overall progress</span>
-              <span className="text-xs font-bold text-slate-300">{completedCount} of {totalCount} done</span>
+              <span className="text-xs font-bold text-foreground">{completedCount} of {totalCount} done</span>
               <span className="text-[9.5px] text-slate-500 italic">{pendingCount} remaining</span>
             </div>
           </div>
@@ -744,34 +751,34 @@ export const TasksView: React.FC = () => {
           {/* Quick Filters Grid */}
           <div className="grid grid-cols-3 gap-1.5">
             <button onClick={() => { setActiveTab("due"); setSelectedTag(null); setSearchQuery(""); }}
-              className="flex flex-col items-center bg-card/30 hover:bg-[#1a1d29] border border-card-border rounded-lg py-2 transition-colors cursor-pointer">
-              <span className="text-[14px] font-extrabold text-red-400">{overdueCount}</span>
+              className="flex flex-col items-center bg-card hover:bg-card-hover border border-card-border rounded-lg py-2 transition-colors cursor-pointer">
+              <span className="text-[14px] font-extrabold text-red-500 dark:text-red-400">{overdueCount}</span>
               <span className="text-[8px] text-slate-500 font-bold uppercase mt-0.5">Overdue</span>
             </button>
             <button onClick={() => { setActiveTab("pending"); setSelectedTag(null); setSearchQuery(todayStr); }}
-              className="flex flex-col items-center bg-card/30 hover:bg-[#1a1d29] border border-card-border rounded-lg py-2 transition-colors cursor-pointer">
-              <span className="text-[14px] font-extrabold text-amber-400">{dueTodayCount}</span>
+              className="flex flex-col items-center bg-card hover:bg-card-hover border border-card-border rounded-lg py-2 transition-colors cursor-pointer">
+              <span className="text-[14px] font-extrabold text-amber-500 dark:text-amber-400">{dueTodayCount}</span>
               <span className="text-[8px] text-slate-500 font-bold uppercase mt-0.5">Today</span>
             </button>
             <button onClick={() => { setActiveTab("pending"); setSelectedTag(null); setSearchQuery(""); }}
-              className="flex flex-col items-center bg-card/30 hover:bg-[#1a1d29] border border-card-border rounded-lg py-2 transition-colors cursor-pointer">
-              <span className="text-[14px] font-extrabold text-indigo-400">{dueWeekCount}</span>
+              className="flex flex-col items-center bg-card hover:bg-card-hover border border-card-border rounded-lg py-2 transition-colors cursor-pointer">
+              <span className="text-[14px] font-extrabold text-indigo-500 dark:text-indigo-400">{dueWeekCount}</span>
               <span className="text-[8px] text-slate-500 font-bold uppercase mt-0.5">7 Days</span>
             </button>
           </div>
 
           {/* ⚡ Roll forward tasks */}
-          <div className="flex flex-col gap-2 bg-linear-to-br from-[#161825]/60 to-[#0e1017]/60 border border-card-border rounded-xl p-3 shadow-md">
-            <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest flex items-center gap-1">
-              <Sparkles className="h-3 w-3 text-amber-400" /> Daily Note Rollover
+          <div className="flex flex-col gap-2 bg-card border border-card-border rounded-xl p-3 shadow-xs">
+            <span className="text-[9px] font-extrabold text-slate-600 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1">
+              <Sparkles className="h-3 w-3 text-amber-500 dark:text-amber-400" /> Daily Note Rollover
             </span>
-            <p className="text-[9px] text-slate-500 leading-normal">
+            <p className="text-[9.5px] text-slate-600 dark:text-slate-400 leading-normal font-medium">
               Find pending tasks in older daily notes and move them to today's daily note.
             </p>
             <button
               onClick={handleRollForward}
               disabled={loading}
-              className="mt-1 flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600/90 hover:bg-indigo-600 py-1.5 text-[10px] font-bold text-white transition-colors cursor-pointer shadow-md shadow-indigo-600/20"
+              className="mt-1 flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 py-1.5 text-[10px] font-bold text-white transition-colors cursor-pointer shadow-sm"
             >
               <Sparkles className="h-3 w-3" />
               <span>Roll Forward Tasks</span>
@@ -790,21 +797,21 @@ export const TasksView: React.FC = () => {
                 placeholder="Task description..."
                 value={newTaskText}
                 onChange={(e) => setNewTaskText(e.target.value)}
-                className="rounded-lg bg-background p-2 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 placeholder-slate-600 transition-colors"
+                className="rounded-lg bg-background p-2 text-xs text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 placeholder-slate-400 transition-colors"
               />
               <div className="grid grid-cols-2 gap-1.5">
                 <input
                   type="date"
                   value={newTaskDate}
                   onChange={(e) => setNewTaskDate(e.target.value)}
-                  className="rounded-lg bg-background p-1.5 text-[10px] text-slate-400 border border-card-border focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+                  className="rounded-lg bg-background p-1.5 text-[10px] text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 cursor-pointer"
                   title="Due Date"
                 />
                 <input
                   type="time"
                   value={newTaskTime}
                   onChange={(e) => setNewTaskTime(e.target.value)}
-                  className="rounded-lg bg-background p-1.5 text-[10px] text-slate-400 border border-card-border focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+                  className="rounded-lg bg-background p-1.5 text-[10px] text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 cursor-pointer"
                   title="Due Time"
                 />
                 <input
@@ -812,12 +819,12 @@ export const TasksView: React.FC = () => {
                   placeholder="#tag"
                   value={newTaskTag}
                   onChange={(e) => setNewTaskTag(e.target.value)}
-                  className="rounded-lg bg-background p-1.5 text-[10px] text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 placeholder-slate-600"
+                  className="rounded-lg bg-background p-1.5 text-[10px] text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 placeholder-slate-400"
                 />
                 <select
                   value={newTaskPriority}
                   onChange={(e) => setNewTaskPriority(e.target.value as any)}
-                  className="rounded-lg bg-background p-1.5 text-[10px] text-slate-300 border border-card-border focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+                  className="rounded-lg bg-background p-1.5 text-[10px] text-slate-700 dark:text-slate-300 border border-card-border focus:outline-none focus:border-indigo-500/50 cursor-pointer"
                 >
                   <option value="none">Priority: None</option>
                   <option value="low">! Low</option>
@@ -872,20 +879,20 @@ export const TasksView: React.FC = () => {
       </div>
 
       {/* ══ MAIN DISPLAY AREA ═══════════════════════════════════════════════ */}
-      <div className="flex-1 h-full flex flex-col bg-[#07080c] overflow-hidden min-w-0">
+      <div className="flex-1 h-full flex flex-col bg-background overflow-hidden min-w-0">
         
         {/* ── Toolbar ─────────────────────────────────────────────────────── */}
-        <div className="flex flex-col gap-3 border-b border-card-border/70 px-5 py-3 shrink-0 bg-[#07080c]/80 backdrop-blur-sm">
+        <div className="flex flex-col gap-3 border-b border-card-border px-5 py-3 shrink-0 bg-sidebar backdrop-blur-sm">
           {/* Row 1: Tabs & Layout View Switcher */}
           <div className="flex items-center justify-between gap-3 min-w-0 w-full">
             {/* Tabs */}
-            <div className="flex items-center gap-0.5 bg-[#10121a] p-0.5 rounded-lg border border-card-border shrink-0">
+            <div className="flex items-center gap-0.5 bg-card p-0.5 rounded-lg border border-card-border shrink-0">
               {["pending", "completed", "due"].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => { setActiveTab(tab as any); setSelectedTaskIds([]); }}
                   className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer capitalize whitespace-nowrap ${
-                    activeTab === tab ? "bg-indigo-600 text-white shadow shadow-indigo-600/30" : "text-slate-400 hover:text-slate-200"
+                    activeTab === tab ? "bg-indigo-600 text-white shadow shadow-indigo-600/30" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
                   }`}
                 >
                   {tab === "due" ? "due soon" : tab}
@@ -894,7 +901,7 @@ export const TasksView: React.FC = () => {
             </div>
 
             {/* Layout Mode Switcher (List vs Kanban Board) */}
-            <div className="flex items-center gap-0.5 bg-[#10121a] p-0.5 rounded-lg border border-card-border shrink-0">
+            <div className="flex items-center gap-0.5 bg-card p-0.5 rounded-lg border border-card-border shrink-0">
               <button
                 type="button"
                 onClick={() => setViewLayout("list")}
@@ -930,7 +937,7 @@ export const TasksView: React.FC = () => {
                 <select
                   value={groupBy}
                   onChange={(e) => setGroupBy(e.target.value as any)}
-                  className="appearance-none bg-card border border-card-border hover:border-slate-800 rounded-md pl-2.5 pr-8 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
+                  className="appearance-none bg-card border border-card-border hover:border-slate-400 dark:hover:border-slate-800 rounded-md pl-2.5 pr-8 py-1 text-slate-700 dark:text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
                 >
                   <option value="none">Flat List</option>
                   <option value="note">By Note Name</option>
@@ -949,7 +956,7 @@ export const TasksView: React.FC = () => {
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
-                  className="appearance-none bg-card border border-card-border hover:border-slate-800 rounded-md pl-2.5 pr-8 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
+                  className="appearance-none bg-card border border-card-border hover:border-slate-400 dark:hover:border-slate-800 rounded-md pl-2.5 pr-8 py-1 text-slate-700 dark:text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
                 >
                   <option value="priority">Priority First</option>
                   <option value="dueDate">Due Date</option>
@@ -973,11 +980,11 @@ export const TasksView: React.FC = () => {
 
             {/* Keyboard Shortcuts Hint Pill */}
             <div className="hidden lg:flex items-center gap-1.5 border-l border-card-border/70 pl-3.5 text-[10px] font-semibold text-slate-500 select-none">
-              <span className="bg-[#141624] border border-[#22263a] px-1.5 py-0.5 rounded text-slate-400 font-mono">↑↓ / jk</span>
+              <span className="bg-sidebar border border-card-border px-1.5 py-0.5 rounded text-slate-600 dark:text-slate-400 font-mono">↑↓ / jk</span>
               <span>Navigate</span>
-              <span className="bg-[#141624] border border-[#22263a] px-1.5 py-0.5 rounded text-slate-400 font-mono ml-1.5">Space / X</span>
+              <span className="bg-sidebar border border-card-border px-1.5 py-0.5 rounded text-slate-600 dark:text-slate-400 font-mono ml-1.5">Space / X</span>
               <span>Select</span>
-              <span className="bg-[#141624] border border-[#22263a] px-1.5 py-0.5 rounded text-slate-400 font-mono ml-1.5">Enter</span>
+              <span className="bg-sidebar border border-card-border px-1.5 py-0.5 rounded text-slate-600 dark:text-slate-400 font-mono ml-1.5">Enter</span>
               <span>Done</span>
             </div>
 
@@ -989,7 +996,7 @@ export const TasksView: React.FC = () => {
                 placeholder="Search..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-lg bg-[#10121a] pl-8 pr-8 py-1 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 hover:border-slate-800 transition-colors placeholder-slate-600"
+                className="w-full rounded-lg bg-card pl-8 pr-8 py-1 text-xs text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-400"
               />
               {searchQuery && (
                 <button onClick={() => setSearchQuery("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 cursor-pointer">
@@ -1002,14 +1009,14 @@ export const TasksView: React.FC = () => {
 
         {/* ── Tasks View Body (Kanban vs List) ───────────────────────────── */}
         {viewLayout === "kanban" ? (
-          <div className="flex-1 overflow-x-auto overflow-y-hidden custom-scrollbar p-5 flex gap-4 items-start min-h-0">
+          <div className="flex-1 overflow-x-auto overflow-y-hidden custom-scrollbar p-5 flex gap-4 items-start min-h-0 h-full">
             {groupedTasks.map(([groupName, groupList]) => (
-              <div key={groupName} className="w-80 shrink-0 bg-[#0c0e17]/90 border border-card-border rounded-2xl flex flex-col max-h-full overflow-hidden shadow-xl">
+              <div key={groupName} className="w-80 shrink-0 bg-sidebar border border-card-border rounded-2xl flex flex-col h-full max-h-full overflow-hidden shadow-xl min-h-0">
                 {/* Column Header */}
-                <div className="p-3 border-b border-card-border flex items-center justify-between bg-card/80 shrink-0">
+                <div className="p-3 border-b border-card-border flex items-center justify-between bg-card shrink-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-200">{groupName}</span>
-                    <span className="text-[10px] text-slate-400 font-extrabold bg-slate-800/60 px-2 py-0.5 rounded-full">
+                    <span className="text-xs font-bold text-foreground">{groupName}</span>
+                    <span className="text-[10px] text-slate-700 dark:text-slate-300 font-extrabold bg-slate-200 dark:bg-slate-800/60 px-2 py-0.5 rounded-full">
                       {groupList.length}
                     </span>
                   </div>
@@ -1023,19 +1030,26 @@ export const TasksView: React.FC = () => {
                 </div>
 
                 {/* Column Card Stream */}
-                <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5 custom-scrollbar min-h-0">
                   {groupList.map((task) => {
                     const globalIndex = flatVisualTasks.indexOf(task);
                     const isFocused = focusedTaskIndex === globalIndex;
                     const isSelected = selectedTaskIds.includes(task.id);
                     const priorityVal = task.priority || "none";
                     const cleanDisplayContent = task.content
-                      .replace(/(?:@due:?|@|due:\s*)?20\d{2}[-/]\d{2}[-/]\d{2}(?:[ T]\d{2}:\d{2})?/gi, "")
+                      .replace(/(?:@due:?|@|due:\s*)?20\d{2}[-/]\d{2}[-/]\d{2}(?:T[^\s]+|[ T]\d{2}:\d{2})?/gi, "")
                       .replace(/(?:^|\s|\\)#([a-zA-Z0-9_\-\/]+)/g, "")
                       .replace(/@task(!*)/gi, "")
                       .replace(/(?:^|\s)!(?=\s|$)/g, "")
                       .replace(/\s+/g, " ")
                       .trim();
+
+                    const priorityColors = {
+                      high: "border-l-3 border-l-rose-500",
+                      medium: "border-l-3 border-l-amber-500",
+                      low: "border-l-3 border-l-cyan-400",
+                      none: "border-l-3 border-l-slate-700/80"
+                    };
 
                     return (
                       <div
@@ -1048,70 +1062,142 @@ export const TasksView: React.FC = () => {
                             setSelectedTaskIds(prev => prev.includes(task.id) ? prev.filter(id => id !== task.id) : [task.id]);
                           }
                         }}
-                        className={`p-3 rounded-xl border flex flex-col gap-2.5 transition-all cursor-pointer group select-none ${
+                        className={`shrink-0 p-3.5 rounded-xl border flex flex-col gap-2.5 transition-all duration-200 cursor-pointer group/card select-none relative overflow-hidden ${
                           task.completed
-                            ? "bg-background/60 border-slate-900 opacity-60"
+                            ? "bg-card/40 border-card-border/60 opacity-55 hover:opacity-80"
                             : isSelected
-                            ? "bg-indigo-600/15 border-indigo-500/60 shadow-md shadow-indigo-500/10"
+                            ? "bg-indigo-600/15 border-indigo-500/60 shadow-lg shadow-indigo-500/10 ring-1 ring-indigo-500/40"
                             : isFocused
-                            ? "bg-[#141728] border-indigo-500/50 ring-1 ring-indigo-500/40"
-                            : "bg-[#10121d] border-card-border hover:border-slate-700"
-                        }`}
+                            ? "bg-card-hover border-indigo-500/50 ring-1 ring-indigo-500/40"
+                            : priorityVal === "high"
+                            ? "bg-card border-card-border hover:border-rose-500/40"
+                            : priorityVal === "medium"
+                            ? "bg-card border-card-border hover:border-amber-500/40"
+                            : priorityVal === "low"
+                            ? "bg-card border-card-border hover:border-cyan-500/40"
+                            : "bg-card border-card-border hover:border-indigo-500/30 hover:bg-card-hover"
+                        }
+                        ${priorityColors[priorityVal]}
+                        `}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                        {/* ══ UPPER SECTION: Task Text, Checkbox, Edit & Tags ══ */}
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-start justify-between gap-2.5">
+                            <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleToggle(task); }}
+                                className={`flex h-4.5 w-4.5 shrink-0 mt-0.5 cursor-pointer items-center justify-center rounded-md border transition-all duration-200 ${
+                                  task.completed
+                                    ? "bg-linear-to-br from-indigo-500 to-indigo-600 border-indigo-400 text-white shadow-sm shadow-indigo-500/40"
+                                    : "border-slate-600/80 hover:border-indigo-400 bg-slate-900/60 hover:scale-105 text-transparent"
+                                }`}
+                                title="Toggle completion status"
+                              >
+                                <Check className="h-3 w-3 stroke-[2.5]" />
+                              </button>
+                              <span className={`text-[12.5px] font-bold leading-snug tracking-wide line-clamp-3 ${task.completed ? "line-through text-slate-400" : "text-foreground group-hover/card:text-indigo-600 dark:group-hover/card:text-white"}`}>
+                                {cleanDisplayContent || "Untitled task"}
+                              </span>
+                            </div>
+
                             <button
                               type="button"
-                              onClick={(e) => { e.stopPropagation(); handleToggle(task); }}
-                              className={`flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full border transition-all ${
-                                task.completed
-                                  ? "bg-indigo-600 border-indigo-500 text-white"
-                                  : "border-slate-600 hover:border-indigo-400 text-transparent"
-                              }`}
+                              onClick={() => startEdit(task)}
+                              className="opacity-0 group-hover/card:opacity-100 text-slate-400 hover:text-white p-1 rounded-md bg-slate-800/60 hover:bg-indigo-600 cursor-pointer transition-all shrink-0"
+                              title="Edit task"
                             >
-                              <Check className="h-2.5 w-2.5 stroke-3" />
+                              <Edit className="h-3 w-3" />
                             </button>
-                            <span className={`text-xs font-semibold leading-snug line-clamp-2 ${task.completed ? "line-through text-slate-500" : "text-slate-200"}`}>
-                              {cleanDisplayContent || "Untitled task"}
-                            </span>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => startEdit(task)}
-                            className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-slate-300 p-1 cursor-pointer transition-opacity"
-                          >
-                            <Edit className="h-3 w-3" />
-                          </button>
+                          {/* Tags in Upper Section */}
+                          {task.tags.length > 0 && (
+                            <div className="flex items-center gap-1.5 flex-wrap pl-7">
+                              {task.tags.map(tag => (
+                                <span
+                                  key={tag}
+                                  onClick={(e) => { e.stopPropagation(); setSelectedTag(tag); }}
+                                  className="text-[8.5px] font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 hover:border-indigo-400/40 px-2 py-0.5 rounded-full transition-colors cursor-pointer"
+                                >
+                                  #{tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
 
-                        {/* Card Metadata Footer */}
-                        <div className="flex items-center justify-between gap-1 pt-2 border-t border-card-border/40 text-[9.5px]">
-                          <button
-                            type="button"
-                            onClick={(e) => handlePriorityCycle(task, e)}
-                            className="flex items-center gap-1 font-bold px-1.5 py-0.5 rounded bg-slate-800/40 hover:bg-slate-800 border border-slate-800 text-slate-300 cursor-pointer"
-                            title="Click to cycle priority"
-                          >
-                            {priorityVal === "high" && <span className="text-rose-400 font-extrabold">!!! High</span>}
-                            {priorityVal === "medium" && <span className="text-amber-400 font-extrabold">!! Med</span>}
-                            {priorityVal === "low" && <span className="text-sky-400 font-extrabold">! Low</span>}
-                            {priorityVal === "none" && <span className="text-slate-500 font-bold">None</span>}
-                          </button>
+                        {/* ══ LOWER SECTION: Note Name, Date & Priority ══ */}
+                        <div className="flex flex-col gap-2 pt-2.5 border-t border-card-border/60 text-[9.5px]">
+                          {/* Note Name Link Pill */}
+                          <div className="flex items-center min-w-0">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openNoteByName(task.noteName);
+                                setTimeout(() => {
+                                  window.dispatchEvent(new CustomEvent("scroll-to-line", { detail: { lineNumber: task.lineNumber } }));
+                                }, 150);
+                              }}
+                              className="flex items-center gap-1.5 text-[9.5px] font-extrabold text-indigo-700 dark:text-indigo-300 hover:text-indigo-900 dark:hover:text-white bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-600/30 border border-indigo-200 dark:border-indigo-500/30 px-2 py-0.5 rounded-md truncate max-w-full transition-all cursor-pointer"
+                              title={`Open note: ${task.noteName} (Line ${task.lineNumber + 1})`}
+                            >
+                              <FileText className="h-3 w-3 text-indigo-500 dark:text-indigo-400 shrink-0" />
+                              <span className="truncate">{task.noteName}</span>
+                            </button>
+                          </div>
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              openNoteByName(task.noteName);
-                              setTimeout(() => {
-                                window.dispatchEvent(new CustomEvent("scroll-to-line", { detail: { lineNumber: task.lineNumber } }));
-                              }, 150);
-                            }}
-                            className="text-indigo-400 hover:text-indigo-300 font-bold truncate max-w-27.5"
-                            title={`Open note: ${task.noteName}`}
-                          >
-                            {task.noteName}
-                          </button>
+                          {/* Date & Priority Bar */}
+                          <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                            {/* Priority Badge Pill */}
+                            <button
+                              type="button"
+                              onClick={(e) => handlePriorityCycle(task, e)}
+                              className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold border cursor-pointer select-none transition-all duration-150 ${
+                                priorityVal === "high"
+                                  ? "bg-rose-500/15 border-rose-500/30 text-rose-700 dark:text-rose-400 hover:bg-rose-500/25"
+                                  : priorityVal === "medium"
+                                  ? "bg-amber-500/15 border-amber-500/30 text-amber-800 dark:text-amber-300 hover:bg-amber-500/25"
+                                  : priorityVal === "low"
+                                  ? "bg-cyan-500/15 border-cyan-500/30 text-cyan-800 dark:text-cyan-300 hover:bg-cyan-500/25"
+                                  : "bg-slate-100 dark:bg-slate-800/40 border-slate-300 dark:border-slate-700/50 text-slate-700 dark:text-slate-500 hover:text-slate-900 dark:hover:text-slate-400"
+                              }`}
+                              title="Click to cycle priority"
+                            >
+                              {priorityVal === "high" && <><AlertTriangle className="h-2.5 w-2.5 text-rose-600 dark:text-rose-400 shrink-0" /><span>High</span></>}
+                              {priorityVal === "medium" && <><AlertCircle className="h-2.5 w-2.5 text-amber-600 dark:text-amber-400 shrink-0" /><span>Med</span></>}
+                              {priorityVal === "low" && <><Info className="h-2.5 w-2.5 text-cyan-600 dark:text-cyan-400 shrink-0" /><span>Low</span></>}
+                              {priorityVal === "none" && <><MinusCircle className="h-2.5 w-2.5 text-slate-500 dark:text-slate-600 shrink-0" /><span>Priority</span></>}
+                            </button>
+
+                            {/* Due Date Pill */}
+                            {task.dueDate && (() => {
+                              const targetRaw = task.rawDueDate || (task.dueTime ? `${task.dueDate}T${task.dueTime}:00` : task.dueDate);
+                              const { dateStr, timeStr } = getZonedDateParts(targetRaw, userTimezone);
+
+                              const isOverdue = dateStr < todayStr && !task.completed;
+                              const isToday = dateStr === todayStr;
+                              const isTomorrow = dateStr === tomorrowStr;
+                              const friendlyDate = formatDueDate(dateStr, todayStr, tomorrowStr);
+                              const timeDisplay = timeStr ? ` ${timeStr}` : (task.dueTime ? ` ${task.dueTime}` : "");
+
+                              return (
+                                <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full border flex items-center gap-1 select-none transition-all ${
+                                  isOverdue
+                                    ? "text-rose-700 dark:text-rose-300 bg-rose-500/15 border-rose-500/30"
+                                    : isToday
+                                    ? "text-amber-800 dark:text-amber-300 bg-amber-500/15 border-amber-500/30"
+                                    : isTomorrow
+                                    ? "text-sky-800 dark:text-sky-300 bg-sky-500/15 border-sky-500/30"
+                                    : "text-indigo-700 dark:text-indigo-300 bg-indigo-500/15 border-indigo-500/30"
+                                }`}>
+                                  <Calendar className="h-2.5 w-2.5 shrink-0 opacity-80" />
+                                  <span>{friendlyDate}{timeDisplay}</span>
+                                </span>
+                              );
+                            })()}
+                          </div>
                         </div>
                       </div>
                     );
@@ -1169,7 +1255,7 @@ export const TasksView: React.FC = () => {
                       };
 
                       const cleanDisplayContent = task.content
-                        .replace(/(?:@due:?|@|due:\s*)?20\d{2}[-/]\d{2}[-/]\d{2}(?:[ T]\d{2}:\d{2})?/gi, "")
+                        .replace(/(?:@due:?|@|due:\s*)?20\d{2}[-/]\d{2}[-/]\d{2}(?:T[^\s]+|[ T]\d{2}:\d{2})?/gi, "")
                         .replace(/(?:^|\s|\\)#([a-zA-Z0-9_\-\/]+)/g, "")
                         .replace(/@task(!*)/gi, "")
                         .replace(/(?:^|\s)!(?=\s|$)/g, "")
@@ -1187,110 +1273,140 @@ export const TasksView: React.FC = () => {
                               setSelectedTaskIds(prev => prev.includes(task.id) ? prev.filter(id => id !== task.id) : [task.id]);
                             }
                           }}
-                          className={`group/task px-3 py-2 rounded-lg border flex items-center justify-between gap-3 transition-all duration-150 relative overflow-hidden text-xs cursor-pointer select-none
-                            ${task.completed ? "bg-[#0b0c12]/40 border-slate-900/60 opacity-55" : isSelected
-                              ? "bg-indigo-600/15 border-indigo-500/60 shadow-md shadow-indigo-500/10"
+                          className={`group/task p-3 rounded-xl border flex flex-col gap-2 transition-all duration-200 relative overflow-hidden text-xs cursor-pointer select-none
+                            ${task.completed
+                              ? "bg-card/40 border-card-border opacity-55 hover:opacity-80"
+                              : isSelected
+                              ? "bg-indigo-600/15 border-indigo-500/60 shadow-lg shadow-indigo-500/10 ring-1 ring-indigo-500/40"
                               : isFocused
-                              ? "bg-[#141728] border-indigo-500/50 ring-1 ring-indigo-500/40"
-                              : "bg-[#0c0e17] border-[#1a1d2c] hover:border-slate-700/80 hover:bg-[#111320]"
+                              ? "bg-card-hover border-indigo-500/50 ring-1 ring-indigo-500/40"
+                              : priorityVal === "high"
+                              ? "bg-card border-card-border hover:border-rose-500/40"
+                              : priorityVal === "medium"
+                              ? "bg-card border-card-border hover:border-amber-500/40"
+                              : priorityVal === "low"
+                              ? "bg-card border-card-border hover:border-cyan-500/40"
+                              : "bg-card border-card-border hover:border-indigo-500/30 hover:bg-card-hover"
                             }
                             ${priorityColors[priorityVal]}
                           `}
                         >
-                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                            {/* Task Completion Checkmark Circle */}
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); handleToggle(task); }}
-                              className={`flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full border transition-all ${
-                                task.completed
-                                  ? "bg-indigo-600 border-indigo-500 text-white shadow shadow-indigo-600/30"
-                                  : "border-slate-600 hover:border-indigo-400 hover:scale-105 text-transparent"
-                              }`}
-                              title="Toggle completion status (Enter)"
-                            >
-                              <Check className="h-2.5 w-2.5 stroke-3" />
-                            </button>
+                          {/* ── Line 1: Task Checkbox, Text & Inline Tags ───────────────── */}
+                          <div className="flex items-center justify-between gap-3 min-w-0">
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              {/* Checkbox Ring */}
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleToggle(task); }}
+                                className={`flex h-4.5 w-4.5 shrink-0 cursor-pointer items-center justify-center rounded-md border transition-all duration-200 ${
+                                  task.completed
+                                    ? "bg-linear-to-br from-indigo-500 to-indigo-600 border-indigo-400 text-white shadow-sm shadow-indigo-500/40"
+                                    : "border-slate-400 dark:border-slate-600 bg-card hover:border-indigo-400 hover:scale-105 text-transparent"
+                                }`}
+                                title="Toggle completion status (Enter)"
+                              >
+                                <Check className="h-3 w-3 stroke-[2.5]" />
+                              </button>
 
-                            {/* Task Content Text */}
-                            <span
-                              className={`text-[11.5px] font-semibold truncate flex-1 leading-snug ${
-                                task.completed ? "line-through text-slate-500" : "text-slate-200"
-                              }`}
-                              title={cleanDisplayContent || "Untitled task"}
-                            >
-                              {cleanDisplayContent || "Untitled task"}
-                            </span>
-                          </div>
-
-                          {/* Right Badges & Action Buttons */}
-                          <div className="flex items-center gap-2 shrink-0">
-                            {/* Priority Badge Pill */}
-                            <div
-                              onClick={(e) => handlePriorityCycle(task, e)}
-                              className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9.5px] font-bold bg-[#141624] border border-[#22263a] hover:border-slate-600 cursor-pointer select-none transition-colors"
-                              title="Click to cycle priority (None → Low → Med → High)"
-                            >
-                              {priorityVal === "high" && <><AlertTriangle className="h-3 w-3 text-rose-400 shrink-0" /><span className="text-rose-300">High</span></>}
-                              {priorityVal === "medium" && <><AlertCircle className="h-3 w-3 text-amber-400 shrink-0" /><span className="text-amber-300">Med</span></>}
-                              {priorityVal === "low" && <><Info className="h-3 w-3 text-sky-400 shrink-0" /><span className="text-sky-300">Low</span></>}
-                              {priorityVal === "none" && <><MinusCircle className="h-3 w-3 text-slate-600 shrink-0" /><span className="text-slate-500">None</span></>}
+                              {/* Task Content Text */}
+                              <span
+                                className={`text-[12.5px] font-bold truncate leading-snug tracking-wide ${
+                                  task.completed ? "line-through text-slate-400" : "text-foreground group-hover/task:text-indigo-600 dark:group-hover/task:text-white"
+                                }`}
+                                title={cleanDisplayContent || "Untitled task"}
+                              >
+                                {cleanDisplayContent || "Untitled task"}
+                              </span>
                             </div>
 
-                            {/* Due Date Pill */}
-                            {task.dueDate && (() => {
-                              const isOverdue = task.dueDate < todayStr && !task.completed;
-                              const isToday = task.dueDate === todayStr;
-                              const isTomorrow = task.dueDate === tomorrowStr;
-                              const friendlyDate = formatDueDate(task.dueDate, todayStr, tomorrowStr);
-                              const timeStr = (task as any).dueTime ? ` ${(task as any).dueTime}` : "";
-                              return (
-                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border flex items-center gap-1 select-none ${
-                                  isOverdue
-                                    ? "text-rose-400 bg-rose-500/10 border-rose-500/20"
-                                    : isToday
-                                    ? "text-amber-400 bg-amber-500/10 border-amber-500/20"
-                                    : isTomorrow
-                                    ? "text-sky-400 bg-sky-500/10 border-sky-500/20"
-                                    : "text-indigo-400 bg-indigo-500/10 border-indigo-500/20"
-                                }`}>
-                                  <Calendar className="h-2.5 w-2.5 shrink-0" />
-                                  <span>{friendlyDate}{timeStr}</span>
-                                </span>
-                              );
-                            })()}
+                            {/* Tags on Line 1 */}
+                            {task.tags.length > 0 && (
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {task.tags.map(tag => (
+                                  <span
+                                    key={tag}
+                                    onClick={(e) => { e.stopPropagation(); setSelectedTag(tag); }}
+                                    className="text-[9px] font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 hover:border-indigo-400/40 px-2 py-0.5 rounded-full transition-colors cursor-pointer"
+                                  >
+                                    #{tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
 
-                            {/* Tags */}
-                            {task.tags.map(tag => (
-                              <span
-                                key={tag}
-                                onClick={(e) => { e.stopPropagation(); setSelectedTag(tag); }}
-                                className="text-[8.5px] font-bold text-slate-400 bg-slate-800/40 px-1.5 py-0.5 rounded border border-slate-800/60 hover:text-slate-200 transition-colors cursor-pointer"
+                          {/* ── Line 2: Priority, Due Date, Note Source & Edit Action ───── */}
+                          <div className="flex items-center justify-between gap-2 border-t border-card-border/60 pt-2 text-[9.5px]">
+                            <div className="flex items-center gap-2 flex-wrap min-w-0">
+                              {/* Priority Badge Pill */}
+                              <div
+                                onClick={(e) => handlePriorityCycle(task, e)}
+                                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold border cursor-pointer select-none transition-all duration-150 ${
+                                  priorityVal === "high"
+                                    ? "bg-rose-500/15 border-rose-500/30 text-rose-700 dark:text-rose-400 hover:bg-rose-500/25"
+                                    : priorityVal === "medium"
+                                    ? "bg-amber-500/15 border-amber-500/30 text-amber-800 dark:text-amber-300 hover:bg-amber-500/25"
+                                    : priorityVal === "low"
+                                    ? "bg-cyan-500/15 border-cyan-500/30 text-cyan-800 dark:text-cyan-300 hover:bg-cyan-500/25"
+                                    : "bg-slate-100 dark:bg-slate-800/40 border-slate-300 dark:border-slate-700/50 text-slate-700 dark:text-slate-500 hover:text-slate-900 dark:hover:text-slate-400"
+                                }`}
+                                title="Click to cycle priority (None → Low → Med → High)"
                               >
-                                #{tag}
-                              </span>
-                            ))}
+                                {priorityVal === "high" && <><AlertTriangle className="h-2.5 w-2.5 text-rose-600 dark:text-rose-400 shrink-0" /><span>High</span></>}
+                                {priorityVal === "medium" && <><AlertCircle className="h-2.5 w-2.5 text-amber-600 dark:text-amber-400 shrink-0" /><span>Med</span></>}
+                                {priorityVal === "low" && <><Info className="h-2.5 w-2.5 text-cyan-600 dark:text-cyan-400 shrink-0" /><span>Low</span></>}
+                                {priorityVal === "none" && <><MinusCircle className="h-2.5 w-2.5 text-slate-500 dark:text-slate-600 shrink-0" /><span>Priority</span></>}
+                              </div>
 
-                            {/* Note Name Link */}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                openNoteByName(task.noteName);
-                                setTimeout(() => {
-                                  window.dispatchEvent(new CustomEvent("scroll-to-line", { detail: { lineNumber: task.lineNumber } }));
-                                }, 150);
-                              }}
-                              className="text-[9.5px] font-bold text-indigo-400 hover:text-indigo-300 hover:underline max-w-25 truncate cursor-pointer ml-1"
-                              title={`Open note: ${task.noteName} (L${task.lineNumber + 1})`}
-                            >
-                              {task.noteName}
-                            </button>
+                              {/* Due Date Pill */}
+                              {task.dueDate && (() => {
+                                const targetRaw = task.rawDueDate || (task.dueTime ? `${task.dueDate}T${task.dueTime}:00` : task.dueDate);
+                                const { dateStr, timeStr } = getZonedDateParts(targetRaw, userTimezone);
+
+                                const isOverdue = dateStr < todayStr && !task.completed;
+                                const isToday = dateStr === todayStr;
+                                const isTomorrow = dateStr === tomorrowStr;
+                                const friendlyDate = formatDueDate(dateStr, todayStr, tomorrowStr);
+                                const timeDisplay = timeStr ? ` ${timeStr}` : (task.dueTime ? ` ${task.dueTime}` : "");
+
+                                return (
+                                  <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full border flex items-center gap-1 select-none transition-all ${
+                                    isOverdue
+                                      ? "text-rose-700 dark:text-rose-300 bg-rose-500/15 border-rose-500/30"
+                                      : isToday
+                                      ? "text-amber-800 dark:text-amber-300 bg-amber-500/15 border-amber-500/30"
+                                      : isTomorrow
+                                      ? "text-sky-800 dark:text-sky-300 bg-sky-500/15 border-sky-500/30"
+                                      : "text-indigo-700 dark:text-indigo-300 bg-indigo-500/15 border-indigo-500/30"
+                                  }`}>
+                                    <Calendar className="h-2.5 w-2.5 shrink-0 opacity-80" />
+                                    <span>{friendlyDate}{timeDisplay}</span>
+                                  </span>
+                                );
+                              })()}
+
+                              {/* Note Source Link Pill */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  openNoteByName(task.noteName);
+                                  setTimeout(() => {
+                                    window.dispatchEvent(new CustomEvent("scroll-to-line", { detail: { lineNumber: task.lineNumber } }));
+                                  }, 150);
+                                }}
+                                className="flex items-center gap-1 text-[9.5px] font-extrabold text-indigo-700 dark:text-indigo-300 hover:text-indigo-900 dark:hover:text-white bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-600/30 border border-indigo-200 dark:border-indigo-500/30 px-2 py-0.5 rounded-md max-w-xs sm:max-w-md md:max-w-lg lg:max-w-2xl truncate transition-all cursor-pointer"
+                                title={`Open note: ${task.noteName} (Line ${task.lineNumber + 1})`}
+                              >
+                                <FileText className="h-2.5 w-2.5 text-indigo-500 dark:text-indigo-400 shrink-0" />
+                                <span className="truncate">{task.noteName}</span>
+                              </button>
+                            </div>
 
                             {/* Edit Action Button */}
                             <button
                               type="button"
                               onClick={() => startEdit(task)}
-                              className="opacity-40 group-hover/task:opacity-100 p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-all cursor-pointer"
+                              className="opacity-0 group-hover/task:opacity-100 p-1 rounded-md bg-slate-200 dark:bg-slate-800/60 hover:bg-indigo-600 hover:text-white text-slate-600 dark:text-slate-400 transition-all cursor-pointer shrink-0"
                               title="Edit task"
                             >
                               <Edit className="h-3 w-3" />
@@ -1316,11 +1432,11 @@ export const TasksView: React.FC = () => {
 
         {/* ══ BATCH ACTIONS DRAWER ════════════════════════════════════════════ */}
         {selectedTaskIds.length > 0 && (
-          <div className="border-t border-card-border bg-[#0b0c11] p-4 flex items-center justify-between shadow-2xl relative z-30 animate-slide-up shrink-0">
+          <div className="border-t border-card-border bg-card p-4 flex items-center justify-between shadow-2xl relative z-30 animate-slide-up shrink-0">
             <div className="flex items-center gap-3">
-              <CheckCircle2 className="h-5 w-5 text-indigo-400" />
-              <span className="text-xs font-bold text-slate-200">{selectedTaskIds.length} tasks selected</span>
-              <button onClick={() => setSelectedTaskIds([])} className="text-[10px] font-bold text-slate-500 hover:text-slate-300">
+              <CheckCircle2 className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />
+              <span className="text-xs font-bold text-foreground">{selectedTaskIds.length} tasks selected</span>
+              <button onClick={() => setSelectedTaskIds([])} className="text-[10px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer">
                 Cancel
               </button>
             </div>
@@ -1354,12 +1470,12 @@ export const TasksView: React.FC = () => {
       {/* ══ EDIT MODAL POPUP OVERLAY ═══════════════════════════════════════════ */}
       {editingTask && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="w-105 rounded-2xl border border-card-border bg-[#0f1117] p-6 shadow-2xl flex flex-col gap-4">
+          <div className="w-105 rounded-2xl border border-card-border bg-card p-6 shadow-2xl flex flex-col gap-4">
             <div className="flex items-center justify-between border-b border-card-border/50 pb-2.5">
-              <span className="text-xs font-extrabold text-slate-300 uppercase tracking-widest flex items-center gap-1.5">
-                <Edit className="h-4 w-4 text-indigo-400" /> Edit Task
+              <span className="text-xs font-extrabold text-foreground uppercase tracking-widest flex items-center gap-1.5">
+                <Edit className="h-4 w-4 text-indigo-500 dark:text-indigo-400" /> Edit Task
               </span>
-              <button onClick={() => setEditingTask(null)} className="text-slate-500 hover:text-slate-300 cursor-pointer">
+              <button onClick={() => setEditingTask(null)} className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -1374,35 +1490,35 @@ export const TasksView: React.FC = () => {
                   required
                   value={editContent}
                   onChange={(e) => setEditContent(e.target.value)}
-                  className="rounded-lg bg-background p-2.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 w-full transition-colors"
+                  className="rounded-lg bg-background p-2.5 text-xs text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 w-full transition-colors"
                 />
               </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
                     <CalendarDays className="h-3 w-3 text-slate-500" /> Due Date
                   </label>
                   <input
                     type="date"
                     value={editDate}
                     onChange={(e) => setEditDate(e.target.value)}
-                    className="rounded-lg bg-background p-2 text-xs text-slate-300 border border-card-border focus:outline-none focus:border-indigo-500/50 w-full"
+                    className="rounded-lg bg-background p-2 text-xs text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 w-full"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
                     <Calendar className="h-3 w-3 text-slate-500" /> Time
                   </label>
                   <input
                     type="time"
                     value={editTime}
                     onChange={(e) => setEditTime(e.target.value)}
-                    className="rounded-lg bg-background p-2 text-xs text-slate-300 border border-card-border focus:outline-none focus:border-indigo-500/50 w-full"
+                    className="rounded-lg bg-background p-2 text-xs text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 w-full"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
                     <Tag className="h-3 w-3 text-slate-500" /> Tags
                   </label>
                   <input
@@ -1410,19 +1526,19 @@ export const TasksView: React.FC = () => {
                     placeholder="e.g. #work"
                     value={editTags}
                     onChange={(e) => setEditTags(e.target.value)}
-                    className="rounded-lg bg-background p-2 text-xs text-slate-300 border border-card-border focus:outline-none focus:border-indigo-500/50 w-full placeholder-slate-600"
+                    className="rounded-lg bg-background p-2 text-xs text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 w-full placeholder-slate-400"
                   />
                 </div>
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
                   Task Priority
                 </label>
                 <select
                   value={editPriority}
                   onChange={(e) => setEditPriority(e.target.value as any)}
-                  className="rounded-lg bg-background p-2 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 w-full cursor-pointer"
+                  className="rounded-lg bg-background p-2 text-xs text-slate-700 dark:text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 w-full cursor-pointer"
                 >
                   <option value="high">High Priority (!!!)</option>
                   <option value="medium">Medium Priority (!!)</option>

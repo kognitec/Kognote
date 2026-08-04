@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useVault } from "../contexts/VaultContext";
-import { X, FileText, Network, LayoutTemplate } from "lucide-react";
+import { X, FileText, Network, LayoutTemplate, Folder } from "lucide-react";
 import { invokeIPC } from "../lib/ipc";
-import { parseFrontmatter, stringifyFrontmatter } from "../lib/frontmatter";
+import { parseFrontmatter, stringifyFrontmatter, getCurrentIsoTimestamp } from "../lib/frontmatter";
 
 export const CreateFileModal: React.FC = () => {
   const { createFileModal, setCreateFileModal, createFile, openFile, getTemplates } = useVault();
@@ -86,14 +86,11 @@ export const CreateFileModal: React.FC = () => {
           const tpl = templates.find((t) => t.path === selectedTemplate || t.name === selectedTemplate);
           if (tpl) {
             const parsed = parseFrontmatter(tpl.content);
-            const nowIso = new Date().toISOString();
-            const isDaily = createFileModal.parentDir?.toLowerCase().includes("daily notes");
-            const isTemplateDir = createFileModal.parentDir?.toLowerCase().includes("templates");
-            const defaultType = isDaily ? "daily" : isTemplateDir ? "template" : "note";
+            const nowIso = getCurrentIsoTimestamp();
+            const isDaily = (createFileModal.parentDir || "").toLowerCase().includes("daily notes") || nameWithExt.toLowerCase().includes("daily") || /^\d{4}-\d{2}-\d{2}\.md$/i.test(nameWithExt);
+            const isTemplateDir = (createFileModal.parentDir || "").toLowerCase().includes("templates");
             const newHeader = stringifyFrontmatter({
-              type: tpl.type || defaultType,
-              created_by: "user",
-              updated_by: "user",
+              type: isDaily ? "daily" : isTemplateDir ? "template" : "note",
               status: parsed.fields.status || "none",
               priority: parsed.fields.priority || "none",
               due: parsed.fields.due || "",
@@ -195,7 +192,10 @@ export const CreateFileModal: React.FC = () => {
                   <LayoutTemplate className="h-3.5 w-3.5 text-indigo-400" />
                   <span>Choose Template (Optional)</span>
                 </span>
-                <span className="text-[10px] text-slate-500 font-normal">Pre-packaged</span>
+                <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1 normal-case tracking-normal">
+                  <Folder className="h-3 w-3 text-indigo-400" />
+                  <span>In Templates Folder</span>
+                </span>
               </label>
               <select
                 value={selectedTemplate}

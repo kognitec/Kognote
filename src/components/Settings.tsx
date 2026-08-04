@@ -7,10 +7,11 @@ import {
   FolderOpen, X,
   Download, Trash2, Loader2,
   ChevronDown, FileCode, Lock, Brain, Archive,
-  Info, Globe, ExternalLink, ShieldCheck, Cpu, Sparkles
+  Info, Globe, ExternalLink, ShieldCheck, Cpu, Sparkles, Clock
 } from "lucide-react";
 import { aiService, type ModelStatus, type DownloadProgressEvent, type SystemHardwareInfo } from "../lib/local-ai";
 import { DEFAULT_AGENTS_MD } from "../constants/defaultAgents";
+import { formatTimestampForDisplay } from "../lib/frontmatter";
 import logoImg from "../assets/logo.png";
 
 interface SettingsProps {
@@ -31,6 +32,8 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
     setAiApiKey,
     aiApiModel,
     setAiApiModel,
+    userTimezone,
+    setUserTimezone,
     includeArchivedInScans,
     setIncludeArchivedInScans,
   } = useSettings();
@@ -213,11 +216,11 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
         <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
           
           {/* Accordion 1: Storage & Vault Settings */}
-          <div className="rounded-xl border dark:border-card-border border-slate-200 dark:bg-[#161825] bg-slate-50 overflow-hidden">
+          <div className="rounded-xl border border-card-border bg-card overflow-hidden">
             <button
               type="button"
               onClick={() => toggleAccordion("vault")}
-              className="w-full flex items-center justify-between p-3.5 text-left font-semibold text-xs text-slate-200 hover:bg-[#1a1d2d] transition-colors cursor-pointer"
+              className="w-full flex items-center justify-between p-3.5 text-left font-semibold text-xs text-foreground hover:bg-card-hover transition-colors cursor-pointer"
             >
               <span className="flex items-center gap-2">
                 <FolderOpen className="h-4 w-4 text-indigo-400" />
@@ -227,7 +230,7 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
             </button>
 
             {expandedSection === "vault" && (
-              <div className="p-4 border-t dark:border-card-border border-slate-200 flex flex-col gap-3">
+              <div className="p-4 border-t border-card-border bg-sidebar flex flex-col gap-3">
                 <span className="text-xs text-slate-400 leading-relaxed">
                   Select the root folder where all your plain Markdown (.md) files, Daily Notes, and canvas attachments are stored on disk.
                 </span>
@@ -284,12 +287,85 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
             )}
           </div>
 
+          {/* Accordion 2: Timezone & Date Display Settings */}
+          <div className="rounded-xl border border-card-border bg-card overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleAccordion("timezone")}
+              className="w-full flex items-center justify-between p-3.5 text-left font-semibold text-xs text-foreground hover:bg-card-hover transition-colors cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-cyan-400" />
+                Timezone & Date Display
+              </span>
+              <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${expandedSection === "timezone" ? "rotate-180" : ""}`} />
+            </button>
+
+            {expandedSection === "timezone" && (
+              <div className="p-4 border-t dark:border-card-border border-slate-200 flex flex-col gap-3.5">
+                <span className="text-xs text-slate-400 leading-relaxed">
+                  All notes store metadata timestamps in JavaScript's native UTC ISO format (<code className="text-indigo-300 bg-indigo-950/40 px-1.5 py-0.5 rounded font-mono text-[11px]">new Date().toISOString()</code>). Select your preferred timezone below to customize how timestamps and dates are formatted across the inspector, calendar, and task lists.
+                </span>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Select Target Timezone
+                  </label>
+                  <select
+                    value={userTimezone}
+                    onChange={(e) => setUserTimezone(e.target.value)}
+                    className="w-full rounded-lg bg-card border border-slate-800 px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer font-mono"
+                  >
+                    {[
+                      { value: "auto", label: "System Default (Auto)" },
+                      { value: "UTC", label: "UTC (Coordinated Universal Time)" },
+                      { value: "America/New_York", label: "Eastern Time (US & Canada) - EST/EDT" },
+                      { value: "America/Chicago", label: "Central Time (US & Canada) - CST/CDT" },
+                      { value: "America/Denver", label: "Mountain Time (US & Canada) - MST/MDT" },
+                      { value: "America/Los_Angeles", label: "Pacific Time (US & Canada) - PST/PDT" },
+                      { value: "Europe/London", label: "London / GMT / BST" },
+                      { value: "Europe/Paris", label: "Paris / Berlin / Rome - CET/CEST" },
+                      { value: "Europe/Moscow", label: "Moscow - MSK" },
+                      { value: "Asia/Kolkata", label: "India Standard Time - IST (UTC+5:30)" },
+                      { value: "Asia/Dubai", label: "Gulf Standard Time - GST (UTC+4:00)" },
+                      { value: "Asia/Singapore", label: "Singapore Standard Time - SGT (UTC+8:00)" },
+                      { value: "Asia/Tokyo", label: "Japan Standard Time - JST (UTC+9:00)" },
+                      { value: "Australia/Sydney", label: "Australian Eastern Time - AEST/AEDT" },
+                    ].map((tz) => (
+                      <option key={tz.value} value={tz.value}>
+                        {tz.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Live Formatted Timestamp Preview */}
+                <div className="p-3 rounded-lg bg-card border border-slate-800 flex flex-col gap-1.5 mt-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Clock className="h-3 w-3 text-cyan-400" /> Live Date Format Preview
+                  </span>
+                  <div className="flex flex-col gap-1 font-mono text-xs">
+                    <div className="flex items-center justify-between text-slate-400">
+                      <span>Stored UTC String:</span>
+                      <span className="text-slate-300 font-semibold">{new Date().toISOString()}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-400 pt-1 border-t border-slate-800/60">
+                      <span>Formatted Display:</span>
+                      <span className="text-cyan-300 font-bold">{formatTimestampForDisplay(new Date().toISOString(), userTimezone)}</span>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            )}
+          </div>
+
           {/* Accordion 3: Local AI Models & Cloud Providers */}
-          <div className="rounded-xl border dark:border-card-border border-slate-200 dark:bg-[#161825] bg-slate-50 overflow-hidden">
+          <div className="rounded-xl border border-card-border bg-card overflow-hidden">
             <button
               type="button"
               onClick={() => toggleAccordion("ai")}
-              className="w-full flex items-center justify-between p-3.5 text-left font-semibold text-xs text-slate-200 hover:bg-[#1a1d2d] transition-colors cursor-pointer"
+              className="w-full flex items-center justify-between p-3.5 text-left font-semibold text-xs text-foreground hover:bg-card-hover transition-colors cursor-pointer"
             >
               <span className="flex items-center gap-2">
                 <Brain className="h-4 w-4 text-indigo-400" />
@@ -368,9 +444,15 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                       </div>
                     )}
 
-                    <span className="text-xs text-slate-400">
-                      Local models run 100% offline on your device using native CPU & GPU acceleration.
-                    </span>
+                    <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-slate-800/40 border border-slate-700/50 text-xs text-slate-300">
+                      <Info className="h-4 w-4 text-indigo-400 shrink-0 mt-0.5" />
+                      <div className="flex flex-col gap-1">
+                        <span className="font-semibold text-slate-200 text-xs">Automatic On-Demand Memory Management</span>
+                        <span className="text-[11.5px] text-slate-400 leading-relaxed">
+                          Local models run 100% offline on your device using native CPU & GPU acceleration. While you can manually select and boot models anytime using <strong>Select & Boot</strong>, manual action is completely optional—Kognote automatically loads the required model when you start chatting and unloads it from system memory (RAM/VRAM) when idle to keep your PC fast and responsive.
+                        </span>
+                      </div>
+                    </div>
 
                     {models.map((m) => {
                       const isRecommended = sysInfo && sysInfo.recommended_model_id === m.id;
@@ -627,11 +709,11 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
           </div>
 
           {/* Accordion 4: AI Guidelines & Vault Rules (AGENTS.md) */}
-          <div className="rounded-xl border dark:border-card-border border-slate-200 dark:bg-[#161825] bg-slate-50 overflow-hidden">
+          <div className="rounded-xl border border-card-border bg-card overflow-hidden">
             <button
               type="button"
               onClick={() => toggleAccordion("agents")}
-              className="w-full flex items-center justify-between p-3.5 text-left font-semibold text-xs text-slate-200 hover:bg-[#1a1d2d] transition-colors cursor-pointer"
+              className="w-full flex items-center justify-between p-3.5 text-left font-semibold text-xs text-foreground hover:bg-card-hover transition-colors cursor-pointer"
             >
               <span className="flex items-center gap-2">
                 <FileCode className="h-4 w-4 text-indigo-400" />
@@ -658,7 +740,7 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                     <li><strong>WikiLinks & Tags</strong>: <code className="text-indigo-300">[[Target Note Title]]</code> · <code className="text-indigo-300">#tag-name</code></li>
                     <li><strong>Flashcards Syntax</strong>: <code className="text-indigo-300">@flashcard ( Question :: Answer )</code> or <code className="text-indigo-300">( Question :: Answer )</code></li>
                     <li><strong>AI Block Diffs</strong>: <code className="text-emerald-300">&lt;&lt;&lt;&lt;&lt;&lt;&lt; SEARCH \n [existing] \n ======= \n [updated] \n &gt;&gt;&gt;&gt;&gt;&gt;&gt; REPLACE</code></li>
-                    <li><strong>Full Metadata Schema</strong>: <code className="text-slate-400">type, created_by, updated_by, status, priority, due, created, updated, storage, bookmarked, mentions, tags</code></li>
+                    <li><strong>Full Metadata Schema</strong>: <code className="text-slate-400">type, status, priority, due, created, updated, storage, bookmarked, mentions, tags</code></li>
                   </ul>
                 </div>
 
@@ -691,11 +773,11 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
           </div>
 
           {/* Accordion 5: About KogNote & Kognitec Info */}
-          <div className="rounded-xl border dark:border-card-border border-slate-200 dark:bg-[#161825] bg-slate-50 overflow-hidden">
+          <div className="rounded-xl border border-card-border bg-card overflow-hidden">
             <button
               type="button"
               onClick={() => toggleAccordion("about")}
-              className="w-full flex items-center justify-between p-3.5 text-left font-semibold text-xs text-slate-200 hover:bg-[#1a1d2d] transition-colors cursor-pointer"
+              className="w-full flex items-center justify-between p-3.5 text-left font-semibold text-xs text-foreground hover:bg-card-hover transition-colors cursor-pointer"
             >
               <span className="flex items-center gap-2">
                 <Info className="h-4 w-4 text-indigo-400" />

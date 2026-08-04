@@ -2,10 +2,12 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useVault } from "../contexts/VaultContext";
 import { useSettings } from "../contexts/SettingsContext";
 import { useSync } from "../contexts/SyncContext";
+import { useTheme } from "../contexts/ThemeContext";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { invokeIPC } from "../lib/ipc";
 import { ScannedTask, toggleTaskInNote, isArchivedPath, isTrashPath } from "../lib/task-scanner";
 import { getFileIcon } from "../lib/file-icons";
+import { getZonedDateParts } from "../lib/frontmatter";
 import { FileEntry, NoteCachedData } from "../types/note";
 import {
   ChevronLeft,
@@ -28,7 +30,6 @@ import {
   CheckSquare,
   BookOpen,
   Sparkles,
-  RefreshCw,
   AlarmClock,
   AlertTriangle,
   Inbox,
@@ -164,6 +165,26 @@ function getEventColor(evt: CalendarEvent, feeds: CalendarFeed[]): string {
   if (evt.calendarId === "local") return "#a855f7";
   const feed = feeds.find(f => f.id === evt.calendarId);
   return feed ? feed.color : "#64748b";
+}
+
+function getTextColorForCalendarEvent(colorHex: string, isDark: boolean): string | undefined {
+  if (isDark) return undefined;
+
+  // In light mode, darken the text color by ~30% for crisp, vivid readability on light pastel backgrounds
+  const hex = colorHex.replace("#", "");
+  if (hex.length === 6) {
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+
+    const darkR = Math.max(0, Math.floor(r * 0.70));
+    const darkG = Math.max(0, Math.floor(g * 0.70));
+    const darkB = Math.max(0, Math.floor(b * 0.70));
+
+    const toHex = (n: number) => n.toString(16).padStart(2, "0");
+    return `#${toHex(darkR)}${toHex(darkG)}${toHex(darkB)}`;
+  }
+  return colorHex;
 }
 
 function getNoteIcon(evt: CalendarEvent, noteCache: Record<string, NoteCachedData>, sizeClass = "h-3.5 w-3.5 shrink-0") {
@@ -314,8 +335,10 @@ function computeDayEventPositions(dayEvts: CalendarEvent[]): PositionedCalendarE
 // ─── Component ───────────────────────────────────────────────────────────────
 export const CalendarView: React.FC = () => {
   const { openNoteByName, openDailyNote, getDailyNoteFile, noteCache, activeView, refreshFiles } = useVault();
-  const { includeArchivedInScans } = useSettings();
+  const { includeArchivedInScans, userTimezone } = useSettings();
   const { registerSyncHandler, unregisterSyncHandler } = useSync();
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
 
   const [viewMode, setViewMode] = useState<CalendarViewMode>("month");
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -389,20 +412,32 @@ export const CalendarView: React.FC = () => {
 
         if (!includeArchivedInScans && isArchived) return false;
         if (isDeleted) return false;
+        if (t.notePath.toLowerCase().includes("/templates/") || cacheData[t.notePath]?.meta?.type === "template") return false;
         return true;
       });
 
     setScannedTasks(tasks);
 
     tasks.forEach(t => {
-      if (t.dueDate) {
+      const targetRaw = t.rawDueDate || (t.dueTime ? `${t.dueDate}T${t.dueTime}:00` : t.dueDate);
+      const { dateStr: taskDate, timeStr: taskTime } = getZonedDateParts(targetRaw, userTimezone);
+
+      const cleanTitle = (t.content || "")
+        .replace(/(?:@due:?|@|due:\s*)?20\d{2}[-/]\d{2}[-/]\d{2}(?:T[^\s]+|[ T]\d{2}:\d{2})?/gi, "")
+        .replace(/(?:^|\s|\\)#([a-zA-Z0-9_\-\/]+)/g, "")
+        .replace(/@task(!*)/gi, "")
+        .replace(/(?:\b|\s|^)!{1,3}(?:\b|\s|$)/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (taskDate) {
         all.push({
           id: t.id,
           calendarId: "tasks",
-          summary: `${t.completed ? "✅" : "☑️"} ${t.content}`,
+          summary: `${t.completed ? "✅" : "☑️"} ${cleanTitle || t.content}`,
           description: `Task in note: ${t.noteName}\nLine: ${t.lineNumber + 1}`,
-          date: t.dueDate,
-          startTime: t.dueTime,
+          date: taskDate,
+          startTime: taskTime,
           priority: t.priority,
           completed: t.completed,
           notePath: t.notePath,
@@ -416,15 +451,15 @@ export const CalendarView: React.FC = () => {
     Object.entries(cacheData).forEach(([path, data]) => {
       if (!includeArchivedInScans && (data.meta?.storage === "archived" || isArchivedPath(path))) return;
       if (data.meta?.storage === "deleted" || isTrashPath(path)) return;
+      if (data.meta?.type === "template" || path.toLowerCase().includes("/templates/")) return;
 
       const fm = data.meta;
       if (fm && fm.due) {
         const rawDue = String(fm.due).trim();
         if (rawDue) {
-          const dtMatch = rawDue.match(/^(20\d{2}[-/]\d{2}[-/]\d{2})(?:[T\s]+([01]\d|2[0-3]):([0-5]\d))?/);
-          if (dtMatch) {
-            const dueDate = dtMatch[1].replace(/\//g, "-");
-            const dueTime = dtMatch[2] && dtMatch[3] ? `${dtMatch[2]}:${dtMatch[3]}` : undefined;
+          const { dateStr: dueDate, timeStr: dueTime } = getZonedDateParts(rawDue, userTimezone);
+
+          if (dueDate) {
             const noteName = path.replace(/\\/g, "/").split("/").pop()?.replace(/\.md$/, "") || "";
             const priority = (fm.priority || "none").toLowerCase() as any;
             const status = (fm.status || "none").toLowerCase();
@@ -449,7 +484,7 @@ export const CalendarView: React.FC = () => {
     });
 
     setEvents(all);
-  }, []);
+  }, [includeArchivedInScans, userTimezone]);
 
   // Initial load when view becomes active
   useEffect(() => {
@@ -458,12 +493,12 @@ export const CalendarView: React.FC = () => {
     }
   }, [activeView]);
 
-  // Re-scan and rebuild events list when noteCache updates
+  // Re-scan and rebuild events list when noteCache or userTimezone updates
   useEffect(() => {
     if (activeView === "calendar") {
       rebuildAllEvents(localEvents, externalEvents, noteCache);
     }
-  }, [noteCache, localEvents, externalEvents, activeView, rebuildAllEvents]);
+  }, [noteCache, localEvents, externalEvents, activeView, userTimezone, rebuildAllEvents]);
 
   useEffect(() => {
     registerSyncHandler("calendar-sync", async () => {
@@ -778,7 +813,7 @@ export const CalendarView: React.FC = () => {
         style={{
           background: highlightColor + "20",
           borderLeftColor: highlightColor,
-          color: evt.priority && evt.priority !== "none" ? undefined : "#cbd5e1"
+          color: getTextColorForCalendarEvent(highlightColor, isDark) ?? (evt.priority && evt.priority !== "none" ? undefined : "#cbd5e1")
         }}
         title={evt.summary}
       >
@@ -790,7 +825,7 @@ export const CalendarView: React.FC = () => {
             }}
             className="shrink-0 cursor-pointer"
           >
-            {completed ? <CheckSquare className="h-3 w-3 text-emerald-400" /> : <Square className="h-3 w-3 text-slate-400" />}
+            {completed ? <CheckSquare className="h-3 w-3 text-emerald-500 dark:text-emerald-400" /> : <Square className="h-3 w-3 text-slate-500 dark:text-slate-400" />}
           </button>
         ) : isDueNote ? (
           getNoteIcon(evt, noteCache, "h-3 w-3 shrink-0")
@@ -799,7 +834,7 @@ export const CalendarView: React.FC = () => {
         {/* For notes: show the board status icon. For tasks: highlight color indicates priority */}
         {isDueNote && getBoardStatusIcon(evt.status, "h-2.5 w-2.5 shrink-0")}
         
-        <span className={`truncate ${completed ? "line-through opacity-60" : ""}`}>{label}</span>
+        <span className={`truncate ${completed ? "line-through opacity-60" : ""}`} style={{ color: getTextColorForCalendarEvent(highlightColor, isDark) }}>{label}</span>
         {evt.startTime && !compact && <span className="ml-auto shrink-0 font-mono text-[8.5px] opacity-75">{formatTime12(evt.startTime)}</span>}
       </div>
     );
@@ -814,7 +849,7 @@ export const CalendarView: React.FC = () => {
     const highlightColor = getPriorityHighlightColor(evt.priority, getEventColor(evt, feeds));
 
     return (
-      <div className="flex items-start gap-2 group py-2 border-b border-[#1a1d28]/60 last:border-0 hover:bg-[#12141f]/60 px-2 rounded-lg transition-colors">
+      <div className="flex items-start gap-2 group py-2 border-b border-card-border/60 last:border-0 hover:bg-card-hover px-2 rounded-lg transition-colors">
         <span className="h-2 w-2 rounded-full mt-1.5 shrink-0" style={{ background: highlightColor }} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-1">
@@ -826,20 +861,20 @@ export const CalendarView: React.FC = () => {
                   onChange={() => handleToggleTask(evt.id, !!completed)}
                   className="h-3.5 w-3.5 rounded accent-indigo-500 cursor-pointer shrink-0"
                 />
-                <span className={`text-[11px] font-medium leading-snug truncate ${completed ? "line-through text-slate-500" : "text-slate-200"}`}>
+                <span className={`text-[11px] font-semibold leading-snug truncate ${completed ? "line-through text-slate-400 dark:text-slate-500" : "text-slate-800 dark:text-slate-200"}`}>
                   {label}
                 </span>
               </label>
             ) : isDueNote ? (
               <button
                 onClick={() => evt.noteName && openNoteByName(evt.noteName)}
-                className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-200 hover:text-indigo-300 leading-snug truncate text-left cursor-pointer min-w-0"
+                className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-800 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-300 leading-snug truncate text-left cursor-pointer min-w-0"
               >
                 {getNoteIcon(evt, noteCache, "h-3.5 w-3.5 shrink-0")}
                 <span className={`truncate ${completed ? "line-through opacity-60 text-slate-400" : ""}`}>{evt.noteName}</span>
               </button>
             ) : (
-              <span className={`text-[11px] font-medium text-slate-300 leading-snug truncate ${completed ? "line-through opacity-60" : ""}`}>{label}</span>
+              <span className={`text-[11px] font-semibold text-slate-800 dark:text-slate-200 leading-snug truncate ${completed ? "line-through opacity-60" : ""}`}>{label}</span>
             )}
 
             <div className="flex items-center gap-1 shrink-0">
@@ -891,20 +926,17 @@ export const CalendarView: React.FC = () => {
     <div className="flex h-full w-full bg-background text-slate-200 select-none overflow-hidden font-sans">
 
       {/* ══ SIDEBAR ═══════════════════════════════════════════════════════════ */}
-      <div className="w-72 border-r border-card-border bg-[#0b0c11] flex flex-col shrink-0 overflow-hidden">
+      <div className="w-72 border-r border-card-border bg-sidebar flex flex-col shrink-0 overflow-hidden">
         <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-0">
 
           {/* Header */}
           <div className="px-4 pt-4 pb-3 border-b border-card-border/60">
-            <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center justify-between">
               <span className="text-[10.5px] font-extrabold text-indigo-400 tracking-widest uppercase flex items-center gap-1.5">
-                <CalendarIcon className="h-3.5 w-3.5" /> Calendar Engine
+                <CalendarIcon className="h-3.5 w-3.5" /> Calendar
               </span>
               {loading && <span className="text-[9px] text-indigo-400 animate-pulse font-semibold">SYNCING...</span>}
             </div>
-            <p className="text-[9.5px] text-slate-500 leading-relaxed">
-              Syncs Note Tasks, Due Notes & iCal Feeds
-            </p>
           </div>
 
           {/* ── Mini Calendar ─────────────────────────────────────────────── */}
@@ -1056,33 +1088,33 @@ export const CalendarView: React.FC = () => {
           </div>
 
           {/* ── My Calendars / Feeds ──────────────────────────────────────── */}
-          <div className="px-3 py-3 border-t border-card-border/60 bg-[#08090d]">
+          <div className="px-3 py-3 border-t border-card-border/60 bg-sidebar">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Calendars & Feeds</span>
-              <button onClick={() => setIsLinkModalOpen(true)} className="p-1 rounded-md hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer" title="Add iCal Feed">
+              <button onClick={() => setIsLinkModalOpen(true)} className="p-1 rounded-md hover:bg-card-hover text-slate-500 hover:text-slate-900 dark:hover:text-slate-200 transition-colors cursor-pointer" title="Add iCal Feed">
                 <Plus className="h-3 w-3" />
               </button>
             </div>
             <div className="flex flex-col gap-1 text-[10.5px]">
-              <div className="flex items-center gap-2 px-2 py-1 rounded bg-card">
+              <div className="flex items-center gap-2 px-2 py-1 rounded bg-card border border-card-border">
                 <span className="h-2 w-2 rounded-full bg-indigo-500 shrink-0" />
-                <span className="text-slate-300 flex-1">Note Tasks</span>
+                <span className="text-slate-700 dark:text-slate-200 flex-1 font-medium">Note Tasks</span>
                 {getCategoryIcon("tasks", "h-2.5 w-2.5")}
               </div>
-              <div className="flex items-center gap-2 px-2 py-1 rounded bg-card">
+              <div className="flex items-center gap-2 px-2 py-1 rounded bg-card border border-card-border">
                 <span className="h-2 w-2 rounded-full bg-[#d946ef] shrink-0" />
-                <span className="text-slate-300 flex-1">Due Notes</span>
+                <span className="text-slate-700 dark:text-slate-200 flex-1 font-medium">Due Notes</span>
                 {getCategoryIcon("due-notes", "h-2.5 w-2.5")}
               </div>
               {feeds.map(feed => (
-                <div key={feed.id} className="flex items-center gap-2 px-2 py-1 rounded bg-card group">
+                <div key={feed.id} className="flex items-center gap-2 px-2 py-1 rounded bg-card border border-card-border group">
                   <span className="h-2 w-2 rounded-full shrink-0" style={{ background: feed.color }} />
-                  <span className="text-slate-300 flex-1 truncate">{feed.name}</span>
+                  <span className="text-slate-700 dark:text-slate-200 flex-1 truncate font-medium">{feed.name}</span>
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                    <button onClick={() => handleToggleFeedVisibility(feed.id)} className="p-0.5 text-slate-500 hover:text-slate-300 rounded cursor-pointer" title={feed.visible ? "Hide" : "Show"}>
+                    <button onClick={() => handleToggleFeedVisibility(feed.id)} className="p-0.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 rounded cursor-pointer" title={feed.visible ? "Hide" : "Show"}>
                       {feed.visible ? <Eye className="h-2.5 w-2.5" /> : <EyeOff className="h-2.5 w-2.5 text-slate-600" />}
                     </button>
-                    <button onClick={() => handleDeleteCalendar(feed.id)} className="p-0.5 text-slate-500 hover:text-red-400 rounded cursor-pointer">
+                    <button onClick={() => handleDeleteCalendar(feed.id)} className="p-0.5 text-slate-500 hover:text-red-500 rounded cursor-pointer">
                       <Trash2 className="h-2.5 w-2.5" />
                     </button>
                   </div>
@@ -1097,23 +1129,22 @@ export const CalendarView: React.FC = () => {
       <div className="flex-1 h-full flex flex-col min-w-0">
 
         {/* ── Toolbar ─────────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between border-b border-card-border/70 px-5 py-2.5 shrink-0 bg-[#07080c]/90 backdrop-blur-md">
+        <div className="flex items-center justify-between border-b border-card-border px-5 py-2.5 shrink-0 bg-sidebar backdrop-blur-md">
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-0.5 bg-[#10121a] p-0.5 rounded-lg border border-card-border">
-              <button onClick={() => navigate(-1)} className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded-md transition-colors cursor-pointer" title="Previous (←)">
+            <div className="flex items-center gap-0.5 bg-card p-0.5 rounded-lg border border-card-border">
+              <button onClick={() => navigate(-1)} className="p-1.5 hover:bg-card-hover text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 rounded-md transition-colors cursor-pointer" title="Previous (←)">
                 <ChevronLeft className="h-3.5 w-3.5" />
               </button>
-              <button onClick={navigateToday} className="px-2.5 py-1 text-slate-400 hover:text-slate-200 text-xs font-bold rounded-md hover:bg-slate-800 transition-colors cursor-pointer" title="Today (T)">
+              <button onClick={navigateToday} className="px-2.5 py-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 text-xs font-bold rounded-md hover:bg-card-hover transition-colors cursor-pointer" title="Today (T)">
                 Today
               </button>
-              <button onClick={() => navigate(1)} className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded-md transition-colors cursor-pointer" title="Next (→)">
+              <button onClick={() => navigate(1)} className="p-1.5 hover:bg-card-hover text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 rounded-md transition-colors cursor-pointer" title="Next (→)">
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
             </div>
-            <h1 className="text-sm font-extrabold tracking-tight bg-linear-to-r from-slate-100 to-slate-400 bg-clip-text text-transparent min-w-50">
+            <h1 className="text-sm font-extrabold tracking-tight text-foreground min-w-50">
               {getHeaderLabel()}
             </h1>
-            {loading && <RefreshCw className="h-3.5 w-3.5 text-indigo-400 animate-spin" />}
           </div>
 
           <div className="flex items-center gap-2">
@@ -1123,14 +1154,14 @@ export const CalendarView: React.FC = () => {
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer select-none ${
                 selectedDayStr
                   ? "bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/30"
-                  : "bg-[#10121a] border border-card-border text-slate-600 cursor-default"
+                  : "bg-card border border-card-border text-slate-400 cursor-default"
               }`}
             >
               <Plus className="h-3.5 w-3.5" />
               Add Event
             </button>
 
-            <div className="flex items-center gap-0.5 bg-[#10121a] p-0.5 rounded-lg border border-card-border">
+            <div className="flex items-center gap-0.5 bg-card p-0.5 rounded-lg border border-card-border">
               {VIEW_MODES.map(vm => (
                 <button
                   key={vm.key}
@@ -1138,7 +1169,7 @@ export const CalendarView: React.FC = () => {
                   className={`flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
                     viewMode === vm.key
                       ? "bg-indigo-600 text-white shadow-sm"
-                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-card-hover"
                   }`}
                 >
                   {vm.icon}
@@ -1152,7 +1183,7 @@ export const CalendarView: React.FC = () => {
         {/* ── Month Grid View ─────────────────────────────────────────────── */}
         {viewMode === "month" && (
           <div className="flex-1 flex flex-col min-h-0">
-            <div className="grid grid-cols-7 border-b border-card-border bg-[#0b0c11]/80 shrink-0">
+            <div className="grid grid-cols-7 border-b border-card-border bg-sidebar shrink-0">
               {DAY_NAMES_SHORT.map((d, i) => (
                 <div key={i} className="py-2 text-center text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                   {d}
@@ -1181,14 +1212,14 @@ export const CalendarView: React.FC = () => {
                     key={idx}
                     onClick={() => handleDayClick(ds)}
                     onDoubleClick={() => openDailyNote(ds)}
-                    className={`group relative flex flex-col p-1.5 border-r border-b border-[#1a1d28]/70 overflow-hidden transition-colors cursor-pointer ${
+                    className={`group relative flex flex-col p-1.5 border-r border-b border-card-border overflow-hidden transition-colors cursor-pointer ${
                       !day.isCurrentMonth
-                        ? "bg-[#06070a]/60 text-slate-700"
+                        ? "bg-card/40 text-slate-400"
                         : isSelected
-                        ? "bg-indigo-950/20 text-slate-200 ring-1 ring-inset ring-indigo-500/50"
+                        ? "bg-indigo-600/20 text-foreground ring-1 ring-inset ring-indigo-500/50"
                         : isWeekend
-                        ? "bg-[#07080d]"
-                        : "bg-background hover:bg-[#0f111a]"
+                        ? "bg-sidebar"
+                        : "bg-background hover:bg-card-hover"
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
@@ -1199,8 +1230,8 @@ export const CalendarView: React.FC = () => {
                             : isSelected
                             ? "bg-indigo-600 text-white"
                             : !day.isCurrentMonth
-                            ? "text-slate-700"
-                            : "text-slate-300"
+                            ? "text-slate-400 dark:text-slate-600"
+                            : "text-foreground font-bold"
                         }`}
                       >
                         {day.date.getDate()}
@@ -1231,22 +1262,72 @@ export const CalendarView: React.FC = () => {
         {/* ── Time Grid View (Week / 3Day / Day) ───────────────────────────── */}
         {viewMode !== "month" && (
           <div ref={timeGridRef} className="flex-1 overflow-y-auto custom-scrollbar flex flex-col bg-background">
-            <div className="flex border-b border-card-border bg-[#0b0c11] sticky top-0 z-10 shrink-0">
-              <div className="w-14 border-r border-card-border shrink-0" />
+            <div className="flex border-b border-card-border bg-sidebar sticky top-0 z-20 shrink-0 shadow-xs">
+              <div className="w-14 border-r border-card-border shrink-0 flex items-center justify-center text-[9px] font-bold text-slate-500 uppercase tracking-widest px-1">
+                All-day
+              </div>
               {getViewDays().map((day, idx) => {
                 const ds = toLocalDateStr(day);
                 const isToday = ds === todayStr;
                 const dayIdx = (day.getDay() + 6) % 7;
+                const allDayEvts = filteredEvents.filter(e => e.date === ds && !e.startTime);
+
                 return (
-                  <div key={idx} className="flex-1 py-2.5 text-center border-r border-card-border last:border-r-0">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                      {DAY_NAMES_SHORT[dayIdx]}
-                    </span>
-                    <span className={`inline-flex items-center justify-center text-xs font-extrabold h-6 w-6 rounded-full mt-0.5 ${
-                      isToday ? "bg-fuchsia-600 text-white shadow-md shadow-fuchsia-600/40" : "text-slate-200"
-                    }`}>
-                      {day.getDate()}
-                    </span>
+                  <div key={idx} className="flex-1 py-2 px-1 text-center border-r border-card-border last:border-r-0 flex flex-col gap-1 min-w-0">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        {DAY_NAMES_SHORT[dayIdx]}
+                      </span>
+                      <span className={`inline-flex items-center justify-center text-xs font-extrabold h-6 w-6 rounded-full mt-0.5 ${
+                        isToday ? "bg-fuchsia-600 text-white shadow-md shadow-fuchsia-600/40" : "text-foreground font-bold"
+                      }`}>
+                        {day.getDate()}
+                      </span>
+                    </div>
+
+                    {/* All-Day Events Banner (Date-Only Notes & Tasks) */}
+                    {allDayEvts.length > 0 && (
+                      <div className="flex flex-col gap-1 mt-1 max-h-24 overflow-y-auto custom-scrollbar text-left">
+                        {allDayEvts.map(evt => {
+                          const color = getPriorityHighlightColor(evt.priority, getEventColor(evt, feeds));
+                          const isTask = evt.calendarId === "tasks";
+                          const isDueNote = evt.calendarId === "due-notes";
+                          const completed = evt.completed;
+
+                          return (
+                            <div
+                              key={evt.id}
+                              onClick={() => setActiveDetailEvent(evt)}
+                              style={{
+                                borderColor: color,
+                                backgroundColor: color + "25"
+                              }}
+                              className="rounded-md border-l-3 px-1.5 py-1 shadow-xs hover:brightness-125 transition-all text-[10px] font-semibold flex items-center gap-1.5 cursor-pointer truncate"
+                            >
+                              {isTask ? (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleTask(evt.id, !!completed);
+                                  }}
+                                  className="shrink-0 cursor-pointer"
+                                >
+                                  {completed ? <CheckSquare className="h-3 w-3 text-emerald-400" /> : <Square className="h-3 w-3 text-slate-400" />}
+                                </button>
+                              ) : isDueNote ? (
+                                getNoteIcon(evt, noteCache, "h-3 w-3 shrink-0")
+                              ) : null}
+
+                              {isDueNote && getBoardStatusIcon(evt.status, "h-2.5 w-2.5 shrink-0")}
+
+                              <span className={`truncate ${completed ? "line-through opacity-60" : ""}`} style={{ color: getTextColorForCalendarEvent(color, isDark) ?? color }}>
+                                {isTask ? evt.summary.replace(/^([✅☑️]\s*)?/, "") : evt.summary}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1255,9 +1336,9 @@ export const CalendarView: React.FC = () => {
             {/* Time Grid Rows */}
             <div className="relative flex flex-1">
               {/* Time Column */}
-              <div className="w-14 border-r border-card-border bg-[#07080c] shrink-0">
+              <div className="w-14 border-r border-card-border bg-sidebar shrink-0">
                 {HOURS.map(h => (
-                  <div key={h} className="h-16 text-right pr-2 pt-1 text-[9.5px] font-mono font-semibold text-slate-600 border-b border-[#1a1d28]/30">
+                  <div key={h} className="h-16 text-right pr-2 pt-1 text-[9.5px] font-mono font-semibold text-slate-500 border-b border-card-border/60">
                     {formatHour(h)}
                   </div>
                 ))}
@@ -1268,13 +1349,13 @@ export const CalendarView: React.FC = () => {
                 {getViewDays().map((day, idx) => {
                   const ds = toLocalDateStr(day);
                   const isToday = ds === todayStr;
-                  const dayEvts = filteredEvents.filter(e => e.date === ds);
-                  const positionedEvts = computeDayEventPositions(dayEvts);
+                  const dayTimeEvts = filteredEvents.filter(e => e.date === ds && !!e.startTime);
+                  const positionedEvts = computeDayEventPositions(dayTimeEvts);
 
                   return (
-                    <div key={idx} className="flex-1 border-r border-[#1a1d28]/60 relative min-w-0">
+                    <div key={idx} className="flex-1 border-r border-card-border/60 relative min-w-0">
                       {HOURS.map(h => (
-                        <div key={h} className="h-16 border-b border-[#1a1d28]/30" />
+                        <div key={h} className="h-16 border-b border-card-border/60" />
                       ))}
 
                       {/* Current Time Indicator Line */}
@@ -1325,7 +1406,7 @@ export const CalendarView: React.FC = () => {
 
                               {isDueNote && getBoardStatusIcon(evt.status, "h-2.5 w-2.5 shrink-0")}
 
-                              <span className={`font-extrabold truncate text-[10.5px] ${completed ? "line-through opacity-60" : ""}`} style={{ color }}>
+                              <span className={`font-extrabold truncate text-[10.5px] ${completed ? "line-through opacity-60" : ""}`} style={{ color: getTextColorForCalendarEvent(color, isDark) ?? color }}>
                                 {isTask ? evt.summary.replace(/^([✅☑️]\s*)?/, "") : evt.summary}
                               </span>
                             </div>
@@ -1350,12 +1431,12 @@ export const CalendarView: React.FC = () => {
       {/* ══ ADD FEED MODAL ════════════════════════════════════════════════════ */}
       {isLinkModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm" onClick={() => setIsLinkModalOpen(false)}>
-          <div className="w-105 rounded-2xl border border-card-border bg-[#0f1117] p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="w-105 rounded-2xl border border-card-border bg-card p-6 shadow-2xl text-foreground" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-1">
-              <h3 className="text-sm font-extrabold text-slate-100 flex items-center gap-2">
+              <h3 className="text-sm font-extrabold text-foreground flex items-center gap-2">
                 <Link2 className="h-4 w-4 text-indigo-400" /> Link iCal / Google Calendar
               </h3>
-              <button onClick={() => setIsLinkModalOpen(false)} className="p-1 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 cursor-pointer">
+              <button onClick={() => setIsLinkModalOpen(false)} className="p-1 rounded-lg text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-card-hover cursor-pointer">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -1366,26 +1447,26 @@ export const CalendarView: React.FC = () => {
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Calendar Name</label>
                 <input type="text" required autoFocus placeholder="e.g. Work Calendar" value={feedName} onChange={e => setFeedName(e.target.value)}
-                  className="rounded-lg bg-background p-2.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-600" />
+                  className="rounded-lg bg-background p-2.5 text-xs text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-400" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">iCal Feed URL</label>
                 <input type="url" required placeholder="https://calendar.google.com/calendar/ical/..." value={feedUrl} onChange={e => setFeedUrl(e.target.value)}
-                  className="rounded-lg bg-background p-2.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-600" />
+                  className="rounded-lg bg-background p-2.5 text-xs text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-400" />
               </div>
               <div className="flex flex-col gap-2">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Color</label>
                 <div className="flex items-center gap-2">
                   {LOCAL_COLORS.map(c => (
                     <button key={c} type="button" onClick={() => setFeedColor(c)}
-                      className={`h-6 w-6 rounded-full border-2 transition-all cursor-pointer shrink-0 ${feedColor === c ? "border-white scale-125 shadow-md" : "border-transparent hover:border-white/40"}`}
+                      className={`h-6 w-6 rounded-full border-2 transition-all cursor-pointer shrink-0 ${feedColor === c ? "border-indigo-600 scale-125 shadow-md" : "border-transparent hover:border-slate-400"}`}
                       style={{ backgroundColor: c }}
                     />
                   ))}
                 </div>
               </div>
               <div className="flex items-center gap-2 pt-1">
-                <button type="button" onClick={() => setIsLinkModalOpen(false)} className="flex-1 rounded-lg bg-slate-800 py-2 text-xs font-bold text-slate-400 hover:bg-slate-700 transition-colors cursor-pointer">
+                <button type="button" onClick={() => setIsLinkModalOpen(false)} className="flex-1 rounded-lg bg-sidebar border border-card-border py-2 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-card-hover transition-colors cursor-pointer">
                   Cancel
                 </button>
                 <button type="submit" className="flex-1 rounded-lg bg-indigo-600 py-2 text-xs font-bold text-white hover:bg-indigo-500 transition-colors shadow-md shadow-indigo-600/30 cursor-pointer">
@@ -1400,59 +1481,59 @@ export const CalendarView: React.FC = () => {
       {/* ══ ADD EVENT MODAL ═══════════════════════════════════════════════════ */}
       {isEventModalOpen && selectedDayStr && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm" onClick={() => setIsEventModalOpen(false)}>
-          <div className="w-105 rounded-2xl border border-card-border bg-[#0f1117] p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="w-105 rounded-2xl border border-card-border bg-card p-6 shadow-2xl text-foreground" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-1">
-              <h3 className="text-sm font-extrabold text-slate-100 flex items-center gap-2">
+              <h3 className="text-sm font-extrabold text-foreground flex items-center gap-2">
                 <AlarmClock className="h-4 w-4 text-indigo-400" /> New Event
               </h3>
-              <button onClick={() => setIsEventModalOpen(false)} className="p-1 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 cursor-pointer">
+              <button onClick={() => setIsEventModalOpen(false)} className="p-1 rounded-lg text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-card-hover cursor-pointer">
                 <X className="h-4 w-4" />
               </button>
             </div>
             <p className="text-[10.5px] text-slate-500 mb-5">
-              Adding event for <span className="text-indigo-400 font-semibold">{selectedDayStr}</span>
+              Adding event for <span className="text-indigo-500 dark:text-indigo-400 font-semibold">{selectedDayStr}</span>
             </p>
             <form onSubmit={handleAddEvent} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Event Title</label>
                 <input type="text" required autoFocus placeholder="e.g. Design Review" value={eventSummary} onChange={e => setEventSummary(e.target.value)}
-                  className="rounded-lg bg-background p-2.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-600" />
+                  className="rounded-lg bg-background p-2.5 text-xs text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-400" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1"><Clock className="h-3 w-3" /> Start Time</label>
                   <input type="time" value={eventStartTime} onChange={e => setEventStartTime(e.target.value)}
-                    className="rounded-lg bg-background p-2.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors" />
+                    className="rounded-lg bg-background p-2.5 text-xs text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors" />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1"><Clock className="h-3 w-3" /> End Time</label>
                   <input type="time" value={eventEndTime} onChange={e => setEventEndTime(e.target.value)}
-                    className="rounded-lg bg-background p-2.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors" />
+                    className="rounded-lg bg-background p-2.5 text-xs text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors" />
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1"><MapPin className="h-3 w-3" /> Location</label>
                 <input type="text" placeholder="e.g. Room 204 or Online" value={eventLoc} onChange={e => setEventLoc(e.target.value)}
-                  className="rounded-lg bg-background p-2.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-600" />
+                  className="rounded-lg bg-background p-2.5 text-xs text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-400" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Notes</label>
                 <textarea placeholder="Optional description..." value={eventDesc} onChange={e => setEventDesc(e.target.value)} rows={2}
-                  className="rounded-lg bg-background p-2.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors resize-none placeholder-slate-600" />
+                  className="rounded-lg bg-background p-2.5 text-xs text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 transition-colors resize-none placeholder-slate-400" />
               </div>
               <div className="flex flex-col gap-2">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Color</label>
                 <div className="flex items-center gap-2">
                   {LOCAL_COLORS.map(c => (
                     <button key={c} type="button" onClick={() => setEventColor(c)}
-                      className={`h-6 w-6 rounded-full border-2 transition-all cursor-pointer shrink-0 ${eventColor === c ? "border-white scale-125 shadow-md" : "border-transparent hover:border-white/40"}`}
+                      className={`h-6 w-6 rounded-full border-2 transition-all cursor-pointer shrink-0 ${eventColor === c ? "border-indigo-600 scale-125 shadow-md" : "border-transparent hover:border-slate-400"}`}
                       style={{ backgroundColor: c }}
                     />
                   ))}
                 </div>
               </div>
               <div className="flex items-center gap-2 pt-1">
-                <button type="button" onClick={() => setIsEventModalOpen(false)} className="flex-1 rounded-lg bg-slate-800 py-2 text-xs font-bold text-slate-400 hover:bg-slate-700 transition-colors cursor-pointer">
+                <button type="button" onClick={() => setIsEventModalOpen(false)} className="flex-1 rounded-lg bg-sidebar border border-card-border py-2 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-card-hover transition-colors cursor-pointer">
                   Cancel
                 </button>
                 <button type="submit" className="flex-1 rounded-lg bg-indigo-600 py-2 text-xs font-bold text-white hover:bg-indigo-500 transition-colors shadow-md shadow-indigo-600/30 cursor-pointer">
@@ -1467,35 +1548,35 @@ export const CalendarView: React.FC = () => {
       {/* ══ EVENT DETAIL MODAL ═══════════════════════════════════════════════ */}
       {activeDetailEvent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm animate-fade-in" onClick={() => setActiveDetailEvent(null)}>
-          <div className="w-105 rounded-2xl border border-card-border bg-[#0f1117] p-6 shadow-2xl flex flex-col gap-4 text-xs" onClick={e => e.stopPropagation()}>
+          <div className="w-105 rounded-2xl border border-card-border bg-card p-6 shadow-2xl flex flex-col gap-4 text-xs text-foreground" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border" style={{ color: getPriorityHighlightColor(activeDetailEvent.priority, getEventColor(activeDetailEvent, feeds)), borderColor: getPriorityHighlightColor(activeDetailEvent.priority, getEventColor(activeDetailEvent, feeds)) + "40", backgroundColor: getPriorityHighlightColor(activeDetailEvent.priority, getEventColor(activeDetailEvent, feeds)) + "15" }}>
                 {activeDetailEvent.calendarId === "tasks" ? "Note Task" : activeDetailEvent.calendarId === "due-notes" ? "Due Note" : activeDetailEvent.calendarId === "local" ? "Local Event" : "Calendar Feed"}
               </span>
-              <button onClick={() => setActiveDetailEvent(null)} className="p-1 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 cursor-pointer">
+              <button onClick={() => setActiveDetailEvent(null)} className="p-1 rounded-lg text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-card-hover cursor-pointer">
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <h3 className="text-sm font-extrabold text-slate-100 leading-snug">
+            <h3 className="text-sm font-extrabold text-foreground leading-snug">
               {activeDetailEvent.summary}
             </h3>
 
-            <div className="flex flex-col gap-2 bg-background p-3 rounded-xl border border-card-border text-slate-300">
-              <div className="flex items-center gap-2 text-slate-400 font-mono text-[11px]">
-                <Clock className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+            <div className="flex flex-col gap-2 bg-background p-3 rounded-xl border border-card-border text-foreground">
+              <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 font-mono text-[11px]">
+                <Clock className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400 shrink-0" />
                 <span>{activeDetailEvent.date} {activeDetailEvent.startTime ? `@ ${formatTime12(activeDetailEvent.startTime)}` : ""}</span>
               </div>
 
               {activeDetailEvent.location && (
-                <div className="flex items-center gap-2 text-slate-400 text-[11px]">
-                  <MapPin className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 text-[11px]">
+                  <MapPin className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400 shrink-0" />
                   <span>{activeDetailEvent.location}</span>
                 </div>
               )}
 
               {activeDetailEvent.description && (
-                <p className="text-[11px] text-slate-400 leading-relaxed pt-1 border-t border-slate-800/80">
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed pt-1 border-t border-card-border">
                   {activeDetailEvent.description}
                 </p>
               )}
@@ -1528,7 +1609,7 @@ export const CalendarView: React.FC = () => {
                     handleDeleteEvent(activeDetailEvent.id);
                     setActiveDetailEvent(null);
                   }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600/20 border border-red-500/40 hover:bg-red-600/30 text-red-300 font-bold text-xs transition cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600/20 border border-red-500/40 hover:bg-red-600/30 text-red-600 dark:text-red-300 font-bold text-xs transition cursor-pointer"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   Delete Event
@@ -1537,7 +1618,7 @@ export const CalendarView: React.FC = () => {
 
               <button
                 onClick={() => setActiveDetailEvent(null)}
-                className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition cursor-pointer ml-auto"
+                className="px-4 py-1.5 rounded-lg bg-sidebar border border-card-border hover:bg-card-hover text-slate-700 dark:text-slate-300 font-bold text-xs transition cursor-pointer ml-auto"
               >
                 Close
               </button>

@@ -31,59 +31,45 @@ pub struct ModelInfo {
 
 pub const MODELS: &[ModelInfo] = &[
     ModelInfo {
-        id: "llama3.2-1b",
-        display_name: "Llama 3.2 (1.5B)",
-        url: "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
-        filename: "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
-        size_bytes: 808_200_832,
+        id: "qwen2.5-coder-1.5b",
+        display_name: "Qwen 2.5 Coder (1.5B)",
+        url: "https://huggingface.co/bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf",
+        filename: "Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf",
+        size_bytes: 1_015_000_000,
         target_tier: "low",
-        ram_required: "1.5 GB RAM",
+        ram_required: "1.8 GB RAM",
         speed_rating: "⚡⚡⚡ Ultra Fast (50+ tok/s)",
-        description: "Lightweight CPU model. Best for low-spec PCs, older Intel Macs, and ultra-fast note summaries.",
+        description: "Lightweight Coder model. Best for low-spec PCs, older Intel Macs, and fast structured notes.",
         gpu_layers: 99,
         ctx_size: 8192,
         sha256: None,
     },
     ModelInfo {
-        id: "llama3.2-3b",
-        display_name: "Llama 3.2 (3B)",
-        url: "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-        filename: "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-        size_bytes: 2_019_377_696,
+        id: "qwen2.5-coder-3b",
+        display_name: "Qwen 2.5 Coder (3B)",
+        url: "https://huggingface.co/bartowski/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-3B-Instruct-Q4_K_M.gguf",
+        filename: "Qwen2.5-Coder-3B-Instruct-Q4_K_M.gguf",
+        size_bytes: 1_930_000_000,
         target_tier: "mid",
-        ram_required: "2.5 GB RAM",
+        ram_required: "2.7 GB RAM",
         speed_rating: "⚡⚡ Fast & Smart (35+ tok/s)",
-        description: "Optimal balance of speed & intelligence. Default recommendation for 8GB–16GB Windows & Linux laptops.",
+        description: "Optimal balance of speed & code/RAG intelligence. Default recommendation for 8GB–16GB laptops.",
         gpu_layers: 99,
-        ctx_size: 8192,
-        sha256: Some("6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff"),
+        ctx_size: 16384,
+        sha256: None,
     },
     ModelInfo {
-        id: "qwen2.5-7b",
-        display_name: "Qwen 2.5 (7B)",
-        url: "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
-        filename: "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+        id: "qwen2.5-coder-7b",
+        display_name: "Qwen 2.5 Coder (7B)",
+        url: "https://huggingface.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf",
+        filename: "Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf",
         size_bytes: 4_683_074_240,
         target_tier: "high_mac",
         ram_required: "5.5 GB RAM",
         speed_rating: "🧠 High Intelligence (50+ tok/s on Metal)",
-        description: "High-tier reasoning & long context. Recommended for Apple Silicon M-Series (M1–M4) & 16GB+ PCs.",
+        description: "High-tier coding & RAG context. Recommended for Apple Silicon M-Series (M1–M4) & 16GB+ PCs.",
         gpu_layers: 28,
-        ctx_size: 8192,
-        sha256: None,
-    },
-    ModelInfo {
-        id: "qwen2.5-14b",
-        display_name: "Qwen 2.5 (14B)",
-        url: "https://huggingface.co/bartowski/Qwen2.5-14B-Instruct-GGUF/resolve/main/Qwen2.5-14B-Instruct-Q4_K_M.gguf",
-        filename: "Qwen2.5-14B-Instruct-Q4_K_M.gguf",
-        size_bytes: 8_988_110_976,
-        target_tier: "high_gpu",
-        ram_required: "10 GB VRAM / RAM",
-        speed_rating: "💎 Pro Workstation",
-        description: "Near GPT-4 reasoning. Ideal for dedicated GPUs (RTX 4060+), M-Series Pro/Max, and 32GB+ workstations.",
-        gpu_layers: 24,
-        ctx_size: 4096,
+        ctx_size: 16384,
         sha256: None,
     },
 ];
@@ -100,14 +86,22 @@ pub struct LlmState {
     pub server_process: Mutex<Option<Child>>,
     pub current_model_id: Mutex<Option<String>>,
     pub server_port: u16,
+    pub http_client: reqwest::Client,
 }
 
 impl LlmState {
     pub fn new() -> Self {
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .pool_max_idle_per_host(5)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
         Self {
             server_process: Mutex::new(None),
             current_model_id: Mutex::new(None),
             server_port: 11435, // Avoid collision with Ollama's 11434
+            http_client,
         }
     }
 }
@@ -260,25 +254,20 @@ pub async fn llm_get_system_info() -> Result<SystemHardwareInfo, String> {
         || gpu_lower.contains("geforce");
 
     // Smart Hardware Recommendation Scoring
-    let (recommended_model_id, recommendation_reason) = if (total_ram_gb >= 24.0 && is_high_end_gpu) || (is_apple_silicon && total_ram_gb >= 32.0) {
+    let (recommended_model_id, recommendation_reason) = if is_apple_silicon || (total_ram_gb >= 15.0 && (has_discrete_gpu || cpu_cores >= 8)) {
         (
-            "qwen2.5-14b".to_string(),
-            format!("Detected Pro Workstation ({:.1} GB RAM + Dedicated High-End GPU) — Qwen 2.5 (14B) recommended for highest reasoning accuracy", total_ram_gb),
-        )
-    } else if is_apple_silicon || (total_ram_gb >= 15.0 && (has_discrete_gpu || cpu_cores >= 8)) {
-        (
-            "qwen2.5-7b".to_string(),
-            format!("Detected High Performance System ({:.1} GB RAM, {} cores, GPU: {}) — Qwen 2.5 (7B) recommended", total_ram_gb, cpu_cores, gpu_name),
+            "qwen2.5-coder-7b".to_string(),
+            format!("Detected High Performance System ({:.1} GB RAM, {} cores, GPU: {}) — Qwen 2.5 Coder (7B) recommended for maximum intelligence & speed", total_ram_gb, cpu_cores, gpu_name),
         )
     } else if total_ram_gb >= 7.5 {
         (
-            "llama3.2-3b".to_string(),
-            format!("Detected Standard System ({:.1} GB RAM, {} cores) — Llama 3.2 (3B) recommended for speed & efficiency", total_ram_gb, cpu_cores),
+            "qwen2.5-coder-3b".to_string(),
+            format!("Detected Standard System ({:.1} GB RAM, {} cores) — Qwen 2.5 Coder (3B) recommended for speed & efficiency", total_ram_gb, cpu_cores),
         )
     } else {
         (
-            "llama3.2-1b".to_string(),
-            format!("Detected Entry Hardware ({:.1} GB RAM, {} cores) — Llama 3.2 (1.5B) recommended for low memory footprint", total_ram_gb, cpu_cores),
+            "qwen2.5-coder-1.5b".to_string(),
+            format!("Detected Entry Hardware ({:.1} GB RAM, {} cores) — Qwen 2.5 Coder (1.5B) recommended for low memory footprint", total_ram_gb, cpu_cores),
         )
     };
 
@@ -333,7 +322,10 @@ pub async fn llm_list_models(app: AppHandle) -> Result<Vec<ModelStatus>, String>
         } else {
             0
         };
-        let downloaded = file_size_bytes > 0 && file_size_bytes >= m.size_bytes.saturating_sub(1024 * 1024);
+        let downloaded = file_size_bytes > 50_000_000 && (
+            file_size_bytes >= m.size_bytes.saturating_sub(50 * 1024 * 1024) ||
+            file_size_bytes >= (m.size_bytes * 85 / 100)
+        );
         result.push(ModelStatus {
             id: m.id.to_string(),
             display_name: m.display_name.to_string(),
@@ -360,7 +352,7 @@ pub async fn llm_check_model(app: AppHandle, model_id: String) -> Result<bool, S
     let size = std::fs::metadata(&path)
         .map(|m| m.len())
         .unwrap_or(0);
-    Ok(size >= info.size_bytes.saturating_sub(1024 * 1024))
+    Ok(size > 50_000_000 && (size >= info.size_bytes.saturating_sub(50 * 1024 * 1024) || size >= (info.size_bytes * 85 / 100)))
 }
 
 /// Download a model GGUF from Hugging Face to the app data directory.
@@ -391,31 +383,38 @@ pub async fn llm_download_model(
     }
 
     // Support resume: check existing partial download
-    let existing_bytes = if out_path.exists() {
+    let mut existing_bytes = if out_path.exists() {
         std::fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0)
     } else {
         0
     };
 
-    // Build HTTP client with connection timeout and keepalive
+    // Build HTTP client with connection timeout, keepalive & redirect support
     let client = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(15))
         .tcp_keepalive(std::time::Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
 
-    let mut req = client.get(info.url);
-    if existing_bytes > 0 {
-        req = req.header("Range", format!("bytes={}-", existing_bytes));
-    }
-
-    let response = req
-        .send()
-        .await
-        .map_err(|e| format!("Download request failed: {e}"))?;
+    let response = if existing_bytes > 0 {
+        let res = client.get(info.url).header("Range", format!("bytes={}-", existing_bytes)).send().await;
+        match res {
+            Ok(r) if r.status().is_success() || r.status().as_u16() == 206 => r,
+            _ => {
+                // Ranged request failed (e.g. 416 Range Not Satisfiable or bad partial file). Delete file & restart clean.
+                let _ = std::fs::remove_file(&out_path);
+                existing_bytes = 0;
+                client.get(info.url).send().await.map_err(|e| format!("Download request failed: {e}"))?
+            }
+        }
+    } else {
+        client.get(info.url).send().await.map_err(|e| format!("Download request failed: {e}"))?
+    };
 
     let status = response.status();
     if !status.is_success() && status.as_u16() != 206 {
+        let _ = std::fs::remove_file(&out_path);
         return Err(format!("Server returned status {status}"));
     }
 
@@ -785,6 +784,8 @@ pub async fn llm_load_model(
         .map(|p| p.join("llama_server.log"))
         .ok();
 
+    let threads = num_cpus();
+
     let mut cmd = Command::new(&server_bin);
     if let Some(parent) = server_bin.parent() {
         cmd.current_dir(parent);
@@ -796,9 +797,16 @@ pub async fn llm_load_model(
        .arg("--ctx-size")
        .arg(info.ctx_size.to_string())
        .arg("--threads")
-       .arg(num_cpus().to_string())
+       .arg(threads.to_string())
        .arg("-ngl")
-       .arg(info.gpu_layers.to_string());
+       .arg(info.gpu_layers.to_string())
+       .arg("-b")
+       .arg("2048")
+       .arg("-ub")
+       .arg("512")
+       .arg("-fa")
+       .arg("on")
+       .arg("--jinja");
 
     #[cfg(target_os = "windows")]
     {
@@ -926,7 +934,7 @@ pub async fn llm_check_connection(
     state: tauri::State<'_, Arc<LlmState>>,
 ) -> Result<bool, String> {
     let port = state.server_port;
-    let client = reqwest::Client::new();
+    let client = &state.http_client;
     let is_healthy = client
         .get(format!("http://127.0.0.1:{port}/health"))
         .timeout(tokio::time::Duration::from_secs(2))
@@ -943,9 +951,11 @@ pub async fn llm_generate(
     state: tauri::State<'_, Arc<LlmState>>,
     prompt: String,
     system_prompt: Option<String>,
+    temperature: Option<f32>,
+    tools: Option<serde_json::Value>,
 ) -> Result<String, String> {
     let port = state.server_port;
-    let client = reqwest::Client::new();
+    let client = &state.http_client;
 
     // Check if llama-server is healthy; if not, attempt auto-recovery load
     let is_healthy = client
@@ -959,7 +969,7 @@ pub async fn llm_generate(
     if !is_healthy {
         let active_model = {
             let guard = state.current_model_id.lock().map_err(|e| e.to_string())?;
-            guard.clone().unwrap_or_else(|| "llama3.2".to_string())
+            guard.clone().unwrap_or_else(|| "qwen2.5-coder-3b".to_string())
         };
         llm_load_model(app.clone(), state.clone(), active_model).await?;
     }
@@ -970,21 +980,34 @@ pub async fn llm_generate(
     }
     messages.push(serde_json::json!({ "role": "user", "content": prompt }));
 
+    let temp = temperature.unwrap_or(0.3);
+    let mut payload = serde_json::json!({
+        "model": "local-model",
+        "messages": messages,
+        "temperature": temp,
+        "max_tokens": 2048
+    });
+    if let Some(ref t) = tools {
+        if !t.is_null() && (t.is_array() && !t.as_array().unwrap().is_empty() || t.is_object()) {
+            payload["tools"] = t.clone();
+        }
+    }
+
     let response = client
         .post(format!("http://127.0.0.1:{port}/v1/chat/completions"))
-        .json(&serde_json::json!({
-            "model": "local-model",
-            "messages": messages,
-            "temperature": 0.3,
-            "max_tokens": 2048
-        }))
+        .json(&payload)
         .timeout(tokio::time::Duration::from_secs(120))
         .send()
         .await
         .map_err(|e| format!("Inference request failed: {e}"))?;
 
     if !response.status().is_success() {
-        return Err(format!("Server returned status {}", response.status()));
+        let status = response.status();
+        let err_body = response.text().await.unwrap_or_default();
+        if err_body.contains("exceeds the available context size") {
+            return Err(format!("Context limit reached for local model. Try clearing old chat messages or un-pinning large notes. Details: {err_body}"));
+        }
+        return Err(format!("Server returned status {status}: {err_body}"));
     }
 
     let oai: OaiResponse = response
@@ -1006,75 +1029,92 @@ pub async fn llm_generate_stream(
     state: tauri::State<'_, Arc<LlmState>>,
     prompt: String,
     system_prompt: Option<String>,
+    temperature: Option<f32>,
+    tools: Option<serde_json::Value>,
 ) -> Result<(), String> {
     let port = state.server_port;
-    let client = reqwest::Client::new();
+    let client = &state.http_client;
 
-    // Check if llama-server is healthy; if not, attempt auto-recovery load
-    let is_healthy = client
-        .get(format!("http://127.0.0.1:{port}/health"))
-        .timeout(tokio::time::Duration::from_secs(2))
-        .send()
-        .await
-        .map(|r| r.status().is_success())
-        .unwrap_or(false);
+    let result: Result<(), String> = async {
+        // Check if llama-server is healthy; if not, attempt auto-recovery load
+        let is_healthy = client
+            .get(format!("http://127.0.0.1:{port}/health"))
+            .timeout(tokio::time::Duration::from_secs(2))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false);
 
-    if !is_healthy {
-        let active_model = {
-            let guard = state.current_model_id.lock().map_err(|e| e.to_string())?;
-            guard.clone().unwrap_or_else(|| "llama3.2".to_string())
-        };
-        llm_load_model(app.clone(), state.clone(), active_model).await?;
-    }
+        if !is_healthy {
+            let active_model = {
+                let guard = state.current_model_id.lock().map_err(|e| e.to_string())?;
+                guard.clone().unwrap_or_else(|| "qwen2.5-coder-3b".to_string())
+            };
+            llm_load_model(app.clone(), state.clone(), active_model).await?;
+        }
 
-    let mut messages: Vec<serde_json::Value> = Vec::new();
-    if let Some(sys) = system_prompt {
-        messages.push(serde_json::json!({ "role": "system", "content": sys }));
-    }
-    messages.push(serde_json::json!({ "role": "user", "content": prompt }));
+        let mut messages: Vec<serde_json::Value> = Vec::new();
+        if let Some(sys) = system_prompt {
+            messages.push(serde_json::json!({ "role": "system", "content": sys }));
+        }
+        messages.push(serde_json::json!({ "role": "user", "content": prompt }));
 
-    let response = client
-        .post(format!("http://127.0.0.1:{port}/v1/chat/completions"))
-        .json(&serde_json::json!({
+        let temp = temperature.unwrap_or(0.3);
+        let mut payload = serde_json::json!({
             "model": "local-model",
             "messages": messages,
-            "temperature": 0.3,
+            "temperature": temp,
             "max_tokens": 2048,
             "stream": true
-        }))
-        .timeout(tokio::time::Duration::from_secs(120))
-        .send()
-        .await
-        .map_err(|e| format!("Inference request failed: {e}"))?;
+        });
+        if let Some(ref t) = tools {
+            if !t.is_null() && (t.is_array() && !t.as_array().unwrap().is_empty() || t.is_object()) {
+                payload["tools"] = t.clone();
+            }
+        }
 
-    if !response.status().is_success() {
-        return Err(format!("Server returned status {}", response.status()));
-    }
+        let response = client
+            .post(format!("http://127.0.0.1:{port}/v1/chat/completions"))
+            .json(&payload)
+            .timeout(tokio::time::Duration::from_secs(120))
+            .send()
+            .await
+            .map_err(|e| format!("Inference request failed: {e}"))?;
 
-    let mut stream = response.bytes_stream();
-    let mut buffer = String::new();
+        if !response.status().is_success() {
+            let status = response.status();
+            let err_body = response.text().await.unwrap_or_default();
+            if err_body.contains("exceeds the available context size") {
+                return Err(format!("Context limit reached for local model. Try clearing old chat messages or un-pinning large notes. Details: {err_body}"));
+            }
+            return Err(format!("Server returned status {status}: {err_body}"));
+        }
 
-    while let Some(chunk_result) = stream.next().await {
-        let chunk = chunk_result.map_err(|e| format!("Stream read error: {e}"))?;
-        let text = String::from_utf8_lossy(&chunk);
-        buffer.push_str(&text);
+        let mut stream = response.bytes_stream();
+        let mut buffer = String::new();
 
-        // Process lines in buffer
-        while let Some(pos) = buffer.find('\n') {
-            let line = buffer[..pos].trim().to_string();
-            buffer.drain(..pos + 1);
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|e| format!("Stream read error: {e}"))?;
+            let text = String::from_utf8_lossy(&chunk);
+            buffer.push_str(&text);
 
-            if let Some(stripped) = line.strip_prefix("data:") {
-                let data = stripped.trim();
-                if data == "[DONE]" {
-                    break;
-                }
-                if let Ok(val) = serde_json::from_str::<serde_json::Value>(data) {
-                    if let Some(choices) = val.get("choices") {
-                        if let Some(first_choice) = choices.get(0) {
-                            if let Some(delta) = first_choice.get("delta") {
-                                if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-                                    let _ = app.emit("llm_stream_token", content);
+            // Process lines in buffer
+            while let Some(pos) = buffer.find('\n') {
+                let line = buffer[..pos].trim().to_string();
+                buffer.drain(..pos + 1);
+
+                if let Some(stripped) = line.strip_prefix("data:") {
+                    let data = stripped.trim();
+                    if data == "[DONE]" {
+                        break;
+                    }
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(data) {
+                        if let Some(choices) = val.get("choices") {
+                            if let Some(first_choice) = choices.get(0) {
+                                if let Some(delta) = first_choice.get("delta") {
+                                    if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                                        let _ = app.emit("llm_stream_token", content);
+                                    }
                                 }
                             }
                         }
@@ -1082,10 +1122,11 @@ pub async fn llm_generate_stream(
                 }
             }
         }
-    }
+        Ok(())
+    }.await;
 
     let _ = app.emit("llm_stream_done", ());
-    Ok(())
+    result
 }
 
 /// Get the currently loaded model ID.
@@ -1102,8 +1143,12 @@ pub async fn llm_current_model(
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn num_cpus() -> usize {
-    std::thread::available_parallelism()
+    let sys_cpus = std::thread::available_parallelism()
         .map(|n| n.get())
-        .unwrap_or(4)
-        .min(8) // Cap at 8 to avoid starving other processes
+        .unwrap_or(4);
+    if sys_cpus > 4 {
+        (sys_cpus / 2).clamp(4, 10)
+    } else {
+        sys_cpus.max(2)
+    }
 }

@@ -2,24 +2,154 @@
 
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 
-  --color-background: #090a0f;
-  --color-foreground: #f3f4f6;
+  /* 4-Tier Dark Elevation System */
+  --color-background: #07090e;
+  --color-foreground: #f8fafc;
 
-  --color-card: #11131c;
-  --color-card-border: #1f2335;
-  --color-card-hover: #161925;
+  /* Sidebar & Surface Elevation 1 */
+  --color-sidebar: #0b0d14;
 
+  /* Card Elevation 2 */
+  --color-card: #111420;
+  --color-card-border: rgba(255, 255, 255, 0.08);
+  --color-card-hover: #161a29;
+
+  /* Overlay Elevation 3 (Floating Menus / Modals / Tooltips) */
+  --color-overlay: #161a29;
+
+  /* Cohesive Indigo & Cyan Accent System */
   --color-accent-primary: #6366f1;
   --color-accent-primary-hover: #4f46e5;
-  --color-accent-secondary: #ec4899;
-
-  --color-sidebar: #0b0c10;
+  --color-accent-secondary: #06b6d4;
 
   --animate-fade-in: fade-in 0.2s ease-out;
+}
+
+/* ── LIGHT MODE DESIGN SYSTEM OVERRIDES ── */
+html.light {
+  --color-background: #f8fafc;
+  --color-foreground: #0f172a;
+
+  --color-sidebar: #f1f5f9;
+
+  --color-card: #ffffff;
+  --color-card-border: rgba(0, 0, 0, 0.08);
+  --color-card-hover: #e2e8f0;
+
+  --color-overlay: #ffffff;
+
+  --color-accent-primary: #4f46e5;
+  --color-accent-primary-hover: #4338ca;
+  --color-accent-secondary: #0891b2;
+}
+
+html.light body {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* Light mode root radial background */
+html.light .root-layout-bg {
+  background-image: radial-gradient(ellipse 80% 60% at 15% 20%, rgba(99, 102, 241, 0.06) 0%, transparent 60%), radial-gradient(ellipse 60% 50% at 85% 75%, rgba(168, 85, 247, 0.05) 0%, transparent 55%) !important;
+}
+
+/* Light Mode Global Text Contrast & Component Overrides */
+html.light {
+  color-scheme: light;
+}
+
+html.light .text-slate-200,
+html.light .text-slate-300,
+html.light .text-slate-400 {
+  color: #334155 !important; /* High-contrast Slate-700 */
+}
+
+html.light .text-slate-500 {
+  color: #475569 !important; /* Slate-600 */
+}
+
+html.light .text-slate-600 {
+  color: #64748b !important; /* Slate-500 */
+}
+
+html.light .bg-slate-900\/60,
+html.light .bg-slate-950\/40,
+html.light .bg-slate-900,
+html.light .bg-slate-950 {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Light mode titlebar glass capsule */
+html.light #titlebar {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+  border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+  box-shadow: none !important;
+}
+
+html.light #titlebar button:not(.text-white) {
+  color: #334155 !important;
+}
+
+html.light #titlebar button:not(.text-white):hover {
+  background-color: rgba(0, 0, 0, 0.06) !important;
+  color: #0f172a !important;
+}
+
+html.light #titlebar button.text-white,
+html.light #titlebar button.text-white span,
+html.light #titlebar button.text-white svg {
+  color: #ffffff !important;
+}
+
+/* Light mode Modals & Settings Dialog */
+html.light [role="dialog"],
+html.light .modal-content,
+html.light .popover-content,
+html.light .bg-\[\#0c0e17\],
+html.light .bg-\[\#0f111a\],
+html.light .bg-\[\#11131c\],
+html.light .bg-\[\#0c0d14\],
+html.light .bg-\[\#141624\],
+html.light .bg-\[\#161925\],
+html.light .bg-\[\#121422\] {
+  background-color: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  color: #0f172a !important;
+}
+
+html.light input,
+html.light select,
+html.light textarea {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* ── CONCENTRIC CIRCULAR VIEW TRANSITIONS ENGINE ── */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none !important;
+  mix-blend-mode: normal !important;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  z-index: 9999;
 }
 
 @keyframes fade-in {
@@ -53,7 +183,39 @@
   background: rgba(255, 255, 255, 0.2);
 }
 
-html, body, #root {
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.25);
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.55);
+}
+
+.custom-date-pill-hidden-raw {
+  display: none !important;
+}
+
+.custom-date-pill-active-editing {
+  background: rgba(99, 102, 241, 0.2);
+  border-radius: 4px;
+  padding: 0 4px;
+  color: #a5b4fc;
+  font-family: var(--font-mono);
+}
+
+html,
+body,
+#root {
   background: transparent !important;
   background-color: transparent !important;
   margin: 0;
@@ -105,8 +267,12 @@ body {
 
 
 /* Custom Milkdown styles matching our dark theme */
+.custom-milkdown-container {
+  background-color: #0b0d14 !important;
+}
+
 .custom-milkdown-container .milkdown {
-  background-color: transparent !important;
+  background-color: #0b0d14 !important;
   color: #cbd5e1 !important;
   font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
   max-width: 100% !important;
@@ -115,7 +281,7 @@ body {
 }
 
 .custom-milkdown-container .ProseMirror {
-  background-color: transparent !important;
+  background-color: #0b0d14 !important;
   color: #cbd5e1 !important;
   font-size: 14px !important;
   line-height: 1.75 !important;
@@ -125,26 +291,258 @@ body {
   -webkit-user-select: text !important;
 }
 
+/* Light mode Milkdown / ProseMirror Editor Overrides */
+html.light .custom-milkdown-container,
+html.light .custom-milkdown-container .milkdown,
+html.light .custom-milkdown-container .ProseMirror {
+  background-color: #ffffff !important;
+  color: #1e293b !important;
+}
+
+html.light .custom-milkdown-container .ProseMirror h1,
+html.light .custom-milkdown-container .ProseMirror h2 {
+  color: #0f172a !important;
+  border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+html.light .custom-milkdown-container .ProseMirror h3 {
+  color: #4f46e5 !important;
+}
+
+html.light .custom-milkdown-container .ProseMirror blockquote {
+  border-left-color: #4f46e5 !important;
+  background: linear-gradient(to right, rgba(79, 70, 229, 0.06), transparent) !important;
+  color: #475569 !important;
+}
+
+html.light .custom-milkdown-container .ProseMirror code {
+  background-color: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+  color: #4338ca !important;
+}
+
+html.light .custom-milkdown-container .ProseMirror table {
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+html.light .custom-milkdown-container .ProseMirror th {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+html.light .custom-milkdown-container .ProseMirror td {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+  color: #334155 !important;
+}
+
+html.light .custom-milkdown-container .ProseMirror pre,
+html.light .custom-milkdown-container .ProseMirror [data-type="code_block"],
+html.light .custom-milkdown-container .ProseMirror [data-type="math_block"],
+html.light .custom-milkdown-container .cm-editor,
+html.light .milkdown .cm-editor,
+html.light .milkdown pre,
+html.light .milkdown [data-type="code_block"],
+html.light .milkdown [data-type="math_block"],
+html.light .milkdown div[data-type="math_block"],
+html.light .milkdown div[data-type="code_block"],
+html.light .milkdown .latex-block,
+html.light .milkdown [class*="block-container"],
+html.light .milkdown [class*="preview-panel"] {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+html.light .milkdown .cm-editor .cm-scroller,
+html.light .milkdown .cm-editor .cm-content {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+html.light .milkdown .cm-editor .cm-gutters {
+  background-color: #f1f5f9 !important;
+  color: #94a3b8 !important;
+  border-right-color: #e2e8f0 !important;
+}
+
+/* Light Mode Milkdown Crepe Slash Menu & Block Edit Popup Overrides */
+html.light milkdown-slash-menu,
+html.light milkdown-block-edit,
+html.light .milkdown-block-edit,
+html.light .milkdown-slash-menu,
+html.light .crepe-slash-menu,
+html.light .crepe-floating-toolbar,
+html.light [data-role="slash-menu"],
+html.light [data-role="block-edit"],
+html.light [class*="slash-menu"],
+html.light [class*="block-edit"],
+html.light [class*="crepe-menu"] {
+  background-color: #ffffff !important;
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.12), 0 4px 12px -2px rgba(0, 0, 0, 0.08) !important;
+  color: #0f172a !important;
+}
+
+/* Force all sub-containers, groups, sections, tab lists, and lists inside Crepe popup to white/transparent */
+html.light milkdown-slash-menu *,
+html.light milkdown-block-edit *,
+html.light .milkdown-block-edit *,
+html.light .milkdown-slash-menu *,
+html.light .crepe-slash-menu *,
+html.light [data-role="slash-menu"] *,
+html.light [data-role="block-edit"] *,
+html.light [class*="slash-menu"] *,
+html.light [class*="block-edit"] * {
+  border-color: #e2e8f0 !important;
+}
+
+html.light milkdown-slash-menu div,
+html.light milkdown-block-edit div,
+html.light .milkdown-block-edit div,
+html.light .milkdown-slash-menu div,
+html.light [class*="slash-menu"] div,
+html.light [class*="block-edit"] div,
+html.light [class*="slash-menu"] ul,
+html.light [class*="block-edit"] ul,
+html.light [class*="slash-menu"] section,
+html.light [class*="block-edit"] section,
+html.light [class*="slash-menu"] nav,
+html.light [class*="block-edit"] nav {
+  background-color: #ffffff !important;
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Top category tab bar (Custom, Text, List, Advanced) */
+html.light [class*="slash-menu"] [class*="tab"],
+html.light [class*="block-edit"] [class*="tab"],
+html.light [class*="slash-menu"] [class*="category"],
+html.light [class*="block-edit"] [class*="category"],
+html.light [class*="slash-menu"] [role="tab"],
+html.light [class*="block-edit"] [role="tab"],
+html.light [class*="slash-menu"] nav button,
+html.light [class*="block-edit"] nav button {
+  background-color: #f1f5f9 !important;
+  background: #f1f5f9 !important;
+  color: #475569 !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.light [class*="slash-menu"] [class*="tab"]:hover,
+html.light [class*="block-edit"] [class*="tab"]:hover,
+html.light [class*="slash-menu"] [role="tab"]:hover,
+html.light [class*="block-edit"] [role="tab"]:hover,
+html.light [class*="slash-menu"] nav button:hover,
+html.light [class*="block-edit"] nav button:hover {
+  background-color: #e2e8f0 !important;
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* Active tab pill (e.g. Custom tab active) */
+html.light [class*="slash-menu"] [class*="tab"][class*="active"],
+html.light [class*="block-edit"] [class*="tab"][class*="active"],
+html.light [class*="slash-menu"] [class*="tab"][aria-selected="true"],
+html.light [class*="block-edit"] [class*="tab"][aria-selected="true"],
+html.light [class*="slash-menu"] [role="tab"][aria-selected="true"],
+html.light [class*="block-edit"] [role="tab"][aria-selected="true"],
+html.light [class*="slash-menu"] nav button[class*="active"],
+html.light [class*="block-edit"] nav button[class*="active"] {
+  background-color: #4f46e5 !important;
+  background: #4f46e5 !important;
+  color: #ffffff !important;
+}
+
+/* Category Section Titles (CUSTOM, TEXT, LIST, ADVANCED) */
+html.light [class*="slash-menu"] [class*="group-title"],
+html.light [class*="slash-menu"] [class*="group-label"],
+html.light [class*="slash-menu"] [class*="header"],
+html.light [class*="slash-menu"] [class*="label"],
+html.light [class*="block-edit"] [class*="header"],
+html.light [class*="block-edit"] [class*="label"],
+html.light [class*="slash-menu"] [class*="title"],
+html.light [class*="block-edit"] [class*="title"] {
+  color: #6366f1 !important;
+  font-weight: 700 !important;
+  background-color: transparent !important;
+  background: transparent !important;
+}
+
+/* Individual Slash Menu item buttons (Flashcard, Text, Heading 1, etc.) */
+html.light [class*="slash-menu"] [class*="item"],
+html.light [class*="slash-menu"] button:not([role="tab"]),
+html.light [class*="block-edit"] [class*="item"],
+html.light [class*="block-edit"] button:not([role="tab"]),
+html.light [class*="slash-menu"] li,
+html.light [class*="block-edit"] li {
+  color: #1e293b !important;
+  background-color: #ffffff !important;
+  background: #ffffff !important;
+}
+
+/* Active / Hovered Item (Flashcard pill, Text, Heading 1, etc.) */
+html.light [class*="slash-menu"] [class*="item"]:hover,
+html.light [class*="slash-menu"] [class*="item"][class*="active"],
+html.light [class*="slash-menu"] [class*="item"][aria-selected="true"],
+html.light [class*="slash-menu"] button:not([role="tab"]):hover,
+html.light [class*="slash-menu"] button:not([role="tab"])[class*="active"],
+html.light [class*="slash-menu"] button:not([role="tab"])[aria-selected="true"],
+html.light [class*="block-edit"] [class*="item"]:hover,
+html.light [class*="block-edit"] [class*="item"][class*="active"],
+html.light [class*="block-edit"] [class*="item"][aria-selected="true"],
+html.light [class*="block-edit"] button:not([role="tab"]):hover,
+html.light [class*="block-edit"] button:not([role="tab"])[class*="active"],
+html.light [class*="block-edit"] button:not([role="tab"])[aria-selected="true"],
+html.light [class*="slash-menu"] li:hover,
+html.light [class*="block-edit"] li:hover {
+  background-color: #4f46e5 !important;
+  background: #4f46e5 !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+html.light [class*="slash-menu"] [class*="item"]:hover *,
+html.light [class*="slash-menu"] [class*="item"][class*="active"] *,
+html.light [class*="block-edit"] [class*="item"]:hover *,
+html.light [class*="block-edit"] [class*="item"][class*="active"] * {
+  color: #ffffff !important;
+}
+
+/* Icons inside Slash Menu items */
+html.light [class*="slash-menu"] svg,
+html.light [class*="block-edit"] svg {
+  color: #4f46e5 !important;
+}
+
+html.light [class*="slash-menu"] [class*="item"]:hover svg,
+html.light [class*="slash-menu"] [class*="item"][class*="active"] svg,
+html.light [class*="block-edit"] [class*="item"]:hover svg,
+html.light [class*="block-edit"] [class*="item"][class*="active"] svg {
+  color: #ffffff !important;
+}
+
 .cm-editor {
   user-select: text !important;
   -webkit-user-select: text !important;
 }
 
-/* Make headers look gorgeous */
+/* Make headers look gorgeous with WCAG AAA high-contrast hierarchy */
 .custom-milkdown-container .ProseMirror h1 {
   font-size: 1.8rem !important;
   font-weight: 800 !important;
-  color: #f1f5f9 !important;
+  color: #f8fafc !important;
   margin-top: 1.75rem !important;
   margin-bottom: 0.75rem !important;
-  border-bottom: 1px solid rgba(31, 35, 53, 0.4) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
   padding-bottom: 0.5rem !important;
 }
 
 .custom-milkdown-container .ProseMirror h2 {
   font-size: 1.4rem !important;
   font-weight: 700 !important;
-  color: #e2e8f0 !important;
+  color: #f1f5f9 !important;
   margin-top: 1.5rem !important;
   margin-bottom: 0.5rem !important;
 }
@@ -152,29 +550,204 @@ body {
 .custom-milkdown-container .ProseMirror h3 {
   font-size: 1.15rem !important;
   font-weight: 700 !important;
-  color: #818cf8 !important;
+  color: #a5b4fc !important;
   margin-top: 1.25rem !important;
   margin-bottom: 0.5rem !important;
 }
 
 .custom-milkdown-container .ProseMirror blockquote {
   border-left: 4px solid #6366f1 !important;
-  background: linear-gradient(to right, rgba(99, 102, 241, 0.05), transparent) !important;
+  background: linear-gradient(to right, rgba(99, 102, 241, 0.08), transparent) !important;
   padding: 8px 16px !important;
   margin: 16px 0 !important;
   font-style: italic !important;
   color: #94a3b8 !important;
-  border-top-right-radius: 4px !important;
-  border-bottom-right-radius: 4px !important;
+  border-top-right-radius: 6px !important;
+  border-bottom-right-radius: 6px !important;
 }
 
 .custom-milkdown-container .ProseMirror code {
-  background-color: #1a1d29 !important;
-  border: 1px solid #2b314a !important;
-  color: #a5b4fc !important;
+  background-color: #141724 !important;
+  border: 1px solid rgba(99, 102, 241, 0.25) !important;
+  color: #c7d2fe !important;
   border-radius: 4px !important;
   padding: 2px 6px !important;
-  font-family: monospace !important;
+  font-family: var(--font-mono), monospace !important;
+  font-size: 0.88em !important;
+}
+
+/* Global High-Contrast Text Selection Rules */
+.custom-milkdown-container ::selection,
+.custom-milkdown-container *::selection,
+.milkdown ::selection,
+.milkdown *::selection,
+.ProseMirror ::selection,
+.ProseMirror *::selection {
+  background-color: rgba(99, 102, 241, 0.45) !important;
+  color: #ffffff !important;
+}
+
+.custom-milkdown-container .ProseMirror-selectednode {
+  outline: 2px solid #6366f1 !important;
+  background-color: rgba(99, 102, 241, 0.2) !important;
+}
+
+/* Highlighted Text (<mark> & Crepe Highlight Plugin) */
+.custom-milkdown-container .ProseMirror mark,
+.custom-milkdown-container .ProseMirror [data-type="highlight"],
+.milkdown mark {
+  background-color: rgba(99, 102, 241, 0.35) !important;
+  color: #ffffff !important;
+  border-radius: 4px !important;
+  padding: 2px 6px !important;
+  border: 1px solid rgba(99, 102, 241, 0.5) !important;
+  display: inline-block !important;
+}
+
+/* ── Code Blocks, Math Blocks & Crepe Container Overrides ── */
+.custom-milkdown-container .ProseMirror pre,
+.custom-milkdown-container .ProseMirror [data-type="code_block"],
+.custom-milkdown-container .ProseMirror [data-type="math_block"],
+.custom-milkdown-container .cm-editor,
+.milkdown .cm-editor,
+.milkdown pre,
+.milkdown [data-type="code_block"],
+.milkdown [data-type="math_block"],
+.milkdown .milkdown-latex-block,
+.milkdown .milkdown-code-block,
+.milkdown .crepe-latex-block,
+.milkdown .crepe-code-block,
+.milkdown [class*="latex"],
+.milkdown [class*="math-block"] {
+  background-color: #0b0d14 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 10px !important;
+  color: #e2e8f0 !important;
+}
+
+/* Crepe Outer Block Card & Preview Area Overrides (Removes White Rectangles) */
+.milkdown div[data-type="math_block"],
+.milkdown div[data-type="code_block"],
+.milkdown .latex-block,
+.milkdown .math-block,
+.milkdown [class*="block-container"],
+.milkdown [class*="preview-panel"],
+.milkdown [class*="preview_panel"] {
+  background-color: #0b0d14 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 12px !important;
+  color: #e2e8f0 !important;
+}
+
+/* CodeMirror Scroller & Inner Content */
+.milkdown .cm-editor .cm-scroller,
+.custom-milkdown-container .cm-editor .cm-scroller {
+  background-color: #0b0d14 !important;
+  color: #e2e8f0 !important;
+  font-family: var(--font-mono), monospace !important;
+}
+
+.milkdown .cm-editor .cm-content,
+.custom-milkdown-container .cm-editor .cm-content {
+  background-color: #0b0d14 !important;
+  color: #e2e8f0 !important;
+  caret-color: #6366f1 !important;
+}
+
+/* CodeMirror Line Numbers Gutter */
+.milkdown .cm-editor .cm-gutters,
+.custom-milkdown-container .cm-editor .cm-gutters {
+  background-color: #080910 !important;
+  color: #64748b !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+.milkdown .cm-editor .cm-activeLineGutter,
+.milkdown .cm-editor .cm-activeLine {
+  background-color: rgba(99, 102, 241, 0.1) !important;
+  color: #a5b4fc !important;
+}
+
+/* CodeMirror Cursor & Selection Highlights */
+.milkdown .cm-editor .cm-cursor {
+  border-left-color: #6366f1 !important;
+}
+
+.milkdown .cm-editor .cm-selectionBackground,
+.milkdown .cm-editor.cm-focused .cm-selectionBackground,
+.milkdown .cm-selectionLayer .cm-selectionBackground {
+  background-color: rgba(99, 102, 241, 0.4) !important;
+}
+
+/* LaTeX Math Block Preview & KaTeX Styling */
+.custom-milkdown-container .ProseMirror [data-type="math_block"] .katex-display,
+.custom-milkdown-container .ProseMirror .katex,
+.custom-milkdown-container .ProseMirror .math-block,
+.milkdown .katex-display,
+.milkdown .katex,
+.milkdown .katex * {
+  color: #f1f5f9 !important;
+  background-color: transparent !important;
+}
+
+.milkdown [class*="preview"],
+.milkdown .preview-label,
+.milkdown [class*="preview-label"] {
+  background-color: #0b0d14 !important;
+  color: #94a3b8 !important;
+}
+
+/* ══ LIGHT MODE OVERRIDES FOR CODEBLOCKS, MATH & KATEX ══ */
+html.light .custom-milkdown-container .ProseMirror pre,
+html.light .custom-milkdown-container .ProseMirror [data-type="code_block"],
+html.light .custom-milkdown-container .ProseMirror [data-type="math_block"],
+html.light .custom-milkdown-container .cm-editor,
+html.light .milkdown .cm-editor,
+html.light .milkdown pre,
+html.light .milkdown [data-type="code_block"],
+html.light .milkdown [data-type="math_block"],
+html.light .milkdown div[data-type="math_block"],
+html.light .milkdown div[data-type="code_block"],
+html.light .milkdown .milkdown-latex-block,
+html.light .milkdown .milkdown-code-block,
+html.light .milkdown .crepe-latex-block,
+html.light .milkdown .crepe-code-block,
+html.light .milkdown [class*="latex"],
+html.light .milkdown [class*="math-block"],
+html.light .milkdown [class*="block-container"],
+html.light .milkdown [class*="preview-panel"],
+html.light .milkdown [class*="preview_panel"],
+html.light .milkdown [class*="preview"],
+html.light .milkdown .preview-label,
+html.light .milkdown [class*="preview-label"] {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+html.light .milkdown .cm-editor .cm-scroller,
+html.light .custom-milkdown-container .cm-editor .cm-scroller,
+html.light .milkdown .cm-editor .cm-content,
+html.light .custom-milkdown-container .cm-editor .cm-content {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+html.light .milkdown .cm-editor .cm-gutters,
+html.light .custom-milkdown-container .cm-editor .cm-gutters {
+  background-color: #f1f5f9 !important;
+  color: #64748b !important;
+  border-right-color: #cbd5e1 !important;
+}
+
+html.light .milkdown .katex-display,
+html.light .milkdown .katex,
+html.light .milkdown .katex *,
+html.light .custom-milkdown-container .ProseMirror [data-type="math_block"] .katex-display,
+html.light .custom-milkdown-container .ProseMirror .katex,
+html.light .custom-milkdown-container .ProseMirror .math-block {
+  color: #0f172a !important;
+  background-color: transparent !important;
 }
 
 /* Checklist items stylings */
@@ -203,34 +776,34 @@ body {
   margin: 16px 0 !important;
   border-radius: 8px !important;
   overflow: hidden !important;
-  border: 1px solid #1f2335 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
 
 .custom-milkdown-container .ProseMirror th {
-  background-color: #161825 !important;
-  color: #e2e8f0 !important;
+  background-color: #131726 !important;
+  color: #f1f5f9 !important;
   font-weight: 700 !important;
   padding: 8px 12px !important;
-  border: 1px solid #1f2335 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
 
 .custom-milkdown-container .ProseMirror td {
   padding: 8px 12px !important;
-  border: 1px solid #1f2335 !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
   color: #cbd5e1 !important;
 }
 
 .custom-milkdown-container .ProseMirror tr:hover {
-  background-color: rgba(26, 29, 41, 0.4) !important;
+  background-color: rgba(99, 102, 241, 0.06) !important;
 }
 
 /* Crepe popups and toolbar styles matching our theme */
 .milkdown .crepe-floating-toolbar,
 .milkdown .crepe-slash-menu {
-  background-color: #0c0d14 !important;
-  border: 1px solid #1f2335 !important;
-  border-radius: 8px !important;
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7) !important;
+  background-color: #161a29 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 12px 36px -8px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(99, 102, 241, 0.15) !important;
 }
 
 .milkdown .crepe-floating-toolbar button,
@@ -240,71 +813,77 @@ body {
 
 .milkdown .crepe-floating-toolbar button:hover,
 .milkdown .crepe-slash-menu button:hover {
-  background-color: #1e293b70 !important;
+  background-color: rgba(99, 102, 241, 0.2) !important;
   color: #ffffff !important;
 }
 
 .milkdown .crepe-floating-toolbar button.active {
-  background-color: rgba(217, 70, 239, 0.2) !important;
-  color: #d946ef !important;
+  background-color: rgba(99, 102, 241, 0.3) !important;
+  color: #a5b4fc !important;
 }
 
 /* ── Link Tooltip: dark theme override (preview + edit panels) ── */
-.milkdown .milkdown-link-preview > .link-preview,
-.milkdown .milkdown-link-edit > .link-edit {
-  background: #11131c !important;
-  border: 1px solid #1f2335 !important;
+.milkdown .milkdown-link-preview>.link-preview,
+.milkdown .milkdown-link-edit>.link-edit {
+  background: #161a29 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
   border-radius: 10px !important;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7) !important;
 }
 
 /* URL display text */
-.milkdown .milkdown-link-preview > .link-preview > .link-display {
+.milkdown .milkdown-link-preview>.link-preview>.link-display {
   color: #22d3ee !important;
   font-size: 13px !important;
 }
-.milkdown .milkdown-link-preview > .link-preview > .link-display:hover {
+
+.milkdown .milkdown-link-preview>.link-preview>.link-display:hover {
   color: #67e8f9 !important;
   text-decoration: underline !important;
 }
 
 /* Icons in preview panel */
-.milkdown .milkdown-link-preview > .link-preview > .link-icon > svg,
-.milkdown .milkdown-link-preview > .link-preview > .button > svg {
-  color: #475569 !important;
-  fill: #475569 !important;
+.milkdown .milkdown-link-preview>.link-preview>.link-icon>svg,
+.milkdown .milkdown-link-preview>.link-preview>.button>svg {
+  color: #94a3b8 !important;
+  fill: #94a3b8 !important;
 }
-.milkdown .milkdown-link-preview > .link-preview > .link-icon:hover,
-.milkdown .milkdown-link-preview > .link-preview > .button:hover {
-  background: #1f2335 !important;
+
+.milkdown .milkdown-link-preview>.link-preview>.link-icon:hover,
+.milkdown .milkdown-link-preview>.link-preview>.button:hover {
+  background: rgba(99, 102, 241, 0.2) !important;
 }
-.milkdown .milkdown-link-preview > .link-preview > .link-icon:hover > svg,
-.milkdown .milkdown-link-preview > .link-preview > .button:hover > svg {
-  color: #d946ef !important;
-  fill: #d946ef !important;
+
+.milkdown .milkdown-link-preview>.link-preview>.link-icon:hover>svg,
+.milkdown .milkdown-link-preview>.link-preview>.button:hover>svg {
+  color: #a5b4fc !important;
+  fill: #a5b4fc !important;
 }
 
 /* Input field in edit panel */
-.milkdown .milkdown-link-edit > .link-edit > .input-area {
-  color: #e2e8f0 !important;
+.milkdown .milkdown-link-edit>.link-edit>.input-area {
+  color: #f8fafc !important;
   background: transparent !important;
-  caret-color: #d946ef !important;
+  caret-color: #6366f1 !important;
 }
-.milkdown .milkdown-link-edit > .link-edit > .input-area::placeholder {
-  color: #475569 !important;
+
+.milkdown .milkdown-link-edit>.link-edit>.input-area::placeholder {
+  color: #64748b !important;
 }
 
 /* Buttons in edit panel */
-.milkdown .milkdown-link-edit > .link-edit > .button > svg {
-  color: #475569 !important;
-  fill: #475569 !important;
+.milkdown .milkdown-link-edit>.link-edit>.button>svg {
+  color: #94a3b8 !important;
+  fill: #94a3b8 !important;
 }
-.milkdown .milkdown-link-edit > .link-edit > .button:hover {
-  background: #1f2335 !important;
+
+.milkdown .milkdown-link-edit>.link-edit>.button:hover {
+  background: rgba(99, 102, 241, 0.2) !important;
 }
-.milkdown .milkdown-link-edit > .link-edit > .button:hover > svg {
-  color: #d946ef !important;
-  fill: #d946ef !important;
+
+.milkdown .milkdown-link-edit>.link-edit>.button:hover>svg {
+  color: #a5b4fc !important;
+  fill: #a5b4fc !important;
 }
 
 /* Custom live highlights for tags and links inside Preview mode */
@@ -332,6 +911,55 @@ body {
   color: #67e8f9 !important;
 }
 
+/* Light mode overrides for WikiLinks and Backlinks in Editor */
+html.light .custom-preview-link {
+  color: #0284c7 !important;
+  text-decoration: underline !important;
+  text-underline-offset: 3px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: color 0.15s ease !important;
+}
+
+html.light .custom-preview-link:hover {
+  color: #0d9488 !important; /* Teal hover color in Light Mode */
+}
+
+/* Custom live highlights for flashcards inside Preview mode */
+.custom-preview-flashcard {
+  color: #818cf8 !important;
+  font-weight: 500 !important;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: inline-flex !important;
+  align-items: baseline !important;
+  transition: color 0.15s ease !important;
+}
+
+.custom-preview-flashcard::before {
+  content: "" !important;
+  display: inline-block !important;
+  width: 0.9em !important;
+  height: 0.9em !important;
+  margin-right: 0.35em !important;
+  vertical-align: -0.05em !important;
+  background-color: #818cf8 !important;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 10v6M2 10l10-5 10 5-10 5z'/%3E%3Cpath d='M6 12v5c3 3 9 3 12 0v-5'/%3E%3C/svg%3E") no-repeat center / contain !important;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 10v6M2 10l10-5 10 5-10 5z'/%3E%3Cpath d='M6 12v5c3 3 9 3 12 0v-5'/%3E%3C/svg%3E") no-repeat center / contain !important;
+}
+
+.custom-preview-flashcard:hover {
+  color: #a5b4fc !important;
+}
+
+.custom-preview-flashcard:hover::before {
+  background-color: #a5b4fc !important;
+}
+
 /* Style standard URLs and hyperlinks inside the editor in preview/WYSIWYG mode */
 .custom-milkdown-container .ProseMirror a {
   color: #818cf8 !important;
@@ -343,6 +971,18 @@ body {
 
 .custom-milkdown-container .ProseMirror a:hover {
   color: #a5b4fc !important;
+}
+
+html.light .custom-milkdown-container .ProseMirror a {
+  color: #0284c7 !important;
+  text-decoration: underline !important;
+  text-underline-offset: 3px !important;
+  font-weight: 500 !important;
+  transition: color 0.15s ease !important;
+}
+
+html.light .custom-milkdown-container .ProseMirror a:hover {
+  color: #0d9488 !important; /* Teal hover color in Light Mode */
 }
 
 /* Dimmed block styles for AI suggested connections in preview mode */
@@ -369,44 +1009,91 @@ body {
 
 /* Milkdown Crepe block edit handle adjustments for spacing and premium feel */
 .custom-milkdown-container .ProseMirror {
-  padding-left: 80px !important;
+  padding-left: 64px !important;
   padding-right: 32px !important;
 }
 
 /* Block handle positioning and hover transition animation */
-.milkdown .milkdown-block-handle {
+.milkdown .milkdown-block-handle,
+milkdown-block-edit {
   margin-left: -4px !important;
   background-color: transparent !important;
   border-radius: 6px !important;
   transition: all 0.15s ease-in-out !important;
-  user-select: auto !important;
-  -webkit-user-select: auto !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  z-index: 50 !important;
 }
 
-.milkdown .milkdown-block-handle .operation-item {
-  color: #64748b !important;
+.milkdown .milkdown-block-handle .operation-item,
+milkdown-block-edit button,
+milkdown-block-edit .operation-item {
+  color: #94a3b8 !important;
   border-radius: 6px !important;
+  padding: 4px !important;
   transition: all 0.15s ease-in-out !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  user-select: auto !important;
-  -webkit-user-select: auto !important;
+  cursor: pointer !important;
 }
 
-.milkdown .milkdown-block-handle .operation-item svg {
-  fill: #64748b !important;
+.milkdown .milkdown-block-handle .operation-item[data-operation="drag"],
+milkdown-block-edit [data-operation="drag"],
+.milkdown .milkdown-block-handle .operation-item:nth-child(2) {
+  cursor: grab !important;
+}
+
+.milkdown .milkdown-block-handle .operation-item[data-operation="drag"]:active,
+milkdown-block-edit [data-operation="drag"]:active,
+.milkdown .milkdown-block-handle .operation-item:nth-child(2):active {
+  cursor: grabbing !important;
+}
+
+.milkdown .milkdown-block-handle .operation-item svg,
+milkdown-block-edit button svg {
+  fill: #94a3b8 !important;
+  color: #94a3b8 !important;
   width: 16px !important;
   height: 16px !important;
+  transition: color 0.15s ease, fill 0.15s ease !important;
 }
 
-.milkdown .milkdown-block-handle .operation-item:hover {
-  background-color: #1e293b !important;
-  color: #f8fafc !important;
+.milkdown .milkdown-block-handle .operation-item:hover,
+milkdown-block-edit button:hover {
+  background-color: rgba(99, 102, 241, 0.15) !important;
+  color: #a5b4fc !important;
 }
 
-.milkdown .milkdown-block-handle .operation-item:hover svg {
-  fill: #f8fafc !important;
+.milkdown .milkdown-block-handle .operation-item:hover svg,
+milkdown-block-edit button:hover svg {
+  fill: #818cf8 !important;
+  color: #818cf8 !important;
+}
+
+/* Light Mode Overrides for Block Handle */
+html.light .milkdown .milkdown-block-handle .operation-item,
+html.light milkdown-block-edit button,
+html.light milkdown-block-edit .operation-item {
+  color: #64748b !important;
+}
+
+html.light .milkdown .milkdown-block-handle .operation-item svg,
+html.light milkdown-block-edit button svg {
+  fill: #64748b !important;
+  color: #64748b !important;
+}
+
+html.light .milkdown .milkdown-block-handle .operation-item:hover,
+html.light milkdown-block-edit button:hover {
+  background-color: #f1f5f9 !important;
+  color: #4f46e5 !important;
+}
+
+html.light .milkdown .milkdown-block-handle .operation-item:hover svg,
+html.light milkdown-block-edit button:hover svg {
+  fill: #4f46e5 !important;
+  color: #4f46e5 !important;
 }
 
 /* Add custom animations for Outline and Status Bars */
@@ -450,17 +1137,26 @@ body {
 
 /* Root Layout Background - isolated GPU layer */
 .root-layout-bg {
-  background-image: radial-gradient(ellipse 80% 60% at 15% 20%, rgba(99,102,241,0.10) 0%, transparent 60%), radial-gradient(ellipse 60% 50% at 85% 75%, rgba(168,85,247,0.07) 0%, transparent 55%);
+  background-image: radial-gradient(ellipse 80% 60% at 15% 20%, rgba(99, 102, 241, 0.10) 0%, transparent 60%), radial-gradient(ellipse 60% 50% at 85% 75%, rgba(168, 85, 247, 0.07) 0%, transparent 55%);
   will-change: transform;
 }
 
 /* ══ COMPACT & ELEGANT CREPE SLASH MENU STYLING ══════════════════════════════ */
-.milkdown .milkdown-slash-menu {
+.milkdown .milkdown-slash-menu,
+milkdown-slash-menu,
+.crepe-slash-menu,
+[data-role="slash-menu"],
+milkdown-block-edit,
+.milkdown-block-edit {
   transition: opacity 0.1s ease, transform 0.1s ease !important;
-  max-height: 280px !important;
-  width: 245px !important;
+  max-height: min(320px, calc(100vh - 160px)) !important;
+  width: 250px !important;
+  max-width: calc(100vw - 32px) !important;
+  z-index: 100 !important;
+  box-sizing: border-box !important;
+  contain: layout style !important;
   border: 1px solid rgba(99, 102, 241, 0.3) !important;
-  background-color: rgba(15, 17, 26, 0.92) !important;
+  background-color: rgba(15, 17, 26, 0.95) !important;
   border-radius: 12px !important;
   box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(99, 102, 241, 0.2) !important;
   overflow: hidden !important;
@@ -505,6 +1201,7 @@ body {
 .milkdown .milkdown-slash-menu .menu-groups::-webkit-scrollbar {
   width: 4px !important;
 }
+
 .milkdown .milkdown-slash-menu .menu-groups::-webkit-scrollbar-thumb {
   background: rgba(99, 102, 241, 0.3) !important;
   border-radius: 4px !important;
@@ -512,7 +1209,8 @@ body {
 
 /* Group Headers (CUSTOM, TEXT, LIST, ADVANCED) */
 .milkdown .milkdown-slash-menu .menu-groups .menu-group h6 {
-  color: #818cf8 !important; /* Bright Indigo label */
+  color: #818cf8 !important;
+  /* Bright Indigo label */
   font-size: 9.5px !important;
   padding: 6px 6px 3px !important;
   font-weight: 800 !important;
@@ -524,10 +1222,12 @@ body {
 /* Menu Items */
 .milkdown .milkdown-slash-menu .menu-groups .menu-group li,
 .milkdown .milkdown-slash-menu .menu-group-item {
-  padding: 5px 8px !important; /* Compact item padding */
+  padding: 5px 8px !important;
+  /* Compact item padding */
   gap: 8px !important;
   border-radius: 6px !important;
-  color: #cbd5e1 !important; /* High contrast text */
+  color: #cbd5e1 !important;
+  /* High contrast text */
   font-size: 11.5px !important;
   font-weight: 500 !important;
   cursor: pointer !important;
@@ -561,7 +1261,9 @@ body {
 
 /* Print layout for Exporting note to PDF */
 @media print {
-  html, body {
+
+  html,
+  body {
     background-color: #ffffff !important;
     color: #000000 !important;
     font-size: 12pt !important;
@@ -575,7 +1277,8 @@ body {
   }
 
   /* Keep only the workspace container visible */
-  #editor-workspace-container, #editor-workspace-container * {
+  #editor-workspace-container,
+  #editor-workspace-container * {
     visibility: visible;
   }
 
@@ -591,15 +1294,15 @@ body {
   }
 
   /* Hide editor headers, outlines, chat, sidebars and bottom metadata panels */
-  #titlebar, 
-  .workspace-tabs, 
-  #sidebar, 
-  #copilot-chat, 
-  .h-10.items-center.justify-end.border-b, 
+  #titlebar,
+  .workspace-tabs,
+  #sidebar,
+  #copilot-chat,
+  .h-10.items-center.justify-end.border-b,
   .editor-header-bar,
-  .bottom-metadata-panel, 
+  .bottom-metadata-panel,
   [class*="border-b"],
-  button, 
+  button,
   form,
   .rounded-t-md {
     display: none !important;
@@ -661,6 +1364,18 @@ body {
     inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
 }
 
+/* Light Mode Glass Card Overrides */
+html.light .glass-card {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+html.light .glass-card:hover {
+  background: #f8fafc !important;
+  border-color: rgba(99, 102, 241, 0.4) !important;
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.1) !important;
+}
 
 /* ── MODERN KEYFRAME ANIMATIONS ── */
 @keyframes slide-in-right {
@@ -668,6 +1383,7 @@ body {
     transform: translateX(12px);
     opacity: 0;
   }
+
   to {
     transform: translateX(0);
     opacity: 1;
@@ -679,6 +1395,7 @@ body {
     transform: scale(0.96);
     opacity: 0;
   }
+
   to {
     transform: scale(1);
     opacity: 1;
@@ -689,6 +1406,7 @@ body {
   from {
     width: 0;
   }
+
   to {
     width: 100%;
   }
@@ -715,7 +1433,7 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 8px;
   padding: 2.5px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 /* Micro-interaction icons rotate/wiggle on hover */
@@ -732,6 +1450,7 @@ body {
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
@@ -752,9 +1471,11 @@ body {
   0% {
     background-position: 0% 50%;
   }
+
   50% {
     background-position: 100% 50%;
   }
+
   100% {
     background-position: 0% 50%;
   }
@@ -771,13 +1492,11 @@ body {
   inset: -1.5px;
   border-top-left-radius: 1rem;
   border-bottom-right-radius: 1rem;
-  background: linear-gradient(
-    90deg,
-    rgba(0, 240, 255, 0.5),
-    rgba(255, 0, 150, 0.5),
-    rgba(255, 230, 0, 0.5),
-    rgba(0, 240, 255, 0.5)
-  );
+  background: linear-gradient(90deg,
+      rgba(0, 240, 255, 0.5),
+      rgba(255, 0, 150, 0.5),
+      rgba(255, 230, 0, 0.5),
+      rgba(0, 240, 255, 0.5));
   background-size: 200% 200%;
   filter: blur(3px);
   opacity: 0.4;
@@ -826,6 +1545,7 @@ body {
     opacity: 0;
     transform: scale(0.95) translateY(6px);
   }
+
   100% {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -838,9 +1558,12 @@ body {
 
 /* Soft AI Breathing Pulse Glow */
 @keyframes ai-pulse-glow {
-  0%, 100% {
+
+  0%,
+  100% {
     box-shadow: 0 0 10px rgba(99, 102, 241, 0.2), inset 0 0 8px rgba(99, 102, 241, 0.1);
   }
+
   50% {
     box-shadow: 0 0 20px rgba(99, 102, 241, 0.5), inset 0 0 14px rgba(99, 102, 241, 0.25);
   }

@@ -3,7 +3,7 @@ import { isModKey } from "../lib/keyboard-utils";
 import { Flashcard } from "../lib/flashcard-parser";
 import { computeFSRS } from "../lib/fsrs";
 import { flashcardStore } from "../lib/flashcard-store";
-import { ArrowLeft, CheckCircle2, RotateCw, Volume2, Undo2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, RotateCw, Volume2, Undo2, Edit3, Trash2, Check, X, Target } from "lucide-react";
 import confetti from "canvas-confetti";
 
 interface FlashcardReviewProps {
@@ -19,11 +19,24 @@ export const FlashcardReview: React.FC<FlashcardReviewProps> = ({ cards, onClose
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [historyStack, setHistoryStack] = useState<{ index: number; cardState: Flashcard }[]>([]);
 
+  // Edit Card Modal State
+  const [editingCard, setEditingCard] = useState<Flashcard | null>(null);
+  const [editFront, setEditFront] = useState("");
+  const [editBack, setEditBack] = useState("");
+
   const reviewedCountRef = useRef(0);
 
-  // Initialize session cards
+  // Initialize session cards prioritized by note target due dates
   useEffect(() => {
-    setSessionCards(cards);
+    const sorted = [...cards].sort((a, b) => {
+      if (a.noteDueDate && b.noteDueDate) {
+        return a.noteDueDate.localeCompare(b.noteDueDate);
+      }
+      if (a.noteDueDate) return -1;
+      if (b.noteDueDate) return 1;
+      return 0;
+    });
+    setSessionCards(sorted);
   }, [cards]);
 
   const activeCard = sessionCards[currentIndex];
@@ -75,6 +88,40 @@ export const FlashcardReview: React.FC<FlashcardReviewProps> = ({ cards, onClose
       state: last.cardState.state,
     };
     await flashcardStore.saveProgress(progressMap, updated);
+  };
+
+  // Live save edited card back to source markdown file
+  const handleSaveCardEdit = async () => {
+    if (!editingCard || !editFront.trim() || !editBack.trim()) return;
+    const success = await flashcardStore.updateFlashcardInNote(editingCard, editFront, editBack);
+    if (success) {
+      const updated = [...sessionCards];
+      updated[currentIndex] = {
+        ...editingCard,
+        front: editFront.trim(),
+        back: editBack.trim(),
+      };
+      setSessionCards(updated);
+    }
+    setEditingCard(null);
+  };
+
+  // Delete card live from source markdown file
+  const handleDeleteCardInReview = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!activeCard) return;
+    if (!confirm("Are you sure you want to delete this flashcard from its source note?")) return;
+
+    await flashcardStore.deleteFlashcardFromNote(activeCard);
+    const updated = sessionCards.filter((_, idx) => idx !== currentIndex);
+    setSessionCards(updated);
+    setIsFlipped(false);
+
+    if (updated.length === 0) {
+      setReviewDone(true);
+    } else if (currentIndex >= updated.length) {
+      setCurrentIndex(updated.length - 1);
+    }
   };
 
   const getIntervalString = (grade: number): string => {
@@ -194,7 +241,7 @@ export const FlashcardReview: React.FC<FlashcardReviewProps> = ({ cards, onClose
 
   if (sessionCards.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center bg-[#090a0f] text-slate-500 gap-4">
+      <div className="flex h-full flex-col items-center justify-center bg-background text-slate-500 gap-4">
         <span>No cards due for review!</span>
         <button
           onClick={onClose}
@@ -207,9 +254,9 @@ export const FlashcardReview: React.FC<FlashcardReviewProps> = ({ cards, onClose
   }
 
   return (
-    <div className="flex h-full w-full flex-col bg-[#090a0f] text-slate-200 select-none animate-fade-in">
+    <div className="flex h-full w-full flex-col bg-background text-slate-200 select-none animate-fade-in">
       {/* Header toolbar */}
-      <div className="flex h-12 items-center justify-between border-b border-[#1f2335] bg-[#0b0c10] px-4">
+      <div className="flex h-12 items-center justify-between border-b border-card-border bg-sidebar px-4">
         <button
           onClick={onClose}
           className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
@@ -240,7 +287,7 @@ export const FlashcardReview: React.FC<FlashcardReviewProps> = ({ cards, onClose
       {/* Main container */}
       <div className="flex-1 flex flex-col items-center justify-center p-6">
         {reviewDone ? (
-          <div className="max-w-sm rounded-2xl border border-[#1f2335] bg-[#11131c] p-8 text-center shadow-2xl animate-fade-in">
+          <div className="max-w-sm rounded-2xl border border-card-border bg-card p-8 text-center shadow-2xl animate-fade-in">
             <CheckCircle2 className="mx-auto h-16 w-16 text-emerald-500 mb-4 animate-scale-up" />
             <h2 className="text-xl font-bold text-slate-200 mb-2">Review Complete!</h2>
             <p className="text-xs text-slate-500 leading-relaxed mb-6">
@@ -257,7 +304,7 @@ export const FlashcardReview: React.FC<FlashcardReviewProps> = ({ cards, onClose
           <div className="w-full max-w-lg flex flex-col items-center gap-8">
             
             {/* Progress bar */}
-            <div className="w-full bg-[#11131c] h-1.5 rounded-full overflow-hidden border border-[#1f2335]">
+            <div className="w-full bg-card h-1.5 rounded-full overflow-hidden border border-card-border">
               <div
                 style={{ width: `${((currentIndex) / sessionCards.length) * 100}%` }}
                 className="bg-indigo-600 h-full rounded-full transition-all duration-300"
@@ -270,17 +317,36 @@ export const FlashcardReview: React.FC<FlashcardReviewProps> = ({ cards, onClose
               className="w-full h-80 perspective-1000 cursor-pointer group"
             >
               <div
-                className={`relative w-full h-full transform-style-3d duration-500 rounded-2xl border border-[#1f2335] shadow-xl ${
+                className={`relative w-full h-full transform-style-3d duration-500 rounded-2xl border border-card-border shadow-xl ${
                   isFlipped ? "rotate-y-180" : ""
                 }`}
               >
                 {/* Front Side */}
-                <div className="absolute inset-0 backface-hidden bg-[#11131c] p-6 flex flex-col items-center justify-center rounded-2xl">
+                <div className="absolute inset-0 backface-hidden bg-card p-6 flex flex-col items-center justify-center rounded-2xl">
                   <span className="absolute top-4 left-4 text-[9px] font-bold text-slate-600 uppercase tracking-widest">
                     Question / Front
                   </span>
                   
-                  <div className="absolute top-4 right-4 flex items-center gap-2">
+                  <div className="absolute top-4 right-4 flex items-center gap-1.5">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingCard(activeCard);
+                        setEditFront(activeCard.front);
+                        setEditBack(activeCard.back);
+                      }}
+                      className="p-1.5 rounded-md border text-slate-500 hover:text-indigo-300 hover:bg-indigo-500/20 border-slate-800 transition-colors cursor-pointer"
+                      title="Edit flashcard in note"
+                    >
+                      <Edit3 className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={handleDeleteCardInReview}
+                      className="p-1.5 rounded-md border text-slate-500 hover:text-rose-400 hover:bg-rose-500/20 border-slate-800 transition-colors cursor-pointer"
+                      title="Delete flashcard from note"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                     <button
                       onClick={(e) => speakText(activeCard.front, e)}
                       className={`p-1.5 rounded-md border transition-colors cursor-pointer ${
@@ -290,7 +356,13 @@ export const FlashcardReview: React.FC<FlashcardReviewProps> = ({ cards, onClose
                     >
                       <Volume2 className="h-3.5 w-3.5" />
                     </button>
-                    <span className="text-[9px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 max-w-[140px] truncate" title={activeCard.filePath.split(/[/\\]/).pop()}>
+                    {activeCard.noteDueDate && (
+                      <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 flex items-center gap-1" title={`Source note deadline: ${activeCard.noteDueDate}`}>
+                        <Target className="h-2.5 w-2.5" />
+                        Due: {activeCard.noteDueDate}
+                      </span>
+                    )}
+                    <span className="text-[9px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 max-w-30 truncate" title={activeCard.filePath.split(/[/\\]/).pop()}>
                       {activeCard.filePath.split(/[/\\]/).pop()?.replace(/\.md$/, "")}
                     </span>
                   </div>
@@ -304,8 +376,8 @@ export const FlashcardReview: React.FC<FlashcardReviewProps> = ({ cards, onClose
                 </div>
 
                 {/* Back Side */}
-                <div className="absolute inset-0 backface-hidden rotate-y-180 bg-[#161825] p-6 flex flex-col items-center justify-center rounded-2xl">
-                  <span className="absolute top-4 left-4 text-[9px] font-bold text-slate-600 uppercase tracking-widest">
+                <div className="absolute inset-0 backface-hidden rotate-y-180 bg-card border border-card-border p-6 flex flex-col items-center justify-center rounded-2xl shadow-xl">
+                  <span className="absolute top-4 left-4 text-[9px] font-bold text-slate-500 uppercase tracking-widest">
                     Answer / Back
                   </span>
                   
@@ -313,18 +385,18 @@ export const FlashcardReview: React.FC<FlashcardReviewProps> = ({ cards, onClose
                     <button
                       onClick={(e) => speakText(activeCard.back, e)}
                       className={`p-1.5 rounded-md border transition-colors cursor-pointer ${
-                        isSpeaking ? "text-indigo-400 bg-indigo-500/20 border-indigo-500/40" : "text-slate-500 hover:text-slate-200 hover:bg-slate-800 border-slate-800"
+                        isSpeaking ? "text-indigo-500 bg-indigo-500/20 border-indigo-500/40" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-card-hover border-card-border"
                       }`}
                       title="Listen to answer (Text-to-Speech)"
                     >
                       <Volume2 className="h-3.5 w-3.5" />
                     </button>
-                    <span className="text-[9px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 max-w-[140px] truncate" title={activeCard.filePath.split(/[/\\]/).pop()}>
+                    <span className="text-[9px] font-bold text-indigo-500 dark:text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 max-w-35 truncate" title={activeCard.filePath.split(/[/\\]/).pop()}>
                       {activeCard.filePath.split(/[/\\]/).pop()?.replace(/\.md$/, "")}
                     </span>
                   </div>
 
-                  <p className="text-base text-center leading-relaxed font-semibold max-w-sm overflow-y-auto whitespace-pre-wrap text-indigo-200 select-text">
+                  <p className="text-base text-center leading-relaxed font-semibold max-w-sm overflow-y-auto whitespace-pre-wrap text-indigo-600 dark:text-indigo-200 select-text">
                     {activeCard.back}
                   </p>
                   <span className="absolute bottom-4 text-[10px] text-slate-500 flex items-center gap-1.5 font-medium">
@@ -391,6 +463,61 @@ export const FlashcardReview: React.FC<FlashcardReviewProps> = ({ cards, onClose
           </div>
         )}
       </div>
+
+      {/* Edit Card Modal Overlay */}
+      {editingCard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="w-full max-w-md rounded-2xl border border-card-border bg-card p-6 shadow-2xl flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-card-border pb-3">
+              <span className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                <Edit3 className="h-4 w-4 text-indigo-400" />
+                Edit Flashcard (Live Sync to Note)
+              </span>
+              <button
+                onClick={() => setEditingCard(null)}
+                className="text-slate-500 hover:text-slate-300 p-1 rounded-md transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3 text-xs">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Question (Front)</span>
+                <textarea
+                  value={editFront}
+                  onChange={(e) => setEditFront(e.target.value)}
+                  className="w-full rounded-xl bg-background border border-slate-800 p-3 text-slate-200 text-xs focus:outline-none focus:border-indigo-500/50 resize-y font-medium min-h-17.5"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Answer (Back)</span>
+                <textarea
+                  value={editBack}
+                  onChange={(e) => setEditBack(e.target.value)}
+                  className="w-full rounded-xl bg-background border border-slate-800 p-3 text-slate-200 text-xs focus:outline-none focus:border-indigo-500/50 resize-y font-medium min-h-17.5"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-card-border">
+              <button
+                onClick={() => setEditingCard(null)}
+                className="px-4 py-2 rounded-lg border border-slate-800 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveCardEdit}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white shadow-md shadow-indigo-600/30 transition-all cursor-pointer"
+              >
+                <Check className="h-3.5 w-3.5" /> Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

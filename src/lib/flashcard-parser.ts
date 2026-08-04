@@ -10,6 +10,8 @@ export interface Flashcard {
   stability?: number;
   difficulty?: number;
   state?: number;
+  noteDueDate?: string;
+  notePriority?: string;
 }
 
 
@@ -26,35 +28,11 @@ export function parseFlashcards(content: string, filePath: string): Flashcard[] 
   const cards: Flashcard[] = [];
   const cardIds = new Set<string>();
 
-  // Syntax 1: @flashcard (Question::Answer) or @flashcards (Question::Answer)
+  // Flashcards syntax: @flashcard (Question::Answer) or @flashcards (Question::Answer)
   const regex1 = /@flashcards?\s*\(([\s\S]*?)::([\s\S]*?)\)/gi;
   let match;
 
   while ((match = regex1.exec(content)) !== null) {
-    const front = match[1].trim();
-    const back = match[2].trim();
-
-    if (front && back) {
-      const id = hashString(`${filePath}:${front}:${back}`);
-      if (!cardIds.has(id)) {
-        cardIds.add(id);
-        cards.push({
-          id,
-          front,
-          back,
-          filePath,
-          interval: 0,
-          repetition: 0,
-          efactor: 2.5,
-          nextReviewDate: new Date().toISOString().split("T")[0],
-        });
-      }
-    }
-  }
-
-  // Syntax 2: Inline line @card Question :: Answer
-  const regex2 = /^@card\s+(.*?)\s*::\s*(.*)$/gim;
-  while ((match = regex2.exec(content)) !== null) {
     const front = match[1].trim();
     const back = match[2].trim();
 

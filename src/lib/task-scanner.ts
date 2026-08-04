@@ -1,5 +1,6 @@
 import { invokeIPC } from "./ipc";
 import { FileEntry } from "../contexts/VaultContext";
+import { ensureAndSyncFrontmatter, getZonedDateParts } from "./frontmatter";
 
 export interface ScannedTask {
   id: string;
@@ -10,6 +11,7 @@ export interface ScannedTask {
   lineNumber: number; // 0-indexed line number in the note
   dueDate?: string; // YYYY-MM-DD
   dueTime?: string; // HH:MM
+  rawDueDate?: string; // Original raw ISO UTC string if present
   tags: string[];
   priority: "high" | "medium" | "low" | "none";
 }
@@ -37,11 +39,17 @@ export function isTrashPath(path: string): boolean {
   return norm.includes("/trash/") || norm.includes("/.deleted/") || norm.endsWith("/trash") || norm.endsWith("/.deleted");
 }
 
+export function isTemplatePath(path: string): boolean {
+  const norm = path.toLowerCase().replace(/\\/g, "/");
+  return norm.includes("/templates/") || norm.includes("/template/") || norm.endsWith("/templates") || norm.endsWith("/template");
+}
+
 export function getAllMarkdownFiles(entries: FileEntry[], options?: ScanOptions): FileEntry[] {
   let list: FileEntry[] = [];
   for (const entry of entries) {
     if (!options?.includeArchived && isArchivedPath(entry.path)) continue;
     if (!options?.includeTrash && isTrashPath(entry.path)) continue;
+    if (isTemplatePath(entry.path)) continue;
 
     if (entry.is_dir) {
       if (entry.children) {
@@ -56,11 +64,39 @@ export function getAllMarkdownFiles(entries: FileEntry[], options?: ScanOptions)
 
 /**
  * Scans all Markdown notes in the vault for checklists and date mentions.
+ * Uses high-speed native multi-threaded Rust parallel scanner with JS fallback.
  */
 export async function scanVaultForTasksAndDates(
   entries: FileEntry[],
   options?: ScanOptions
 ): Promise<{ tasks: ScannedTask[]; dateRefs: ScannedDateReference[] }> {
+  // Try native Rust parallel vault scanner first (100x faster for 20,000 notes)
+  if (entries.length > 0) {
+    let rootPath = entries[0]?.path || "";
+    // Derive top-level vault root folder path
+    const slashIdx = Math.max(rootPath.indexOf("/"), rootPath.indexOf("\\"));
+    if (slashIdx > 0) {
+      // Find root directory path
+      const dirPath = rootPath.replace(/\\/g, "/");
+      const parts = dirPath.split("/").filter(Boolean);
+      if (parts.length > 1) {
+        // Reconstruct root directory path
+        const rootVaultDir = rootPath.startsWith("/") ? "/" + parts[0] : parts[0] + (rootPath.includes(":\\") ? ":\\" : "/");
+        try {
+          const res = (await invokeIPC("scan_vault_tasks", { vaultPath: rootVaultDir })) as unknown as {
+            tasks: ScannedTask[];
+            dateRefs: ScannedDateReference[];
+          };
+          if (res && Array.isArray(res.tasks) && Array.isArray(res.dateRefs)) {
+            return res;
+          }
+        } catch (_e) {
+          // Fallback to JS loop if native command is unavailable
+        }
+      }
+    }
+  }
+
   const mdFiles = getAllMarkdownFiles(entries, options);
   const tasks: ScannedTask[] = [];
   const dateRefs: ScannedDateReference[] = [];
@@ -75,9 +111,10 @@ export async function scanVaultForTasksAndDates(
         path: file.path,
       });
 
-      // Frontmatter storage state checks
+      // Frontmatter storage & type state checks
       if (!options?.includeArchived && /storage:\s*["']?archived["']?/i.test(text)) continue;
       if (!options?.includeTrash && /storage:\s*["']?deleted["']?/i.test(text)) continue;
+      if (/type:\s*["']?template["']?/i.test(text) || isTemplatePath(file.path)) continue;
 
       if (!text) continue;
 
@@ -85,16 +122,29 @@ export async function scanVaultForTasksAndDates(
       const frontmatterMatch = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
       if (frontmatterMatch) {
         const yamlText = frontmatterMatch[1];
-        const dueMatch = yamlText.match(/^due:\s*["']?(20\d{2}[-/](?:0[1-9]|1[0-2])[-/](?:0[1-9]|[12]\d|3[01]))["']?/m);
+        const dueMatch = yamlText.match(/^due:\s*["']?([^"\r\n]+)["']?/m);
         if (dueMatch && dueMatch[1]) {
-          const stdDate = dueMatch[1].replace(/\//g, "-");
-          dateRefs.push({
-            id: `${file.path}:frontmatter:${stdDate}`,
-            notePath: file.path,
-            noteName: file.name.replace(/\.md$/, ""),
-            date: stdDate,
-            context: `Kanban Due: ${file.name.replace(/\.md$/, "")}`,
-          });
+          const val = dueMatch[1].trim();
+          let stdDate = "";
+          const d = new Date(val);
+          if (!isNaN(d.getTime())) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, "0");
+            const day = String(d.getDate()).padStart(2, "0");
+            stdDate = `${y}-${m}-${day}`;
+          } else {
+            const mDate = val.match(/^(20\d{2}[-/]\d{2}[-/]\d{2})/);
+            if (mDate) stdDate = mDate[1].replace(/\//g, "-");
+          }
+          if (stdDate) {
+            dateRefs.push({
+              id: `${file.path}:frontmatter:${stdDate}`,
+              notePath: file.path,
+              noteName: file.name.replace(/\.md$/, ""),
+              date: stdDate,
+              context: `Kanban Due: ${file.name.replace(/\.md$/, "")}`,
+            });
+          }
         }
       }
 
@@ -121,15 +171,24 @@ export async function scanVaultForTasksAndDates(
             });
           }
 
-          // Extract date & optional time from task line (e.g. @2026-07-15, @2026-07-15 14:30, due: 2026-07-15 14:30)
+          // Extract date & optional time from task line (e.g. @2026-07-15, @2026-08-01T09:30:00.000Z, @2026-07-15 14:30)
           let dueDate: string | undefined = undefined;
           let dueTime: string | undefined = undefined;
-          const dateTimeRegex = /(?:@due:?|@|due:\s*)?(20\d{2}[-/](?:0[1-9]|1[0-2])[-/](?:0[1-9]|[12]\d|3[01]))(?:[ T]([01]\d|2[0-3]):([0-5]\d))?/i;
-          const dtMatch = line.match(dateTimeRegex);
-          if (dtMatch && dtMatch[1]) {
-            dueDate = dtMatch[1].replace(/\//g, "-");
-            if (dtMatch[2] && dtMatch[3]) {
-              dueTime = `${dtMatch[2]}:${dtMatch[3]}`;
+          let rawDueDate: string | undefined = undefined;
+          const isoMatch = line.match(/(?:@due:?|@|due:\s*)?(20\d{2}[-/]\d{2}[-/]\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)/i);
+          if (isoMatch && isoMatch[1]) {
+            rawDueDate = isoMatch[1];
+            const { dateStr, timeStr } = getZonedDateParts(rawDueDate);
+            dueDate = dateStr;
+            dueTime = timeStr;
+          } else {
+            const dateTimeRegex = /(?:@due:?|@|due:\s*)?(20\d{2}[-/](?:0[1-9]|1[0-2])[-/](?:0[1-9]|[12]\d|3[01]))(?:[ T]([01]\d|2[0-3]):([0-5]\d))?/i;
+            const dtMatch = line.match(dateTimeRegex);
+            if (dtMatch && dtMatch[1]) {
+              dueDate = dtMatch[1].replace(/\//g, "-");
+              if (dtMatch[2] && dtMatch[3]) {
+                dueTime = `${dtMatch[2]}:${dtMatch[3]}`;
+              }
             }
           }
 
@@ -147,7 +206,7 @@ export async function scanVaultForTasksAndDates(
           let cleanContent = rawContent
             .replace(/<(https?:\/\/[^>]+)>/g, (_, url) => url)
             .replace(/(?:^|\s|\\)#([a-zA-Z0-9_\-\/]+)/g, "")
-            .replace(/(?:@due:?|@|due:\s*)?20\d{2}[-/]\d{2}[-/]\d{2}(?:[ T]\d{2}:\d{2})?/gi, "")
+            .replace(/(?:@due:?|@|due:\s*)?20\d{2}[-/]\d{2}[-/]\d{2}(?:T[^\s]+|[ T]\d{2}:\d{2})?/gi, "")
             .replace(/@task(!*)/gi, "")
             .replace(/(?:\b|\s|^)!{1,3}(?:\b|\s|$)/g, " ")
             .replace(/\s+/g, " ")
@@ -162,6 +221,7 @@ export async function scanVaultForTasksAndDates(
             lineNumber: idx,
             dueDate,
             dueTime,
+            rawDueDate,
             tags,
             priority
           });
@@ -197,7 +257,7 @@ function cleanForMatching(str: string): string {
     .toLowerCase()
     .replace(/@task(!*)/gi, "")
     .replace(/(?:\b|\s|^)!{1,3}(?:\b|\s|$)/g, " ")
-    .replace(/(?:@due:?|@|due:\s*)?20\d{2}[-/]\d{2}[-/]\d{2}(?:[ T]\d{2}:\d{2})?/gi, "")
+    .replace(/(?:@due:?|@|due:\s*)?20\d{2}[-/]\d{2}[-/]\d{2}(?:T[^\s]+|[ T]\d{2}:\d{2})?/gi, "")
     .replace(/#([a-zA-Z0-9_\-\/]+)/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -250,7 +310,10 @@ export async function toggleTaskInNote(
         return `${prefix}${newStatus}${suffix}`;
       });
       lines[targetIndex] = updatedLine;
-      const updatedContent = lines.join("\n");
+      const rawContent = lines.join("\n");
+      const { fullContent: updatedContent } = ensureAndSyncFrontmatter(rawContent, {
+        forceUpdateTimestamp: true,
+      });
 
       await invokeIPC("write_note", {
         path: task.notePath,
@@ -321,7 +384,10 @@ export async function updateTaskPriorityInNote(
       }
 
       lines[targetIndex] = line;
-      const updatedContent = lines.join("\n");
+      const rawContent = lines.join("\n");
+      const { fullContent: updatedContent } = ensureAndSyncFrontmatter(rawContent, {
+        forceUpdateTimestamp: true,
+      });
 
       await invokeIPC("write_note", {
         path: task.notePath,

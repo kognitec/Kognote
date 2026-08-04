@@ -14,7 +14,7 @@ import {
   TEMPLATES_FOLDER,
   PROTECTED_FOLDERS,
 } from "../lib/vault-constants";
-import { ensureAndSyncFrontmatter, parseFrontmatter, stringifyFrontmatter } from "../lib/frontmatter";
+import { ensureAndSyncFrontmatter, parseFrontmatter, stringifyFrontmatter, getCurrentIsoTimestamp, getZonedDateParts } from "../lib/frontmatter";
 import { isArchivedPath, isTrashPath } from "../lib/task-scanner";
 import { getShortestUniquePath, replaceWikilinksOutsideCode } from "../lib/wikilink-utils";
 import { embeddingQueue } from "../lib/embedding-queue";
@@ -81,6 +81,8 @@ interface VaultContextType {
   attachmentsFolderPath: string | null;
   createFileModal: { isOpen: boolean; parentDir: string | null };
   setCreateFileModal: React.Dispatch<React.SetStateAction<{ isOpen: boolean; parentDir: string | null }>>;
+  previewAttachment: { path: string; name: string } | null;
+  setPreviewAttachment: (file: { path: string; name: string } | null) => void;
   importAttachment: (targetDir: string) => Promise<void>;
 
   // Note Storage Lifecycle & Templates
@@ -123,6 +125,8 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const triggerNotesScanRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
 
+  const [previewAttachment, setPreviewAttachment] = useState<{ path: string; name: string } | null>(null);
+
   const filterSystemFiles = (entries: FileEntry[]): FileEntry[] => {
     return entries
       .filter((e) => {
@@ -158,8 +162,6 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [vaultPath]);
 
-
-
   const setActiveFile = useCallback((file: FileEntry | null) => {
     setActiveFileState(file);
     if (file) {
@@ -174,6 +176,14 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const openFile = useCallback((file: FileEntry) => {
     if (file.is_dir) return;
 
+    const ext = file.name.toLowerCase().split('.').pop() || '';
+    const isNoteOrCanvas = ['md', 'excalidraw'].includes(ext);
+
+    if (!isNoteOrCanvas) {
+      setPreviewAttachment({ path: file.path, name: file.name });
+      return;
+    }
+
     setOpenFiles((prev) => {
       const exists = prev.some((f) => f.path === file.path);
       if (exists) return prev;
@@ -184,7 +194,6 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (file.name.endsWith(".excalidraw")) {
       setActiveView("canvas");
     } else {
-      // md, pdf, png, jpg, mp3, mp4, etc. — all open in editor view
       setActiveView("editor");
     }
   }, [setActiveFile, setActiveView]);
@@ -235,8 +244,8 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         multiple: false,
         directory: false,
         filters: [{
-          name: "Attachment Files",
-          extensions: ["png", "jpg", "jpeg", "webp", "gif", "svg", "mp3", "mp4", "wav", "m4a", "mov", "pdf"]
+          name: "Image Attachments",
+          extensions: ["png", "jpg", "jpeg", "webp", "gif", "svg", "avif"]
         }]
       });
 
@@ -246,9 +255,9 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const fileName = srcPath.replace(/\\/g, "/").split("/").pop() || "";
       const ext = fileName.toLowerCase().split(".").pop() || "";
 
-      const supportedExtensions = ["png", "jpg", "jpeg", "webp", "gif", "svg", "mp3", "mp4", "wav", "m4a", "mov", "pdf"];
+      const supportedExtensions = ["png", "jpg", "jpeg", "webp", "gif", "svg", "avif"];
       if (!supportedExtensions.includes(ext)) {
-        await message(`Unsupported file type: .${ext}. Only images, audio/video, and PDF documents are supported in Attachments.`, {
+        await message(`Unsupported file type: .${ext}. Only image files (.png, .jpg, .jpeg, .gif, .webp, .svg, .avif) are supported in Attachments.`, {
           title: "Unsupported Type",
           kind: "error"
         });
@@ -418,18 +427,17 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       await invokeIPC("fs_write", { path: fullPath, content: initialCanvasData });
     } else {
       const noteName = fileName.replace(/\.md$/, "");
-      const isDaily = parent.replace(/\\/g, "/").toLowerCase().includes("daily notes");
-      const isTemplate = parent.replace(/\\/g, "/").toLowerCase().includes("templates");
+      const normParent = (parent || "").replace(/\\/g, "/").toLowerCase();
+      const isDaily = normParent.includes("daily notes") || noteName.toLowerCase().includes("daily") || /^\d{4}-\d{2}-\d{2}$/.test(noteName);
+      const isTemplate = normParent.includes("templates");
       const noteType = isDaily ? "daily" : isTemplate ? "template" : "note";
       const { fullContent } = ensureAndSyncFrontmatter("", {
         noteName,
-        creator: "user",
-        updater: "user",
+        type: noteType,
         forceUpdateTimestamp: true,
       });
 
-      const adjustedContent = fullContent.replace(/^type: "note"/m, `type: "${noteType}"`);
-      await invokeIPC("fs_write", { path: fullPath, content: adjustedContent });
+      await invokeIPC("fs_write", { path: fullPath, content: fullContent });
     }
     await refreshFiles();
     return fullPath;
@@ -461,35 +469,62 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const newName = newPath.replace(/\\/g, "/").split("/").pop()?.replace(/\.(md|excalidraw)$/i, "") || "";
 
     if (oldName && newName && oldName !== newName) {
-      // Scan all md files and update backlinks
       let updatedCount = 0;
-      const allMdFiles: FileEntry[] = [];
-      const gatherMdFiles = (entries: FileEntry[]) => {
-        entries.forEach((e) => {
-          if (e.is_dir && e.children) gatherMdFiles(e.children);
-          else if (!e.is_dir && e.name.endsWith(".md")) allMdFiles.push(e);
-        });
-      };
-      gatherMdFiles(files);
+      let targetPaths: string[] = [];
 
-      for (const mdFile of allMdFiles) {
-        try {
-          const fileContent = await invokeIPC("read_note", { path: mdFile.path }) as string;
-          const updated = replaceWikilinksOutsideCode(fileContent, oldName, newName);
-          if (updated !== fileContent) {
-            await invokeIPC("write_note", { path: mdFile.path, content: updated });
-            updatedCount++;
+      try {
+        targetPaths = await searchEngine.getBacklinkFilePaths(oldName);
+      } catch (err) {
+        console.warn("Failed to query SQLite backlink paths for rename:", err);
+      }
+
+      // If SQLite returned no candidate paths, fallback to noteCache links lookup
+      if (!targetPaths || targetPaths.length === 0) {
+        const oldLower = oldName.toLowerCase();
+        Object.entries(noteCache).forEach(([filePath, cached]) => {
+          if (cached.links && cached.links.some((l) => l.toLowerCase() === oldLower)) {
+            targetPaths.push(filePath);
           }
-        } catch (e) {
-          console.warn("Failed to update backlinks in:", mdFile.path, e);
-        }
+        });
+      }
+
+      // Final fallback if cache is empty: gather all md files
+      if (targetPaths.length === 0) {
+        const gatherMdFiles = (entries: FileEntry[]) => {
+          entries.forEach((e) => {
+            if (e.is_dir && e.children) gatherMdFiles(e.children);
+            else if (!e.is_dir && e.name.endsWith(".md")) targetPaths.push(e.path);
+          });
+        };
+        gatherMdFiles(files);
+      }
+
+      // Process target paths in parallel chunks of 8 to avoid blocking JS thread
+      const CHUNK_SIZE = 8;
+      for (let i = 0; i < targetPaths.length; i += CHUNK_SIZE) {
+        const chunk = targetPaths.slice(i, i + CHUNK_SIZE);
+        await Promise.all(
+          chunk.map(async (targetPath) => {
+            try {
+              const fileContent = (await invokeIPC("read_note", { path: targetPath })) as string;
+              const updated = replaceWikilinksOutsideCode(fileContent, oldName, newName);
+              if (updated !== fileContent) {
+                await invokeIPC("write_note", { path: targetPath, content: updated });
+                updatedCount++;
+              }
+            } catch (e) {
+              console.warn("Failed to update backlinks in:", targetPath, e);
+            }
+          })
+        );
       }
 
       if (updatedCount > 0) {
-        // Dispatch a custom event for a toast notification
-        window.dispatchEvent(new CustomEvent("kognote-toast", {
-          detail: { message: `Updated backlinks in ${updatedCount} note${updatedCount > 1 ? "s" : ""}` }
-        }));
+        window.dispatchEvent(
+          new CustomEvent("kognote-toast", {
+            detail: { message: `Updated backlinks in ${updatedCount} note${updatedCount > 1 ? "s" : ""}` }
+          })
+        );
       }
     }
 
@@ -517,8 +552,8 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     (name: string) => {
       const cleanTarget = name.trim().replace(/\\/g, "/");
       const nameOnly = cleanTarget.split("/").pop() || cleanTarget;
-      const targetLower = nameOnly.toLowerCase().replace(/\.(md|excalidraw)$/i, "");
       const hasSubpath = cleanTarget.includes("/");
+      const hasExtension = /\.[a-zA-Z0-9]+$/i.test(nameOnly);
 
       // Helper to collect all matching FileEntry instances across the vault
       function findAllMatches(items: FileEntry[]): FileEntry[] {
@@ -529,22 +564,33 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               results = results.concat(findAllMatches(item.children));
             }
           } else {
-            const itemClean = item.name.toLowerCase().replace(/\.(md|excalidraw)$/i, "");
             const itemPathLower = item.path.replace(/\\/g, "/").toLowerCase();
+            const itemNameLower = item.name.toLowerCase();
 
             if (hasSubpath) {
-              // Exact or relative path match (e.g. [[Projects/Alpha/ideas]])
-              if (
-                itemPathLower.endsWith(cleanTarget.toLowerCase()) ||
-                itemPathLower.endsWith(`${cleanTarget.toLowerCase()}.md`) ||
-                itemPathLower.endsWith(`${cleanTarget.toLowerCase()}.excalidraw`)
-              ) {
-                results.push(item);
+              const targetLower = cleanTarget.toLowerCase();
+              if (hasExtension) {
+                if (itemPathLower.endsWith(targetLower)) {
+                  results.push(item);
+                }
+              } else {
+                if (
+                  itemPathLower.endsWith(targetLower) ||
+                  itemPathLower.endsWith(`${targetLower}.md`)
+                ) {
+                  results.push(item);
+                }
               }
             } else {
-              // Match by base filename
-              if (itemClean === targetLower) {
-                results.push(item);
+              const nameOnlyLower = nameOnly.toLowerCase();
+              if (hasExtension) {
+                if (itemNameLower === nameOnlyLower) {
+                  results.push(item);
+                }
+              } else {
+                if (itemNameLower === `${nameOnlyLower}.md` || itemNameLower === nameOnlyLower) {
+                  results.push(item);
+                }
               }
             }
           }
@@ -554,32 +600,32 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       const matches = findAllMatches(files);
 
-      if (matches.length === 1) {
-        openFile(matches[0]);
-      } else if (matches.length > 1) {
-        // Disambiguate duplicate filenames:
-        // Priority 1: Prefer file in the same folder as current activeFile
-        if (activeFile) {
+      if (matches.length > 0) {
+        let bestMatch = matches[0];
+        if (!hasExtension) {
+          const mdMatch = matches.find((m) => m.name.toLowerCase().endsWith(".md"));
+          if (mdMatch) bestMatch = mdMatch;
+        }
+
+        if (matches.length > 1 && activeFile) {
           const activeDir = activeFile.path.replace(/\\/g, "/").split("/").slice(0, -1).join("/");
           const sameDirMatch = matches.find((m) => {
             const mDir = m.path.replace(/\\/g, "/").split("/").slice(0, -1).join("/");
-            return mDir === activeDir;
+            return mDir === activeDir && (!hasExtension ? m.name.toLowerCase().endsWith(".md") : true);
           });
           if (sameDirMatch) {
-            openFile(sameDirMatch);
-            return;
+            bestMatch = sameDirMatch;
           }
         }
-        // Fallback: Open first match
-        openFile(matches[0]);
+        openFile(bestMatch);
       } else {
         // Create new note if not found
         const createAndOpen = async () => {
           try {
-            const newPath = await createFile(null, nameOnly);
-            const cleanName = nameOnly.endsWith(".md") ? nameOnly : `${nameOnly}.md`;
+            const targetName = hasExtension ? nameOnly : `${nameOnly}.md`;
+            const newPath = await createFile(null, targetName);
             openFile({
-              name: cleanName,
+              name: targetName,
               path: newPath,
               is_dir: false,
             });
@@ -643,10 +689,15 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           await invokeIPC("create_folder", { path: dailyNotesFolderPath });
         }
 
-        // Create note inside Daily Notes/
+        // Create note inside Daily Notes/ with type: "daily"
         const fileName = `${dateStr}.md`;
         const fullPath = `${dailyNotesFolderPath}${separator}${fileName}`;
-        await invokeIPC("create_note", { path: fullPath });
+        const { fullContent } = ensureAndSyncFrontmatter("", {
+          noteName: dateStr,
+          type: "daily",
+          forceUpdateTimestamp: true,
+        });
+        await invokeIPC("fs_write", { path: fullPath, content: fullContent });
         await refreshFiles();
 
         openFile({
@@ -675,7 +726,9 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   }, [includeArchivedInScans]);
 
-  const triggerNotesScan = useCallback(async () => {
+  const scanTimerRef = useRef<number | null>(null);
+
+  const triggerNotesScanInternal = useCallback(async () => {
     if (!vaultPath) return;
     setIsScanLoading(true);
 
@@ -735,17 +788,27 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
           let dueDate = t.dueDate || undefined;
           let dueTime = t.dueTime || undefined;
-          const dtMatch = rawTaskContent.match(/(?:@due:?|@|due:\s*)?(20\d{2}[-/](?:0[1-9]|1[0-2])[-/](?:0[1-9]|[12]\d|3[01]))(?:[ T]([01]\d|2[0-3]):([0-5]\d))?/i);
-          if (dtMatch && dtMatch[1]) {
-            dueDate = dtMatch[1].replace(/\//g, "-");
-            if (dtMatch[2] && dtMatch[3]) {
-              dueTime = `${dtMatch[2]}:${dtMatch[3]}`;
+          let rawDueDate = (t as any).rawDueDate || undefined;
+
+          const isoMatch = rawTaskContent.match(/(?:@due:?|@|due:\s*)?(20\d{2}[-/]\d{2}[-/]\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)/i);
+          if (isoMatch && isoMatch[1]) {
+            rawDueDate = isoMatch[1];
+            const { dateStr, timeStr } = getZonedDateParts(rawDueDate);
+            dueDate = dateStr;
+            dueTime = timeStr;
+          } else {
+            const dtMatch = rawTaskContent.match(/(?:@due:?|@|due:\s*)?(20\d{2}[-/](?:0[1-9]|1[0-2])[-/](?:0[1-9]|[12]\d|3[01]))(?:[ T]([01]\d|2[0-3]):([0-5]\d))?/i);
+            if (dtMatch && dtMatch[1]) {
+              dueDate = dtMatch[1].replace(/\//g, "-");
+              if (dtMatch[2] && dtMatch[3]) {
+                dueTime = `${dtMatch[2]}:${dtMatch[3]}`;
+              }
             }
           }
 
           let cleanTaskContent = rawTaskContent
             .replace(/(?:^|\s|\\)#([a-zA-Z0-9_\-\/]+)/g, "")
-            .replace(/(?:@due:?|@|due:\s*)?20\d{2}[-/]\d{2}[-/]\d{2}(?:[ T]\d{2}:\d{2})?/gi, "")
+            .replace(/(?:@due:?|@|due:\s*)?20\d{2}[-/]\d{2}[-/]\d{2}(?:T[^\s]+|[ T]\d{2}:\d{2})?/gi, "")
             .replace(/@task(!*)/gi, "")
             .replace(/(?:\b|\s|^)!{1,3}(?:\b|\s|$)/g, " ")
             .replace(/\s+/g, " ")
@@ -876,6 +939,18 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [vaultPath, includeArchivedInScans, includeTrashInScans]);
 
+  const triggerNotesScan = useCallback(async () => {
+    if (scanTimerRef.current) {
+      window.clearTimeout(scanTimerRef.current);
+    }
+    return new Promise<void>((resolve) => {
+      scanTimerRef.current = window.setTimeout(async () => {
+        await triggerNotesScanInternal();
+        resolve();
+      }, 300);
+    });
+  }, [triggerNotesScanInternal]);
+
   // Keep the ref up-to-date so the watcher can always call the latest version
   useEffect(() => {
     triggerNotesScanRef.current = triggerNotesScan;
@@ -993,11 +1068,21 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // Extract due date and time from task line (@YYYY-MM-DD, @due:YYYY-MM-DD, etc.)
         let dueDate: string | undefined = undefined;
         let dueTime: string | undefined = undefined;
-        const dtMatch = rawTaskContent.match(/(?:@due:?|@|due:\s*)?(20\d{2}[-/](?:0[1-9]|1[0-2])[-/](?:0[1-9]|[12]\d|3[01]))(?:[ T]([01]\d|2[0-3]):([0-5]\d))?/i);
-        if (dtMatch && dtMatch[1]) {
-          dueDate = dtMatch[1].replace(/\//g, "-");
-          if (dtMatch[2] && dtMatch[3]) {
-            dueTime = `${dtMatch[2]}:${dtMatch[3]}`;
+        let rawDueDate: string | undefined = undefined;
+
+        const isoMatch = rawTaskContent.match(/(?:@due:?|@|due:\s*)?(20\d{2}[-/]\d{2}[-/]\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)/i);
+        if (isoMatch && isoMatch[1]) {
+          rawDueDate = isoMatch[1];
+          const { dateStr, timeStr } = getZonedDateParts(rawDueDate);
+          dueDate = dateStr;
+          dueTime = timeStr;
+        } else {
+          const dtMatch = rawTaskContent.match(/(?:@due:?|@|due:\s*)?(20\d{2}[-/](?:0[1-9]|1[0-2])[-/](?:0[1-9]|[12]\d|3[01]))(?:[ T]([01]\d|2[0-3]):([0-5]\d))?/i);
+          if (dtMatch && dtMatch[1]) {
+            dueDate = dtMatch[1].replace(/\//g, "-");
+            if (dtMatch[2] && dtMatch[3]) {
+              dueTime = `${dtMatch[2]}:${dtMatch[3]}`;
+            }
           }
         }
 
@@ -1018,7 +1103,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // Clean task content string (remove exclamations, dates, tags)
         let cleanTaskContent = rawTaskContent
           .replace(/(?:^|\s|\\)#([a-zA-Z0-9_\-\/]+)/g, "")
-          .replace(/(?:@due:?|@|due:\s*)?20\d{2}[-/]\d{2}[-/]\d{2}(?:[ T]\d{2}:\d{2})?/gi, "")
+          .replace(/(?:@due:?|@|due:\s*)?20\d{2}[-/]\d{2}[-/]\d{2}(?:T[^\s]+|[ T]\d{2}:\d{2})?/gi, "")
           .replace(/@task(!*)/gi, "")
           .replace(/(?:\b|\s|^)!{1,3}(?:\b|\s|$)/g, " ")
           .replace(/\s+/g, " ")
@@ -1033,6 +1118,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           lineNumber: idx,
           dueDate,
           dueTime,
+          rawDueDate,
           tags: taskTags,
           priority
         });
@@ -1200,13 +1286,11 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       const newHeader = stringifyFrontmatter({
         type: parsed.fields.type || "note",
-        created_by: parsed.fields.created_by || "user",
-        updated_by: "user",
         status: parsed.fields.status || "none",
         priority: parsed.fields.priority || "none",
         due: parsed.fields.due || "",
-        created: parsed.fields.created || new Date().toISOString(),
-        updated: new Date().toISOString(),
+        created: parsed.fields.created || getCurrentIsoTimestamp(),
+        updated: getCurrentIsoTimestamp(),
         storage: newStorage,
         bookmarked: bookmarkedStatus,
         mentions: parsed.fields.mentions || [],
@@ -1480,13 +1564,11 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const newHeader = stringifyFrontmatter({
       type: "template",
-      created_by: parsed.fields.created_by || "user",
-      updated_by: "user",
       status: parsed.fields.status || "none",
       priority: parsed.fields.priority || "medium",
       due: "",
-      created: new Date().toISOString(),
-      updated: new Date().toISOString(),
+      created: getCurrentIsoTimestamp(),
+      updated: getCurrentIsoTimestamp(),
       storage: "active",
       bookmarked: "no",
       mentions: [],
@@ -1548,6 +1630,8 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         attachmentsFolderPath,
         createFileModal,
         setCreateFileModal,
+        previewAttachment,
+        setPreviewAttachment,
         importAttachment,
         bookmarkNote,
         archiveNote,

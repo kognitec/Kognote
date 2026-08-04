@@ -37,7 +37,11 @@ class ActionRegistry {
           if (!name) return { success: false, message: "Note name is required." };
           const cleanName = name.endsWith(".md") ? name : `${name}.md`;
           const path = `${vaultPath}${separator}${cleanName}`;
-          const initialContent = args.content || `# ${name.replace(/\.md$/, "")}\n`;
+          const rawInitial = args.content || `# ${name.replace(/\.md$/, "")}\n`;
+          const { ensureAndSyncFrontmatter } = await import("./frontmatter");
+          const { fullContent: initialContent } = ensureAndSyncFrontmatter(rawInitial, {
+            noteName: name.replace(/\.md$/, "")
+          });
 
           await invokeIPC("write_note", { path, content: initialContent });
           await searchEngine.indexFile(path, initialContent).catch(() => {});
@@ -266,6 +270,52 @@ class ActionRegistry {
           };
         }
 
+        case "replace_block": {
+          const path = args.path || (args.name ? `${vaultPath}${separator}${args.name.endsWith(".md") ? args.name : `${args.name}.md`}` : null);
+          const searchText = args.search_text || args.searchText;
+          const replaceText = args.replace_text || args.replaceText;
+
+          if (!path) return { success: false, message: "Target file path or name is required." };
+          if (searchText === undefined || replaceText === undefined) {
+            return { success: false, message: "search_text and replace_text are required." };
+          }
+
+          let currentContent = "";
+          try {
+            currentContent = (await invokeIPC("read_note", { path })) as string;
+          } catch {
+            return { success: false, message: `Could not read file at path: ${path}` };
+          }
+
+          if (!currentContent.includes(searchText)) {
+            return { success: false, message: `Target text block to replace was not found in note.` };
+          }
+
+          const { ensureAndSyncFrontmatter } = await import("./frontmatter");
+          const rawNewContent = currentContent.replace(searchText, replaceText);
+          const { fullContent: newContent } = ensureAndSyncFrontmatter(rawNewContent, { forceUpdateTimestamp: true });
+
+          await invokeIPC("write_note", { path, content: newContent });
+          await searchEngine.indexFile(path, newContent).catch(() => {});
+
+          const record: ActionHistoryRecord = {
+            id: Math.random().toString(36).substring(7),
+            action: "replace_block",
+            targetPath: path,
+            previousState: currentContent,
+            newState: newContent,
+            timestamp: Date.now(),
+          };
+          this.history.push(record);
+
+          window.dispatchEvent(new CustomEvent("reload-active-file", { detail: { path } }));
+          return {
+            success: true,
+            message: `Successfully replaced block in **${path.split(separator).pop()}**`,
+            recordId: record.id,
+          };
+        }
+
         case "rename_note": {
           const oldName = args.oldName || args.name;
           const newName = args.newName;
@@ -312,17 +362,21 @@ class ActionRegistry {
 
     const last = this.history.pop()!;
     try {
+      const sep = last.targetPath.includes("\\") ? "\\" : "/";
+      const lastSepIndex = Math.max(last.targetPath.lastIndexOf("/"), last.targetPath.lastIndexOf("\\"));
+      const parentDir = lastSepIndex !== -1 ? last.targetPath.substring(0, lastSepIndex) : "";
+      const fileName = last.targetPath.split(/[\/\\]/).pop() || "";
+
       if (last.action === "create_note") {
-        const trashDir = `${last.targetPath.substring(0, last.targetPath.lastIndexOf("/"))}/Trash`;
-        const fileName = last.targetPath.split("/").pop() || "";
-        const trashPath = `${trashDir}/${fileName}`;
+        const trashDir = `${parentDir}${sep}Trash`;
+        const trashPath = `${trashDir}${sep}${fileName}`;
         await invokeIPC("rename_note", { oldPath: last.targetPath, newPath: trashPath }).catch(() => {});
         return { success: true, message: `Undid creation of **${fileName}** (moved to Trash)` };
       } else if (last.previousState !== null) {
         await invokeIPC("write_note", { path: last.targetPath, content: last.previousState });
         await searchEngine.indexFile(last.targetPath, last.previousState).catch(() => {});
         window.dispatchEvent(new CustomEvent("reload-active-file", { detail: { path: last.targetPath } }));
-        return { success: true, message: `Reverted changes to **${last.targetPath.split("/").pop()}**` };
+        return { success: true, message: `Reverted changes to **${fileName}**` };
       }
       return { success: true, message: "Undid action successfully." };
     } catch (err: any) {

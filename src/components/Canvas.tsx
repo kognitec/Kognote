@@ -3,13 +3,14 @@ import { Excalidraw, convertToExcalidrawElements, viewportCoordsToSceneCoords, M
 import "@excalidraw/excalidraw/index.css";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useSettings } from "../contexts/SettingsContext";
+import { useTheme } from "../contexts/ThemeContext";
 import { useVault } from "../contexts/VaultContext";
 import { invokeIPC } from "../lib/ipc";
 import { parseFrontmatter } from "../lib/frontmatter";
 import { getDragState, clearDragState } from "../lib/drag-state";
 
 // Helper function to manually wrap text to fit within card bounds
-function wrapText(text: string, maxCharsPerLine: number = 24): string {
+function wrapText(text: string, maxCharsPerLine: number = 30): string {
   const lines = text.split("\n");
   const wrappedLines: string[] = [];
 
@@ -26,7 +27,18 @@ function wrapText(text: string, maxCharsPerLine: number = 24): string {
 
     let currentLine = "";
     const words = line.split(" ");
-    for (const word of words) {
+    for (let word of words) {
+      // Handle single continuous words longer than maxCharsPerLine
+      while (word.length > maxCharsPerLine) {
+        const chunk = word.slice(0, maxCharsPerLine);
+        if (currentLine) {
+          wrappedLines.push(currentLine);
+          currentLine = "";
+        }
+        wrappedLines.push(chunk);
+        word = word.slice(maxCharsPerLine);
+      }
+
       if ((currentLine + " " + word).trim().length <= maxCharsPerLine) {
         currentLine = (currentLine + " " + word).trim();
       } else {
@@ -44,10 +56,48 @@ function wrapText(text: string, maxCharsPerLine: number = 24): string {
   return wrappedLines.join("\n");
 }
 
-// Formats full title text to wrap cleanly without truncation
+// Formats full title text to wrap at 30 chars per line
 function getTitleWrappedText(noteTitle: string): string {
   const cleanTitle = noteTitle.replace(/\.md$/, "");
-  return wrapText(cleanTitle, 24);
+  return wrapText(cleanTitle, 30);
+}
+
+/** Helper to format raw ISO or YYYY-MM-DD due dates into localized, readable date/time strings */
+function formatDueDate(rawDue: string, userTimezone?: string): string {
+  if (!rawDue) return "";
+  const trimmed = rawDue.trim();
+
+  // Check if ISO timestamp with time (e.g. 2026-08-06T04:16:00.000Z or 2026-08-06 04:16)
+  if (trimmed.includes("T") || (trimmed.includes(":") && trimmed.includes("-"))) {
+    try {
+      const d = new Date(trimmed);
+      if (!isNaN(d.getTime())) {
+        const options: Intl.DateTimeFormatOptions = {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+          ...(userTimezone && userTimezone !== "auto" ? { timeZone: userTimezone } : {})
+        };
+        return new Intl.DateTimeFormat("en-US", options).format(d);
+      }
+    } catch {}
+  }
+
+  // Fallback for YYYY-MM-DD date strings
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    try {
+      const [y, m, day] = trimmed.split("-").map(Number);
+      const d = new Date(y, m - 1, day);
+      if (!isNaN(d.getTime())) {
+        return new Intl.DateTimeFormat("en-US", { year: "numeric", month: "short", day: "numeric" }).format(d);
+      }
+    } catch {}
+  }
+
+  return trimmed;
 }
 
 interface NoteCardInfo {
@@ -62,7 +112,8 @@ function parseNoteCardData(
   rawContent: string,
   fileName: string,
   cachedMeta?: any,
-  cachedTasks?: any[]
+  cachedTasks?: any[],
+  userTimezone?: string
 ): NoteCardInfo {
   const parsed = parseFrontmatter(rawContent);
   const fields = { ...parsed.fields, ...(cachedMeta || {}) };
@@ -105,7 +156,7 @@ function parseNoteCardData(
   }
 
   const isBookmarked = fields.bookmarked === "yes" || fields.storage === "bookmarked";
-  const bookmarkLabel = isBookmarked ? "🔖 BOOKMARKED" : "";
+  const bookmarkLabel = isBookmarked ? "🔖" : "";
 
   const headerParts: string[] = [typeLabel];
   if (priorityLabel) headerParts.push(priorityLabel);
@@ -114,7 +165,7 @@ function parseNoteCardData(
 
   const headerLine = headerParts.join("  ·  ");
 
-  // 2. Full Note Title (wrapped cleanly)
+  // 2. Full Note Title (wrapped at 30 chars per line)
   const wrappedTitle = getTitleWrappedText(noteTitle);
   const titleLineCount = wrappedTitle.split("\n").length;
 
@@ -124,7 +175,8 @@ function parseNoteCardData(
   // Due Date
   const due = fields.due ? fields.due.trim() : "";
   if (due) {
-    footerParts.push(`📅 Due: ${due}`);
+    const formattedDue = formatDueDate(due, userTimezone);
+    footerParts.push(`📅 Due: ${formattedDue}`);
   }
 
   // Storage State Label
@@ -149,13 +201,14 @@ function parseNoteCardData(
   }
 
   if (totalTasks > 0) {
-    footerParts.push(`✓ ${completedTasks}/${totalTasks} Tasks`);
+    footerParts.push(`☑️ ${completedTasks}/${totalTasks}`);
   }
 
-  const footerLine = footerParts.join("     ");
+  const footerLine = footerParts.join("   ·   ");
 
-  // Calculate dynamic card height based on title line count
-  const height = Math.max(125, 85 + titleLineCount * 22);
+  // Calculate dynamic card height reserving at least 2 lines by default for title text
+  const effectiveLineCount = Math.max(2, titleLineCount);
+  const height = Math.max(135, 75 + effectiveLineCount * 24);
 
   return {
     title: wrappedTitle,
@@ -211,7 +264,8 @@ function resolveNotePath(
 }
 
 export const Canvas: React.FC = () => {
-  const { vaultPath } = useSettings();
+  const { vaultPath, userTimezone } = useSettings();
+  const { theme } = useTheme();
   const { openFile, activeFile, noteCache, files, attachmentsFolderPath, refreshFiles } = useVault();
   const [excalidrawAPI, setExcalidrawAPI] = useState<any>(null);
   const [isReady, setIsReady] = useState(false);
@@ -244,7 +298,11 @@ export const Canvas: React.FC = () => {
       try {
         const fileExists = await invokeIPC("fs_exists", { path: targetPath });
         if (!isCurrent) return;
-        let data: { elements: any[]; appState: any } = { elements: [], appState: { theme: "dark" } };
+        const isLight = theme === "light";
+        let data: { elements: any[]; appState: any; files?: any } = {
+          elements: [],
+          appState: { theme: isLight ? "light" : "dark" }
+        };
 
         if (fileExists) {
           const jsonStr = await invokeIPC("fs_read", { path: targetPath });
@@ -307,11 +365,24 @@ export const Canvas: React.FC = () => {
 
             if (!isCurrent) return;
 
+            const cardBgColor = isLight ? "#ffffff" : "#000000";
+            const headerTextColor = isLight ? "#64748b" : "#94a3b8";
+            const titleTextColor = isLight ? "#0f172a" : "#ffffff";
+            const footerTextColor = isLight ? "#475569" : "#cbd5e1";
+
             data.elements = data.elements.map((el: any) => {
               if (el.customData?.type === "note" && el.customData?.path) {
                 const origPath = el.customData.path;
                 const resolvedPath = pathMapping[origPath] || origPath;
                 const freshContent = noteContentMap[origPath] || "";
+
+                // Obtain rectangle container width specifically for this card instance's group
+                const groupId = el.groupIds?.[0];
+                const containerRect = data.elements.find(
+                  (e: any) => e.type === "rectangle" && (groupId ? e.groupIds?.includes(groupId) : e.customData?.path === origPath)
+                );
+                const containerWidth = el.type === "rectangle" ? (el.width || 270) : (containerRect?.width || 270);
+                const textWidth = Math.max(125, containerWidth - 25);
 
                 const nameWithExt = resolvedPath.replace(/\\/g, "/").split("/").pop() || "";
                 const cachedData = noteCache[resolvedPath];
@@ -319,7 +390,8 @@ export const Canvas: React.FC = () => {
                   freshContent,
                   nameWithExt,
                   cachedData?.meta,
-                  cachedData?.tasks
+                  cachedData?.tasks,
+                  userTimezone
                 );
 
                 const nextVersion = (el.version || 1) + 1;
@@ -330,10 +402,10 @@ export const Canvas: React.FC = () => {
                     return {
                       ...el,
                       text: cardInfo.headerLine,
-                      width: 245,
-                      height: 20,
+                      width: textWidth,
+                      height: el.height || 20,
                       fontFamily: 2,
-                      strokeColor: "#94a3b8",
+                      strokeColor: headerTextColor,
                       version: nextVersion,
                       versionNonce,
                       customData: { ...el.customData, path: resolvedPath, name: nameWithExt }
@@ -343,10 +415,10 @@ export const Canvas: React.FC = () => {
                     return {
                       ...el,
                       text: cardInfo.title,
-                      width: 245,
-                      height: 48,
+                      width: textWidth,
+                      height: el.height || 48,
                       fontFamily: 2,
-                      strokeColor: "#ffffff",
+                      strokeColor: titleTextColor,
                       version: nextVersion,
                       versionNonce,
                       customData: { ...el.customData, path: resolvedPath, name: nameWithExt }
@@ -356,22 +428,26 @@ export const Canvas: React.FC = () => {
                     return {
                       ...el,
                       text: cardInfo.footerLine,
-                      width: 245,
-                      height: 20,
+                      width: textWidth,
+                      height: el.height || 20,
                       fontFamily: 2,
-                      strokeColor: "#cbd5e1",
+                      strokeColor: footerTextColor,
                       version: nextVersion,
                       versionNonce,
                       customData: { ...el.customData, path: resolvedPath, name: nameWithExt }
                     };
                   }
                 } else if (el.type === "rectangle") {
+                  // Preserve user-resized card container dimensions (allowing custom sizes down to 150px)!
+                  const preservedWidth = Math.max(150, containerWidth);
+                  const preservedHeight = Math.max(el.height || 135, cardInfo.height);
+
                   return {
                     ...el,
-                    width: 270,
-                    height: Math.max(135, cardInfo.height),
+                    width: preservedWidth,
+                    height: preservedHeight,
                     strokeColor: cardInfo.strokeColor,
-                    backgroundColor: "#000000",
+                    backgroundColor: cardBgColor,
                     fillStyle: "solid",
                     link: resolvedPath,
                     version: nextVersion,
@@ -395,12 +471,16 @@ export const Canvas: React.FC = () => {
           elements: data.elements || [],
           appState: {
             ...(data.appState || {}),
-            theme: "dark"
-          }
+            theme: isLight ? "light" : "dark"
+          },
+          files: data.files || {}
         };
 
         if (excalidrawAPI) {
           excalidrawAPI.updateScene(formattedData);
+          if (data.files && Object.keys(data.files).length > 0) {
+            excalidrawAPI.addFiles(Object.values(data.files));
+          }
         } else {
           setInitialData(formattedData);
         }
@@ -418,28 +498,30 @@ export const Canvas: React.FC = () => {
     return () => {
       isCurrent = false;
     };
-  }, [vaultPath, activeFile?.path, excalidrawAPI, noteCache, files]);
+  }, [vaultPath, activeFile?.path, excalidrawAPI]);
 
   // Debounced auto-save of elements state to disk
-  const saveLayout = useCallback(async (currentElements: readonly any[], currentAppState: any) => {
+  const saveLayout = useCallback(async (currentElements: readonly any[], currentAppState: any, currentFiles?: any) => {
     if (!vaultPath || !currentPathRef.current) return;
     try {
+      const filesData = currentFiles || (excalidrawAPI ? excalidrawAPI.getFiles() : {});
       const data = {
         elements: currentElements.filter(el => !el.isDeleted),
         appState: {
           scrollX: currentAppState.scrollX,
           scrollY: currentAppState.scrollY,
           zoom: currentAppState.zoom
-        }
+        },
+        files: filesData
       };
       const jsonStr = JSON.stringify(data, null, 2);
       await invokeIPC("fs_write", { path: currentPathRef.current, content: jsonStr });
     } catch (err) {
       console.error("Failed to autosave Excalidraw board:", err);
     }
-  }, [vaultPath]);
+  }, [vaultPath, excalidrawAPI]);
 
-  const onChange = (elements: readonly any[], state: any) => {
+  const onChange = (elements: readonly any[], state: any, appFiles: any) => {
     if (!isReady) return;
 
     if (saveTimeoutRef.current) {
@@ -447,7 +529,7 @@ export const Canvas: React.FC = () => {
     }
 
     saveTimeoutRef.current = window.setTimeout(() => {
-      saveLayout(elements, state);
+      saveLayout(elements, state, appFiles);
     }, 1500) as unknown as number;
   };
 
@@ -633,9 +715,12 @@ export const Canvas: React.FC = () => {
         };
 
         const newElements = convertToExcalidrawElements([imageElement] as any);
+        const updatedElements = [...excalidrawAPI.getSceneElements(), ...newElements];
+        const updatedFiles = excalidrawAPI.getFiles();
         excalidrawAPI.updateScene({
-          elements: [...excalidrawAPI.getSceneElements(), ...newElements]
+          elements: updatedElements
         });
+        await saveLayout(updatedElements, appState, updatedFiles);
         return;
       }
 
@@ -718,9 +803,12 @@ export const Canvas: React.FC = () => {
         };
 
         const newElements = convertToExcalidrawElements([cardElement, headerElement, titleElement] as any);
+        const updatedElements = [...excalidrawAPI.getSceneElements(), ...newElements];
+        const updatedFiles = excalidrawAPI.getFiles();
         excalidrawAPI.updateScene({
-          elements: [...excalidrawAPI.getSceneElements(), ...newElements]
+          elements: updatedElements
         });
+        await saveLayout(updatedElements, appState, updatedFiles);
         return;
       }
 
@@ -734,11 +822,17 @@ export const Canvas: React.FC = () => {
       }
 
       const cachedData = noteCache[item.path];
-      const cardInfo = parseNoteCardData(rawContent, item.name, cachedData?.meta, cachedData?.tasks);
+      const cardInfo = parseNoteCardData(rawContent, item.name, cachedData?.meta, cachedData?.tasks, userTimezone);
       const groupId = `group_${Date.now()}`;
 
+      const isLight = theme === "light";
+      const cardBgColor = isLight ? "#ffffff" : "#000000";
+      const headerTextColor = isLight ? "#64748b" : "#94a3b8";
+      const titleTextColor = isLight ? "#0f172a" : "#ffffff";
+      const footerTextColor = isLight ? "#475569" : "#cbd5e1";
+
       // Create structured elements representing dynamic Board card:
-      // 1. Rectangle card container (Solid Black Background, 270px width)
+      // 1. Rectangle card container (270px width)
       const cardElement = {
         type: "rectangle",
         x: sceneX - 135,
@@ -746,7 +840,7 @@ export const Canvas: React.FC = () => {
         width: 270,
         height: Math.max(135, cardInfo.height),
         strokeColor: cardInfo.strokeColor,
-        backgroundColor: "#000000", // Pure Black
+        backgroundColor: cardBgColor,
         fillStyle: "solid",
         strokeWidth: 2,
         strokeStyle: "solid",
@@ -769,7 +863,7 @@ export const Canvas: React.FC = () => {
         y: sceneY - 52,
         width: 245,
         height: 20,
-        strokeColor: "#94a3b8", // Slate light text
+        strokeColor: headerTextColor,
         backgroundColor: "transparent",
         fillStyle: "transparent",
         strokeWidth: 1,
@@ -778,7 +872,7 @@ export const Canvas: React.FC = () => {
         opacity: 100,
         text: cardInfo.headerLine,
         fontSize: 9,
-        fontFamily: 2, // Normal Sans-serif font!
+        fontFamily: 2,
         textAlign: "left",
         verticalAlign: "top",
         groupIds: [groupId],
@@ -790,14 +884,14 @@ export const Canvas: React.FC = () => {
         }
       };
 
-      // 3. Title text element (Full Note Title - Bold Pure White)
+      // 3. Title text element (Full Note Title)
       const titleElement = {
         type: "text",
         x: sceneX - 120,
         y: sceneY - 28,
         width: 245,
         height: 48,
-        strokeColor: "#ffffff", // Pure White
+        strokeColor: titleTextColor,
         backgroundColor: "transparent",
         fillStyle: "transparent",
         strokeWidth: 1,
@@ -806,7 +900,7 @@ export const Canvas: React.FC = () => {
         opacity: 100,
         text: cardInfo.title,
         fontSize: 15,
-        fontFamily: 2, // Normal Sans-serif font!
+        fontFamily: 2,
         textAlign: "left",
         verticalAlign: "top",
         groupIds: [groupId],
@@ -818,14 +912,14 @@ export const Canvas: React.FC = () => {
         }
       };
 
-      // 4. Footer text element (Due Date, Storage State, Task Progress - NO Word Count)
+      // 4. Footer text element (Due Date, Storage State, Task Progress)
       const footerElement = {
         type: "text",
         x: sceneX - 120,
         y: sceneY + 32,
         width: 245,
         height: 20,
-        strokeColor: "#cbd5e1", // Light slate text
+        strokeColor: footerTextColor,
         backgroundColor: "transparent",
         fillStyle: "transparent",
         strokeWidth: 1,
@@ -834,7 +928,7 @@ export const Canvas: React.FC = () => {
         opacity: 100,
         text: cardInfo.footerLine,
         fontSize: 9.5,
-        fontFamily: 2, // Normal Sans-serif font!
+        fontFamily: 2,
         textAlign: "left",
         verticalAlign: "top",
         groupIds: [groupId],
@@ -853,9 +947,12 @@ export const Canvas: React.FC = () => {
         footerElement
       ] as any);
 
+      const updatedElements = [...excalidrawAPI.getSceneElements(), ...newElements];
+      const updatedFiles = excalidrawAPI.getFiles();
       excalidrawAPI.updateScene({
-        elements: [...excalidrawAPI.getSceneElements(), ...newElements]
+        elements: updatedElements
       });
+      await saveLayout(updatedElements, appState, updatedFiles);
 
     } catch (err) {
       console.error("Error inserting dropped note into Excalidraw canvas:", err);
@@ -889,6 +986,17 @@ export const Canvas: React.FC = () => {
     };
   }, [excalidrawAPI, attachmentsFolderPath]);
 
+  // Sync Excalidraw theme dynamically whenever theme state changes
+  useEffect(() => {
+    if (excalidrawAPI) {
+      excalidrawAPI.updateScene({
+        appState: {
+          theme: theme === "light" ? "light" : "dark"
+        }
+      });
+    }
+  }, [theme, excalidrawAPI]);
+
   if (!isReady || !initialData) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-background text-slate-400">
@@ -905,7 +1013,7 @@ export const Canvas: React.FC = () => {
       <Excalidraw
         excalidrawAPI={(api) => setExcalidrawAPI(api)}
         onChange={onChange}
-        theme="dark"
+        theme={theme === "light" ? "light" : "dark"}
         initialData={initialData}
         onPointerDown={onPointerDown}
         onLinkOpen={(element, event) => {

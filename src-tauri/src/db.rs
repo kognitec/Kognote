@@ -434,6 +434,8 @@ pub struct VectorSearchResult {
     #[serde(rename = "chunkText")]
     pub chunk_text: String,
     pub similarity: f64,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: i64,
 }
 
 #[derive(Clone)]
@@ -442,6 +444,7 @@ struct HybridResult {
     chunk_text: String,
     rrf_score: f64,
     similarity: f64,
+    updated_at: i64,
 }
 
 #[tauri::command]
@@ -465,7 +468,8 @@ pub async fn vector_search(
                     m.id,
                     m.file_path, 
                     m.chunk_text, 
-                    (1.0 - vec_distance_cosine(v.embedding, ?1)) as similarity
+                    (1.0 - vec_distance_cosine(v.embedding, ?1)) as similarity,
+                    m.updated_at
                  FROM vec_embeddings v
                  JOIN embeddings_metadata m ON v.id = m.id
                  ORDER BY vec_distance_cosine(v.embedding, ?1) ASC
@@ -480,6 +484,7 @@ pub async fn vector_search(
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, f64>(3)?,
+                    row.get::<_, i64>(4)?,
                 ))
             })
             .map_err(|e| format!("Vector search query error: {e}"))?;
@@ -488,7 +493,7 @@ pub async fn vector_search(
 
         let mut rank = 1;
         for row in vector_rows.flatten() {
-            let (id, file_path, chunk_text, similarity) = row;
+            let (id, file_path, chunk_text, similarity, updated_at) = row;
             let score = 1.0 / (60.0 + rank as f64);
             results_map.insert(
                 id,
@@ -497,6 +502,7 @@ pub async fn vector_search(
                     chunk_text,
                     rrf_score: score,
                     similarity,
+                    updated_at,
                 },
             );
             rank += 1;
@@ -514,11 +520,13 @@ pub async fn vector_search(
             let fts_stmt = conn
                 .prepare(
                     "SELECT 
-                        rowid,
-                        file_path, 
-                        chunk_text
-                     FROM fts_chunks
-                     WHERE fts_chunks MATCH ?1
+                        f.rowid,
+                        f.file_path, 
+                        f.chunk_text,
+                        COALESCE(m.updated_at, 0)
+                     FROM fts_chunks f
+                     LEFT JOIN embeddings_metadata m ON f.rowid = m.id
+                     WHERE f.chunk_text MATCH ?1
                      LIMIT 50",
                 );
             if let Ok(mut stmt) = fts_stmt {
@@ -527,11 +535,12 @@ pub async fn vector_search(
                         row.get::<_, i64>(0)?,
                         row.get::<_, String>(1)?,
                         row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
                     ))
                 }) {
                     let mut fts_rank = 1;
                     for row in fts_rows.flatten() {
-                        let (id, file_path, chunk_text) = row;
+                        let (id, file_path, chunk_text, updated_at) = row;
                         let score = 1.0 / (60.0 + fts_rank as f64);
                         if let Some(res) = results_map.get_mut(&id) {
                             res.rrf_score += score;
@@ -542,7 +551,8 @@ pub async fn vector_search(
                                     file_path,
                                     chunk_text,
                                     rrf_score: score,
-                                    similarity: 0.7, // default base similarity if only found in FTS
+                                    similarity: 0.7,
+                                    updated_at,
                                 },
                             );
                         }
@@ -552,11 +562,25 @@ pub async fn vector_search(
             }
         }
 
-        // 3. Sort results by RRF score
+        // 3. Time-Weighted RRF Recency Multiplier Boost
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as f64)
+            .unwrap_or(0.0);
+
+        for res in results_map.values_mut() {
+            if res.updated_at > 0 {
+                let age_days = ((now_ms - res.updated_at as f64) / (1000.0 * 60.0 * 60.0 * 24.0)).max(0.0);
+                let recency_boost = 1.0 + 0.25 * (-age_days / 30.0).exp();
+                res.rrf_score *= recency_boost;
+            }
+        }
+
+        // 4. Sort results by RRF score
         let mut sorted_results: Vec<HybridResult> = results_map.into_values().collect();
         sorted_results.sort_by(|a, b| b.rrf_score.partial_cmp(&a.rrf_score).unwrap_or(std::cmp::Ordering::Equal));
 
-        // 4. Map to VectorSearchResult
+        // 5. Map to VectorSearchResult
         let final_results: Vec<VectorSearchResult> = sorted_results
             .into_iter()
             .take(top_k as usize)
@@ -564,6 +588,7 @@ pub async fn vector_search(
                 file_path: r.file_path,
                 chunk_text: r.chunk_text,
                 similarity: r.similarity,
+                updated_at: r.updated_at,
             })
             .collect();
 

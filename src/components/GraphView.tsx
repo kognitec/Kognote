@@ -8,7 +8,7 @@ import { isArchivedPath, isTrashPath } from "../lib/task-scanner";
 import {
   Folder,
   Tag,
-  Brain,
+  Waypoints,
   ZoomIn,
   ZoomOut,
   Maximize2,
@@ -29,7 +29,7 @@ import {
   GitBranch,
   BarChart3,
   Calendar,
-  Star,
+  Bookmark,
   Sparkles,
   Palette,
   Globe,
@@ -208,7 +208,7 @@ export const GraphView: React.FC = () => {
       case "attachments": return <Paperclip className="h-3.5 w-3.5 text-[#a855f7]" />;
       case "orphans": return <EyeOff className="h-3.5 w-3.5 text-[#d946ef]" />;
       case "dailyNotes": return <Calendar className="h-3.5 w-3.5 text-[#38bdf8]" />;
-      case "bookmarks": return <Star className="h-3.5 w-3.5 text-[#f59e0b]" />;
+      case "bookmarks": return <Bookmark className="h-3.5 w-3.5 text-[#f59e0b] fill-[#f59e0b]" />;
       default: return null;
     }
   };
@@ -643,8 +643,12 @@ export const GraphView: React.FC = () => {
       });
 
       setLinks(finalLinks);
-      hasAutoCenteredRef.current = false;
-      alphaRef.current = 1.0;
+      // Soft alpha decay on scan sync instead of hard reset to prevent canvas jitter
+      if (!hasAutoCenteredRef.current) {
+        alphaRef.current = 1.0;
+      } else {
+        alphaRef.current = Math.max(alphaRef.current, 0.25);
+      }
     } catch (err) {
       console.error("Failed to compile graph:", err);
     } finally {
@@ -801,7 +805,7 @@ export const GraphView: React.FC = () => {
         panRef.current.y = targetPanRef.current.y;
       }
 
-      alphaRef.current = alphaRef.current * 0.982;
+      alphaRef.current = alphaRef.current * (visibleNodesRef.current.length > 300 ? 0.95 : 0.982);
       if (alphaRef.current < 0.001) alphaRef.current = 0;
       const alpha = alphaRef.current;
 
@@ -862,6 +866,18 @@ export const GraphView: React.FC = () => {
           if (l.target === focusId) neighborIds.add(l.source);
         });
         finalVisibleNodes = visibleNodes.filter(n => neighborIds.has(n.id));
+      }
+
+      // Max Physics Node Cap for 20k+ note vaults (preserves 60fps smooth simulation)
+      if (finalVisibleNodes.length > 800 && !searchQueryRef.current) {
+        const degreeMap = new Map<string, number>();
+        activeLinks.forEach(l => {
+          degreeMap.set(l.source, (degreeMap.get(l.source) || 0) + 1);
+          degreeMap.set(l.target, (degreeMap.get(l.target) || 0) + 1);
+        });
+        finalVisibleNodes = [...finalVisibleNodes]
+          .sort((a, b) => (degreeMap.get(b.id) || 0) - (degreeMap.get(a.id) || 0))
+          .slice(0, 800);
       }
 
       const finalVisibleNodeIds = new Set(finalVisibleNodes.map(n => n.id));
@@ -1076,12 +1092,22 @@ export const GraphView: React.FC = () => {
 
       const hasActiveHighlight = hoveredNodeRef.current !== null || searchQueryRef.current.length > 0;
 
+      const vpMinX = -pan.x / zoom - 60;
+      const vpMaxX = (-pan.x + logicalWidth) / zoom + 60;
+      const vpMinY = -pan.y / zoom - 60;
+      const vpMaxY = (-pan.y + logicalHeight) / zoom + 60;
+
       // Draw connection lines
       for (const link of activeLinks) {
         if (!finalVisibleNodeIds.has(link.source) || !finalVisibleNodeIds.has(link.target)) continue;
         const sourceNode = finalVisibleNodes.find(n => n.id === link.source);
         const targetNode = finalVisibleNodes.find(n => n.id === link.target);
         if (!sourceNode || !targetNode) continue;
+
+        // Viewport culling for lines
+        const inVpSource = sourceNode.x >= vpMinX && sourceNode.x <= vpMaxX && sourceNode.y >= vpMinY && sourceNode.y <= vpMaxY;
+        const inVpTarget = targetNode.x >= vpMinX && targetNode.x <= vpMaxX && targetNode.y >= vpMinY && targetNode.y <= vpMaxY;
+        if (!inVpSource && !inVpTarget) continue;
 
         const isHighlighted = hasActiveHighlight
           && highlightedIds.has(sourceNode.id) && highlightedIds.has(targetNode.id)
@@ -1117,6 +1143,10 @@ export const GraphView: React.FC = () => {
 
       // Draw Nodes
       for (const node of finalVisibleNodes) {
+        // Viewport culling for nodes
+        if (node.x < vpMinX || node.x > vpMaxX || node.y < vpMinY || node.y > vpMaxY) {
+          continue;
+        }
         const isHovered = hoveredNodeRef.current && node.id === hoveredNodeRef.current.id;
         const isNeighbour = hoveredNodeRef.current && highlightedIds.has(node.id) && !isHovered;
         const isSearchMatch = searchMatchedIds.has(node.id);
@@ -1218,14 +1248,23 @@ export const GraphView: React.FC = () => {
           ctx.restore();
         }
 
-        // Star indicator for Bookmarks
+        // Bookmark indicator ribbon badge
         if (node.bookmarked) {
           ctx.save();
+          const bx = node.x + node.radius * 0.65;
+          const by = node.y - node.radius * 0.75;
+          const bw = Math.max(6.5, node.radius * 0.55);
+          const bh = Math.max(8.5, node.radius * 0.75);
+
           ctx.fillStyle = "#f59e0b";
-          ctx.font = `${Math.max(8, node.radius * 0.8)}px sans-serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText("★", node.x + node.radius * 0.7, node.y - node.radius * 0.7);
+          ctx.beginPath();
+          ctx.moveTo(bx - bw / 2, by - bh / 2);
+          ctx.lineTo(bx + bw / 2, by - bh / 2);
+          ctx.lineTo(bx + bw / 2, by + bh / 2);
+          ctx.lineTo(bx, by + bh / 4);
+          ctx.lineTo(bx - bw / 2, by + bh / 2);
+          ctx.closePath();
+          ctx.fill();
           ctx.restore();
         }
 
@@ -1582,7 +1621,7 @@ export const GraphView: React.FC = () => {
         {/* Header */}
         <div>
           <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 tracking-widest uppercase flex items-center gap-1.5">
-            <Brain className="h-3.5 w-3.5" /> Knowledge Graph
+            <Waypoints className="h-3.5 w-3.5" /> Knowledge Graph
           </span>
           <p className="text-[9.5px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
             Drag nodes to reposition · Scroll to zoom · Double-click to open
@@ -1591,27 +1630,27 @@ export const GraphView: React.FC = () => {
 
         {/* Stats Grid */}
         <div className="grid grid-cols-3 gap-1.5">
-          <div className="dark:bg-[#0f1117] bg-white border dark:border-[#1e2335]/60 border-slate-300 shadow-xs rounded-lg p-1.5 flex flex-col">
+          <div className="bg-card border border-card-border shadow-xs rounded-lg p-1.5 flex flex-col">
             <span className="text-[8.5px] text-slate-500 uppercase tracking-widest flex items-center gap-1"><FileText className="h-2.5 w-2.5" />Notes</span>
-            <span className="text-sm font-extrabold text-slate-800 dark:text-slate-200 mt-0.5">{stats.notes}</span>
+            <span className="text-sm font-extrabold text-foreground mt-0.5">{stats.notes}</span>
           </div>
-          <div className="dark:bg-[#0f1117] bg-white border dark:border-[#1e2335]/60 border-slate-300 shadow-xs rounded-lg p-1.5 flex flex-col">
+          <div className="bg-card border border-card-border shadow-xs rounded-lg p-1.5 flex flex-col">
             <span className="text-[8.5px] text-slate-500 uppercase tracking-widest flex items-center gap-1"><Link2 className="h-2.5 w-2.5" />Links</span>
             <span className="text-sm font-extrabold text-cyan-600 dark:text-cyan-400 mt-0.5">{stats.links}</span>
           </div>
-          <div className="dark:bg-[#0f1117] bg-white border dark:border-[#1e2335]/60 border-slate-300 shadow-xs rounded-lg p-1.5 flex flex-col">
+          <div className="bg-card border border-card-border shadow-xs rounded-lg p-1.5 flex flex-col">
             <span className="text-[8.5px] text-slate-500 uppercase tracking-widest flex items-center gap-1"><Hash className="h-2.5 w-2.5" />Tags</span>
             <span className="text-sm font-extrabold text-slate-600 dark:text-slate-400 mt-0.5">{stats.tags}</span>
           </div>
-          <div className="dark:bg-[#0f1117] bg-white border dark:border-[#1e2335]/60 border-slate-300 shadow-xs rounded-lg p-1.5 flex flex-col">
+          <div className="bg-card border border-card-border shadow-xs rounded-lg p-1.5 flex flex-col">
             <span className="text-[8.5px] text-slate-500 uppercase tracking-widest flex items-center gap-1"><Calendar className="h-2.5 w-2.5 text-sky-400" />Daily</span>
             <span className="text-sm font-extrabold text-sky-600 dark:text-sky-400 mt-0.5">{stats.daily}</span>
           </div>
-          <div className="dark:bg-[#0f1117] bg-white border dark:border-[#1e2335]/60 border-slate-300 shadow-xs rounded-lg p-1.5 flex flex-col">
-            <span className="text-[8.5px] text-slate-500 uppercase tracking-widest flex items-center gap-1"><Star className="h-2.5 w-2.5 text-amber-400" />Stars</span>
+          <div className="bg-card border border-card-border shadow-xs rounded-lg p-1.5 flex flex-col">
+            <span className="text-[8.5px] text-slate-500 uppercase tracking-widest flex items-center gap-1"><Bookmark className="h-2.5 w-2.5 text-amber-400 shrink-0" />Bookmark</span>
             <span className="text-sm font-extrabold text-amber-600 dark:text-amber-400 mt-0.5">{stats.bookmarked}</span>
           </div>
-          <div className="dark:bg-[#0f1117] bg-white border dark:border-[#1e2335]/60 border-slate-300 shadow-xs rounded-lg p-1.5 flex flex-col">
+          <div className="bg-card border border-card-border shadow-xs rounded-lg p-1.5 flex flex-col">
             <span className="text-[8.5px] text-slate-500 uppercase tracking-widest flex items-center gap-1"><GitBranch className="h-2.5 w-2.5 text-fuchsia-400" />Orphans</span>
             <span className="text-sm font-extrabold text-fuchsia-600 dark:text-fuchsia-400 mt-0.5">{stats.orphans}</span>
           </div>
@@ -1642,11 +1681,11 @@ export const GraphView: React.FC = () => {
         </div>
 
         {/* Color Scheme Selector */}
-        <div className="flex flex-col gap-1.5 border-t dark:border-[#1e2335]/70 border-slate-300 pt-3">
+        <div className="flex flex-col gap-1.5 border-t border-card-border pt-3">
           <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
             <Palette className="h-3.5 w-3.5 text-indigo-400" /> Color Mode
           </span>
-          <div className="grid grid-cols-3 gap-1 bg-card p-1 rounded-lg border border-[#1e2335]">
+          <div className="grid grid-cols-3 gap-1 bg-card p-1 rounded-lg border border-card-border">
             {[
               { id: "category", label: "Category" },
               { id: "priority", label: "Priority" },
@@ -1655,11 +1694,10 @@ export const GraphView: React.FC = () => {
               <button
                 key={m.id}
                 onClick={() => setColorScheme(m.id as any)}
-                className={`py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                  colorScheme === m.id
+                className={`py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${colorScheme === m.id
                     ? "bg-indigo-600 text-white shadow shadow-indigo-600/30"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                  }`}
               >
                 {m.label}
               </button>
@@ -1684,11 +1722,11 @@ export const GraphView: React.FC = () => {
         )}
 
         {/* Connection Filters */}
-        <div className="flex flex-col gap-2 border-t dark:border-[#1e2335]/70 border-slate-300 pt-3">
-          <span className="text-[9px] font-bold text-slate-500 dark:text-slate-600 uppercase tracking-widest flex items-center gap-1.5">
+        <div className="flex flex-col gap-2 border-t border-card-border pt-3">
+          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
             <Layers className="h-3.5 w-3.5 text-slate-500" /> Connection Filters
           </span>
-          <div className="flex flex-col gap-0.5 dark:bg-[#090a0e]/60 bg-slate-200/60 rounded-lg border dark:border-[#1e2335]/60 border-slate-300 p-1 max-h-48 overflow-y-auto custom-scrollbar">
+          <div className="flex flex-col gap-0.5 bg-card rounded-lg border border-card-border p-1 max-h-48 overflow-y-auto custom-scrollbar">
             {filters.map((filter, index) => (
               <div
                 key={filter.id}
@@ -1721,10 +1759,10 @@ export const GraphView: React.FC = () => {
                   });
                   alphaRef.current = 1.0;
                 }}
-                className="flex items-center justify-between p-1.5 rounded-md hover:bg-[#121520] transition-colors group cursor-grab active:cursor-grabbing border border-transparent hover:border-[#1e2335]/40"
+                className="flex items-center justify-between p-1.5 rounded-md hover:bg-card-hover transition-colors group cursor-grab active:cursor-grabbing border border-transparent hover:border-card-border"
               >
                 <div className="flex items-center gap-2 select-none min-w-0 flex-1">
-                  <GripVertical className="h-3.5 w-3.5 text-slate-600 group-hover:text-slate-400 cursor-grab shrink-0" />
+                  <GripVertical className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-300 cursor-grab shrink-0" />
                   <input
                     type="checkbox"
                     checked={filter.checked}
@@ -1735,7 +1773,7 @@ export const GraphView: React.FC = () => {
                     }}
                     className="accent-indigo-600 h-3.5 w-3.5 rounded-sm shrink-0 cursor-pointer"
                   />
-                  <span className="flex items-center gap-1.5 text-[11px] text-slate-800 dark:text-slate-300 min-w-0 truncate">
+                  <span className="flex items-center gap-1.5 text-[11px] text-foreground font-medium min-w-0 truncate">
                     {getFilterIcon(filter.id)}
                     <span className="truncate">{filter.label}</span>
                   </span>
@@ -1872,7 +1910,7 @@ export const GraphView: React.FC = () => {
               <span className="h-0.5 w-4 bg-[#22d3ee] shrink-0" />Backlinks (→ directed) ({stats.links})
             </span>
             <span className="flex items-center gap-2">
-              <span className="text-amber-400 text-xs">★</span>Bookmarked Notes ({stats.bookmarked})
+              <Bookmark className="h-3 w-3 text-amber-400 fill-amber-400 shrink-0" />Bookmarked Notes ({stats.bookmarked})
             </span>
           </div>
         </div>
@@ -1919,51 +1957,57 @@ export const GraphView: React.FC = () => {
         {/* Enhanced Tooltip */}
         {tooltip && (
           <div
-            className="pointer-events-none absolute z-20 bg-[#0f1117]/95 border border-[#1e2335] rounded-xl shadow-2xl p-3 min-w-42.5 backdrop-blur-md"
+            className="pointer-events-none absolute z-20 bg-white/95 dark:bg-[#0f1117]/95 border border-slate-200/90 dark:border-[#1e2335] rounded-xl shadow-2xl p-3 min-w-42.5 backdrop-blur-md transition-colors"
             style={{ left: Math.min(tooltip.screenX - (canvasRef.current?.getBoundingClientRect().left ?? 0) + 14, (canvasRef.current?.clientWidth ?? 300) - 190), top: Math.max((tooltip.screenY - (canvasRef.current?.getBoundingClientRect().top ?? 0)) - 90, 10) }}
           >
             <div className="flex items-center justify-between gap-2">
-              <div className="text-xs font-bold text-slate-200 truncate max-w-35">{tooltip.node.label}</div>
-              {tooltip.node.bookmarked && <Star className="h-3 w-3 text-amber-400 fill-amber-400 shrink-0" />}
+              <div className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate max-w-35">{tooltip.node.label}</div>
+              {tooltip.node.bookmarked && <Bookmark className="h-3 w-3 text-amber-500 dark:text-amber-400 fill-amber-500 dark:fill-amber-400 shrink-0" />}
             </div>
 
             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
               <span className="h-2 w-2 rounded-full shrink-0" style={{ background: getNodeColor(tooltip.node, colorScheme) }} />
-              <span className="text-[10px] text-slate-400 capitalize font-medium">
+              <span className="text-[10px] text-slate-600 dark:text-slate-400 capitalize font-medium">
                 {tooltip.node.subType ? tooltip.node.subType : tooltip.node.type.replace("tag-in-notes", "Tag")}
               </span>
               {tooltip.node.highestPriority && tooltip.node.highestPriority !== "none" && (
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase">
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase border ${
+                  tooltip.node.highestPriority === "high"
+                    ? "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/20"
+                    : tooltip.node.highestPriority === "medium"
+                    ? "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20"
+                    : "bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-200 dark:border-sky-500/20"
+                }`}>
                   {tooltip.node.highestPriority} priority
                 </span>
               )}
             </div>
 
-            <div className="flex items-center justify-between gap-3 text-[10px] text-slate-500 mt-2 border-t border-[#1e2335]/60 pt-1.5">
+            <div className="flex items-center justify-between gap-3 text-[10px] text-slate-500 dark:text-slate-400 mt-2 border-t border-slate-200/80 dark:border-[#1e2335]/60 pt-1.5">
               <span>{tooltip.connections} link{tooltip.connections !== 1 ? "s" : ""}</span>
               {tooltip.node.tasksTotal !== undefined && tooltip.node.tasksTotal > 0 && (
-                <span className="text-indigo-400 font-semibold">{tooltip.node.tasksCompleted}/{tooltip.node.tasksTotal} tasks</span>
+                <span className="text-indigo-600 dark:text-indigo-400 font-semibold">{tooltip.node.tasksCompleted}/{tooltip.node.tasksTotal} tasks</span>
               )}
             </div>
 
-            {tooltip.node.type === "note" && <div className="text-[9px] text-slate-600 mt-1 italic">Double-click to open note</div>}
+            {tooltip.node.type === "note" && <div className="text-[9px] text-slate-400 dark:text-slate-600 mt-1 italic">Double-click to open note</div>}
           </div>
         )}
 
         {/* Context Menu */}
         {contextMenu && (
           <div
-            className="absolute z-30 bg-[#0f1117]/98 border border-[#1e2335] rounded-xl shadow-2xl py-1 min-w-45 backdrop-blur-xl"
+            className="absolute z-30 bg-white/98 dark:bg-[#0f1117]/98 border border-slate-200/90 dark:border-[#1e2335] rounded-xl shadow-2xl py-1 min-w-45 backdrop-blur-xl transition-colors"
             style={{ left: contextMenu.x, top: contextMenu.y }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-3 py-2 border-b border-[#1e2335]/60">
-              <div className="text-[11px] font-semibold text-slate-200 truncate max-w-40">{contextMenu.node.label}</div>
+            <div className="px-3 py-2 border-b border-slate-200/80 dark:border-[#1e2335]/60">
+              <div className="text-[11px] font-semibold text-slate-800 dark:text-slate-200 truncate max-w-40">{contextMenu.node.label}</div>
               <div className="text-[9.5px] text-slate-500 capitalize">{contextMenu.node.type.replace("tag-in-notes", "Tag")}</div>
             </div>
             {contextMenu.node.type === "note" && (
               <button
-                className="w-full text-left px-3 py-2 text-[11px] text-slate-300 hover:bg-[#1a1c28] flex items-center gap-2 transition-colors cursor-pointer"
+                className="w-full text-left px-3 py-2 text-[11px] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#1a1c28] flex items-center gap-2 transition-colors cursor-pointer"
                 onClick={() => {
                   const n = contextMenu.node;
                   if (n.path) {
@@ -1973,41 +2017,41 @@ export const GraphView: React.FC = () => {
                   setContextMenu(null);
                 }}
               >
-                <FileText className="h-3.5 w-3.5 text-fuchsia-400" /> Open Note
+                <FileText className="h-3.5 w-3.5 text-fuchsia-600 dark:text-fuchsia-400" /> Open Note
               </button>
             )}
             <button
-              className="w-full text-left px-3 py-2 text-[11px] text-slate-300 hover:bg-[#1a1c28] flex items-center gap-2 transition-colors cursor-pointer"
+              className="w-full text-left px-3 py-2 text-[11px] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#1a1c28] flex items-center gap-2 transition-colors cursor-pointer"
               onClick={() => {
                 setFocusedNodeId(prev => prev === contextMenu.node.id ? null : contextMenu.node.id);
                 focusOnNode(contextMenu.node);
                 setContextMenu(null);
               }}
             >
-              <Focus className="h-3.5 w-3.5 text-indigo-400" />
+              <Focus className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
               {focusedNodeId === contextMenu.node.id ? "Exit Focus Mode" : "Focus on Node"}
             </button>
             <button
-              className="w-full text-left px-3 py-2 text-[11px] text-slate-300 hover:bg-[#1a1c28] flex items-center gap-2 transition-colors cursor-pointer"
+              className="w-full text-left px-3 py-2 text-[11px] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#1a1c28] flex items-center gap-2 transition-colors cursor-pointer"
               onClick={() => {
                 togglePinNode(contextMenu.node);
                 setContextMenu(null);
               }}
             >
               {pinnedNodes.has(contextMenu.node.id) ? (
-                <><PinOff className="h-3.5 w-3.5 text-amber-400" /> Unpin Node</>
+                <><PinOff className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" /> Unpin Node</>
               ) : (
-                <><Pin className="h-3.5 w-3.5 text-amber-400" /> Pin Node</>
+                <><Pin className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" /> Pin Node</>
               )}
             </button>
             <button
-              className="w-full text-left px-3 py-2 text-[11px] text-slate-300 hover:bg-[#1a1c28] flex items-center gap-2 transition-colors cursor-pointer"
+              className="w-full text-left px-3 py-2 text-[11px] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#1a1c28] flex items-center gap-2 transition-colors cursor-pointer"
               onClick={() => {
                 setSearchQuery(contextMenu.node.label);
                 setContextMenu(null);
               }}
             >
-              <Search className="h-3.5 w-3.5 text-cyan-400" /> Search Similar
+              <Search className="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-400" /> Search Similar
             </button>
           </div>
         )}

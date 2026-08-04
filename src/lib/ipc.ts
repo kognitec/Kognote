@@ -60,12 +60,23 @@ export interface IPCCommands {
           }>;
           boardStatus?: string;
           boardPriority?: string;
+          hasFrontmatter: boolean;
+          title?: string;
+          created_at?: string;
+          modified_at?: string;
           snippet: string;
           wordCount: number;
         };
       }>;
       deleted_paths: string[];
       total_files: number;
+    };
+  };
+  scan_vault_tasks: {
+    args: { vaultPath: string };
+    response: {
+      tasks: any[];
+      dateRefs: any[];
     };
   };
   rename_note: {

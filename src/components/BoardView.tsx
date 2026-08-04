@@ -28,7 +28,7 @@ import {
   Filter,
   Trash2
 } from "lucide-react";
-import { ensureAndSyncFrontmatter } from "../lib/frontmatter";
+import { ensureAndSyncFrontmatter, formatTimestampForDisplay } from "../lib/frontmatter";
 
 interface BoardCard {
   file: FileEntry;
@@ -131,7 +131,7 @@ export const BoardView: React.FC = () => {
     return () => unregisterSyncHandler("board-refresh");
   }, [registerSyncHandler, unregisterSyncHandler, triggerNotesScan]);
 
-  const { vaultPath, includeArchivedInScans } = useSettings();
+  const { vaultPath, includeArchivedInScans, userTimezone } = useSettings();
 
   // Board state computed from cache
   const cards = useMemo(() => {
@@ -142,6 +142,7 @@ export const BoardView: React.FC = () => {
         const normPath = card.file.path.replace(/\\/g, "/").toLowerCase();
         if (!includeArchivedInScans && (card.storage === "archived" || normPath.includes("/archived/"))) return false;
         if (card.storage === "deleted" || normPath.includes("/trash/") || normPath.includes("/.deleted/")) return false;
+        if (card.type === "template" || normPath.includes("/templates/")) return false;
         return true;
       });
   }, [noteCache, includeArchivedInScans]);
@@ -255,7 +256,10 @@ export const BoardView: React.FC = () => {
       })) as string;
 
       const targetStatusString = targetStatus === "In Progress" ? "in-progress" : targetStatus === "In Review" ? "in-review" : targetStatus.toLowerCase();
-      const { fullContent: updatedContent } = ensureAndSyncFrontmatter(fileContent, { status: targetStatusString });
+      const { fullContent: updatedContent } = ensureAndSyncFrontmatter(fileContent, {
+        status: targetStatusString,
+        forceUpdateTimestamp: true,
+      });
 
       await invokeIPC("write_note", {
         path: filePath,
@@ -299,7 +303,8 @@ export const BoardView: React.FC = () => {
           priority: notePriority as any,
           type: "note",
           storage: noteStorage as any,
-          bookmarked: noteBookmarked
+          bookmarked: noteBookmarked,
+          forceUpdateTimestamp: true,
         }
       );
 
@@ -329,7 +334,10 @@ export const BoardView: React.FC = () => {
         path: card.file.path,
       })) as string;
 
-      const { fullContent: updatedContent } = ensureAndSyncFrontmatter(fileContent, { status: "none" });
+      const { fullContent: updatedContent } = ensureAndSyncFrontmatter(fileContent, {
+        status: "none",
+        forceUpdateTimestamp: true,
+      });
 
       await invokeIPC("write_note", {
         path: card.file.path,
@@ -409,7 +417,7 @@ export const BoardView: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#08090d] text-slate-200 select-none animate-fade-in">
+    <div className="flex flex-col h-full w-full bg-background text-foreground select-none animate-fade-in">
 
       {/* ── Top Controls Header ────────────────────────────────────────── */}
       <div className="flex flex-col gap-3 border-b border-card-border px-6 py-4 bg-sidebar/50 backdrop-blur-md shrink-0">
@@ -419,7 +427,7 @@ export const BoardView: React.FC = () => {
               <Columns className="h-4.5 w-4.5" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-slate-100 leading-tight">Vault Board</h1>
+              <h1 className="text-sm font-bold text-foreground leading-tight">Vault Board</h1>
               <p className="text-[10px] text-slate-500 font-semibold tracking-wide uppercase">
                 Kanban project board from note status
               </p>
@@ -445,7 +453,7 @@ export const BoardView: React.FC = () => {
               placeholder="Search cards..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg bg-[#10121a] pl-8 pr-8 py-1.5 text-xs text-slate-200 border border-card-border focus:outline-none focus:border-indigo-500/50 hover:border-slate-800 transition-colors placeholder-slate-600"
+              className="w-full rounded-lg bg-card pl-8 pr-8 py-1.5 text-xs text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 hover:border-slate-400 dark:hover:border-slate-800 transition-colors placeholder-slate-400"
             />
             {searchQuery && (
               <button onClick={() => setSearchQuery("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 cursor-pointer">
@@ -462,7 +470,7 @@ export const BoardView: React.FC = () => {
               <select
                 value={selectedType || ""}
                 onChange={(e) => setSelectedType(e.target.value || null)}
-                className="appearance-none bg-card border border-card-border hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
+                className="appearance-none bg-card border border-card-border hover:border-slate-400 dark:hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-700 dark:text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
               >
                 <option value="">All Types</option>
                 <option value="note">Note</option>
@@ -481,7 +489,7 @@ export const BoardView: React.FC = () => {
               <select
                 value={selectedPriority || ""}
                 onChange={(e) => setSelectedPriority(e.target.value || null)}
-                className="appearance-none bg-card border border-card-border hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
+                className="appearance-none bg-card border border-card-border hover:border-slate-400 dark:hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-700 dark:text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
               >
                 <option value="">All Priorities</option>
                 <option value="high">High</option>
@@ -500,7 +508,7 @@ export const BoardView: React.FC = () => {
               <select
                 value={selectedStorage || ""}
                 onChange={(e) => setSelectedStorage(e.target.value || null)}
-                className="appearance-none bg-card border border-card-border hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
+                className="appearance-none bg-card border border-card-border hover:border-slate-400 dark:hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-700 dark:text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
               >
                 <option value="">All Storage</option>
                 <option value="active">📂 Active</option>
@@ -519,7 +527,7 @@ export const BoardView: React.FC = () => {
               <select
                 value={selectedTag || ""}
                 onChange={(e) => setSelectedTag(e.target.value || null)}
-                className="appearance-none bg-card border border-card-border hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
+                className="appearance-none bg-card border border-card-border hover:border-slate-400 dark:hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-700 dark:text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
               >
                 <option value="">All Tags</option>
                 {allUniqueTags.map(tag => (
@@ -535,7 +543,7 @@ export const BoardView: React.FC = () => {
             onClick={() => setSelectedBookmarkedOnly(prev => !prev)}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border transition-all cursor-pointer ${selectedBookmarkedOnly
                 ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
-                : "bg-card border-card-border text-slate-400 hover:text-slate-200"
+                : "bg-card border-card-border text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-200"
               }`}
           >
             <Bookmark className={`h-3.5 w-3.5 ${selectedBookmarkedOnly ? "fill-amber-400" : ""}`} />
@@ -550,7 +558,7 @@ export const BoardView: React.FC = () => {
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
-                className="appearance-none bg-card border border-card-border hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-300 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
+                className="appearance-none bg-card border border-card-border hover:border-slate-400 dark:hover:border-slate-800 rounded-md pl-2 pr-7 py-1 text-slate-700 dark:text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
               >
                 <option value="title">Card Title</option>
                 <option value="due">Due Date</option>
@@ -564,7 +572,7 @@ export const BoardView: React.FC = () => {
       </div>
 
       {/* ── Board Columns Grid ─────────────────────────────────────────── */}
-      <div className="flex-1 w-full p-6 overflow-x-auto overflow-y-hidden flex gap-5 select-none align-top">
+      <div className="flex-1 w-full p-6 overflow-x-auto overflow-y-hidden flex gap-5 select-none align-top min-h-0 h-full">
         {COLUMNS.map((col) => {
           const colCards = getFilteredAndSortedCards(col.name);
           const Icon = col.icon;
@@ -581,18 +589,18 @@ export const BoardView: React.FC = () => {
               onDragEnter={(e) => handleDragEnter(e, col.name)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, col.name)}
-              className={`w-72 flex flex-col h-full max-h-full rounded-xl bg-slate-900/10 dark:bg-slate-950/20 border border-card-border hover:border-slate-800/40 transition-all duration-200 shrink-0 select-none overflow-hidden ${isOver
+              className={`w-72 flex flex-col h-full max-h-full rounded-xl bg-sidebar border border-card-border hover:border-slate-800/40 transition-all duration-200 shrink-0 select-none overflow-hidden min-h-0 ${isOver
                   ? "border-indigo-500/40 bg-indigo-500/5 shadow-2xl"
                   : ""
                 }`}
             >
               {/* Column Header */}
               <div className="flex flex-col shrink-0">
-                <div className="flex items-center justify-between px-4 py-3 bg-slate-900/20 dark:bg-slate-950/30 border-b border-card-border">
+                <div className="flex items-center justify-between px-4 py-3 bg-card border-b border-card-border">
                   <div className="flex items-center gap-2">
                     <Icon className={`h-4 w-4 ${col.color}`} />
                     <span className="text-xs font-bold text-slate-300 leading-none">{col.label}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#1c1e2b] text-slate-500 font-extrabold leading-none">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sidebar text-slate-500 font-extrabold leading-none">
                       {colCards.length}
                     </span>
                   </div>
@@ -702,7 +710,7 @@ export const BoardView: React.FC = () => {
 
               {/* Card List Container */}
               <div
-                className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5 max-h-full scrollbar-thin select-none"
+                className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5 max-h-full select-none min-h-0 custom-scrollbar"
                 onDragOver={handleDragOver}
                 onDragEnter={(e) => handleDragEnter(e, col.name)}
                 onDrop={(e) => handleDrop(e, col.name)}
@@ -723,7 +731,7 @@ export const BoardView: React.FC = () => {
                       onDragEnter={(e) => handleDragEnter(e, col.name)}
                       onDrop={(e) => handleDrop(e, col.name)}
                       onClick={() => openFile(card.file)}
-                      className={`group flex flex-col gap-2.5 rounded-xl border p-3.5 transition-all duration-300 cursor-pointer relative glass-card overflow-hidden w-full ${card.priority === "high"
+                      className={`shrink-0 group flex flex-col gap-2.5 rounded-xl border p-3.5 transition-all duration-300 cursor-pointer relative glass-card overflow-hidden w-full bg-card text-foreground ${card.priority === "high"
                           ? "border-red-500/30 hover:border-red-500/50"
                           : card.priority === "medium"
                             ? "border-amber-500/30 hover:border-amber-500/50"
@@ -826,7 +834,7 @@ export const BoardView: React.FC = () => {
                       {/* Full-Width Note Title */}
                       <div className="w-full select-none pt-0.5">
                         <span
-                          className="text-xs font-bold text-slate-200 leading-snug group-hover:text-indigo-400 transition-colors line-clamp-2 wrap-break-word block"
+                          className="text-xs font-bold text-foreground leading-snug group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors line-clamp-2 wrap-break-word block"
                           title={card.title}
                         >
                           {card.title}
@@ -854,7 +862,7 @@ export const BoardView: React.FC = () => {
                         <div className="flex items-center gap-1.5">
                           <Calendar className={`h-3 w-3 ${card.dueDate ? "text-indigo-400" : "text-slate-600/70"}`} />
                           <span className={`text-[9px] font-bold tracking-wide uppercase ${card.dueDate ? "text-slate-300" : "text-slate-600"}`}>
-                            {card.dueDate ? `Due: ${card.dueDate}` : "No due date"}
+                            {card.dueDate ? `Due: ${formatTimestampForDisplay(card.dueDate, userTimezone)}` : "No due date"}
                           </span>
                         </div>
 

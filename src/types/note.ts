@@ -16,6 +16,7 @@ export interface ScannedTask {
   lineNumber: number;
   dueDate?: string; // YYYY-MM-DD
   dueTime?: string; // HH:MM
+  rawDueDate?: string; // Original raw ISO UTC string if present
   tags: string[];
   priority: "high" | "medium" | "low" | "none";
 }

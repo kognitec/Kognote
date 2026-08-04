@@ -1,10 +1,12 @@
 import Database from "@tauri-apps/plugin-sql";
 import { invoke } from "@tauri-apps/api/core";
+import { extractSelfQueryFilter, SelfQueryFilter } from "./self-query";
 
 export interface SearchResult {
   filePath: string;
   chunkText: string;
   similarity: number;
+  updatedAt?: number;
 }
 
 class EmbeddingWorkerClient {
@@ -267,6 +269,36 @@ export class SearchEngine {
     }
   }
 
+  async getBacklinkFilePaths(
+    targetNoteName: string,
+    targetRelPath?: string,
+    includeTrash: boolean = false
+  ): Promise<string[]> {
+    await this.init();
+    if (!this.db) return [];
+    try {
+      const cleanTarget = targetNoteName.trim().replace(/\.(md|excalidraw)$/i, "").toLowerCase();
+      const cleanRelTarget = targetRelPath ? targetRelPath.trim().replace(/\.(md|excalidraw)$/i, "").toLowerCase() : "";
+
+      let query = `
+        SELECT DISTINCT nl.source_path 
+        FROM note_links nl
+        LEFT JOIN note_metadata nm ON LOWER(nl.source_path) = LOWER(nm.file_path)
+        WHERE (LOWER(nl.target_name) = $1 OR ($2 != '' AND LOWER(nl.target_name) = $2))
+      `;
+
+      if (!includeTrash) {
+        query += ` AND (nm.storage IS NULL OR nm.storage != 'deleted') AND LOWER(nl.source_path) NOT LIKE '%/trash/%' AND LOWER(nl.source_path) NOT LIKE '%/.deleted/%'`;
+      }
+
+      const rows = await this.db.select<{ source_path: string }[]>(query, [cleanTarget, cleanRelTarget]);
+      return rows.map((r) => r.source_path);
+    } catch (err) {
+      console.error(`Failed to query backlink file paths for ${targetNoteName}:`, err);
+      return [];
+    }
+  }
+
   // Indexes the contents of a note using heading-aware paragraph chunking & native sqlite-vec
   async indexFile(filePath: string, content: string) {
     await this.init();
@@ -380,6 +412,45 @@ export class SearchEngine {
       console.error("Hybrid RRF search failed:", err);
       return this.search(query, topK);
     }
+  }
+
+  /**
+   * Dynamic Token Budget Allocation RAG Search.
+   * Packs candidate chunks up to a target tokenBudget (e.g. 3,000 tokens for local models, 24,000 for cloud).
+   * Applies self-query metadata pre-filtering (tags, status, date) and Time-Weighted RRF recency bias.
+   */
+  async hybridRrfSearchWithBudget(
+    query: string,
+    tokenBudget: number = 3000,
+    userFilter?: SelfQueryFilter
+  ): Promise<SearchResult[]> {
+    const filter = userFilter || extractSelfQueryFilter(query);
+    const candidateLimit = 40;
+    const candidates = await this.hybridRrfSearch(filter.cleanQuery, candidateLimit);
+    if (!candidates || candidates.length === 0) return [];
+
+    let filtered = candidates;
+
+    // Apply Self-Query Date Filter if specified
+    if (filter?.dateAfter) {
+      filtered = filtered.filter((item) => (item.updatedAt || 0) >= filter.dateAfter!);
+    }
+
+    // Dynamic Token Budget Accumulation
+    const results: SearchResult[] = [];
+    let accumulatedTokens = 0;
+
+    for (const item of filtered) {
+      // Estimate token count (~4 chars per token for English text)
+      const estimatedTokens = Math.ceil(item.chunkText.length / 4);
+      if (accumulatedTokens + estimatedTokens > tokenBudget && results.length > 0) {
+        break;
+      }
+      results.push(item);
+      accumulatedTokens += estimatedTokens;
+    }
+
+    return results;
   }
 
   // Deletes note indexing entries using native sqlite-vec

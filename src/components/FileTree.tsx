@@ -22,7 +22,6 @@ import {
   X,
   Tag,
   Calendar,
-  RefreshCw,
   Paperclip,
   Globe,
   Image as ImageIcon,
@@ -65,9 +64,22 @@ interface TreeItemProps {
 }
 
 export const FileTree: React.FC = () => {
-  const { files, createDirectory, deleteFileOrDirectory, openFile, openDailyNote, setCreateFileModal, noteCache } = useVault();
+  const {
+    files,
+    createDirectory,
+    deleteFileOrDirectory,
+    openFile,
+    openDailyNote,
+    setCreateFileModal,
+    noteCache,
+    attachmentsFolderPath,
+    importAttachment,
+    previewAttachment,
+    setPreviewAttachment,
+  } = useVault();
   const { registerSyncHandler, unregisterSyncHandler } = useSync();
   const [filter, setFilter] = useState("");
+  const [fileTypeFilter, setFileTypeFilter] = useState<"all" | "md" | "canvas" | "templates">("all");
   const [isCreatingDir, setIsCreatingDir] = useState(false);
   const [newName, setNewName] = useState("");
 
@@ -109,7 +121,6 @@ export const FileTree: React.FC = () => {
   // Attachments Tab State
   const [attachmentsList, setAttachmentsList] = useState<FileEntry[]>([]);
   const [attachmentNotesMap, setAttachmentNotesMap] = useState<Record<string, FileEntry[]>>({});
-  const [previewAttachment, setPreviewAttachment] = useState<{ path: string; name: string } | null>(null);
 
   // URLs Tab State
   const [urlsList, setUrlsList] = useState<{ url: string; notes: FileEntry[] }[]>([]);
@@ -145,14 +156,14 @@ export const FileTree: React.FC = () => {
     const urlsMap: Record<string, FileEntry[]> = {};
     const mdFiles: FileEntry[] = [];
 
-    // Only collect attachments from the Attachments/ protected folder
+    // Only collect image attachments from the Attachments/ protected folder
     const collectAttachments = (entries: FileEntry[]) => {
       entries.forEach((entry) => {
         if (entry.is_dir) {
           const isAttachmentsFolder = entry.name.toLowerCase() === ATTACHMENTS_FOLDER.toLowerCase();
           if (isAttachmentsFolder && entry.children) {
             entry.children.forEach((child) => {
-              if (!child.is_dir) {
+              if (!child.is_dir && isImageFile(child.name)) {
                 attachments.push(child);
                 attachmentNotes[child.name] = [];
               }
@@ -411,18 +422,64 @@ export const FileTree: React.FC = () => {
     }
   };
 
-  // Filter items recursively
+  const handleAddAttachment = async () => {
+    if (attachmentsFolderPath) {
+      await importAttachment(attachmentsFolderPath);
+      await scanVaultData();
+    }
+  };
+
+  // Extract template files directly without folder wrapper
+  const getTemplateFiles = (items: FileEntry[]): FileEntry[] => {
+    let list: FileEntry[] = [];
+    for (const item of items) {
+      if (item.is_dir) {
+        if (item.children) {
+          list = [...list, ...getTemplateFiles(item.children)];
+        }
+      } else {
+        const norm = item.path.replace(/\\/g, "/").toLowerCase();
+        const cacheType = noteCache[item.path]?.meta?.type?.toLowerCase();
+        const isTpl = norm.includes("/templates/") || norm.includes("/template/") || cacheType === "template";
+        const matchesSearch = !filter || item.name.toLowerCase().includes(filter.toLowerCase());
+        if (isTpl && matchesSearch && item.name.endsWith(".md")) {
+          list.push(item);
+        }
+      }
+    }
+    return list;
+  };
+
+  // Filter items recursively (excludes protected Attachments folder & Templates folder from main tree)
   const filterTree = (items: FileEntry[]): FileEntry[] => {
     return items
+      .filter((item) => {
+        if (item.is_dir && item.name.toLowerCase() === ATTACHMENTS_FOLDER.toLowerCase()) return false;
+        // In All/Notes/Canvas mode, exclude Templates folder and template files from main tree view
+        const norm = item.path.replace(/\\/g, "/").toLowerCase();
+        const cacheType = noteCache[item.path]?.meta?.type?.toLowerCase();
+        const isTpl = item.name.toLowerCase() === "templates" || norm.includes("/templates/") || norm.includes("/template/") || cacheType === "template";
+        if (isTpl) return false;
+        return true;
+      })
       .map((item) => {
         if (item.is_dir) {
           const filteredChildren = item.children ? filterTree(item.children) : [];
-          if (filteredChildren.length > 0 || item.name.toLowerCase().includes(filter.toLowerCase())) {
+          const matchesName = item.name.toLowerCase().includes(filter.toLowerCase());
+          const matchesType = fileTypeFilter === "all" || (fileTypeFilter === "md" && filteredChildren.length > 0);
+          if (filteredChildren.length > 0 || (matchesName && matchesType)) {
             return { ...item, children: filteredChildren };
           }
           return null;
         } else {
-          return item.name.toLowerCase().includes(filter.toLowerCase()) ? item : null;
+          const matchesName = item.name.toLowerCase().includes(filter.toLowerCase());
+          const isMd = item.name.endsWith(".md");
+          const isCanvas = item.name.endsWith(".excalidraw");
+          let matchesType = true;
+          if (fileTypeFilter === "md") matchesType = isMd;
+          else if (fileTypeFilter === "canvas") matchesType = isCanvas;
+
+          return matchesName && matchesType ? item : null;
         }
       })
       .filter((item): item is FileEntry => item !== null);
@@ -566,7 +623,12 @@ export const FileTree: React.FC = () => {
     });
   };
 
-  const filteredFiles = sortTree(filterTree(files), sortOption);
+  const filteredFiles = useMemo(() => {
+    if (fileTypeFilter === "templates") {
+      return sortTree(getTemplateFiles(files), sortOption, false);
+    }
+    return sortTree(filterTree(files), sortOption);
+  }, [files, fileTypeFilter, filter, sortOption, noteCache]);
 
   const flatVisibleFiles = useMemo(() => {
     const flat: FlatTreeItem[] = [];
@@ -588,15 +650,15 @@ export const FileTree: React.FC = () => {
   }, [filteredFiles, expandedPaths, filter]);
 
   return (
-    <div className="flex h-full flex-col dark:bg-sidebar bg-slate-50 border-r dark:border-card-border border-slate-200 text-slate-800 dark:text-slate-300">
+    <div className="flex h-full flex-col bg-sidebar border-r border-card-border text-foreground">
       {/* Sleek Segmented Control Sidebar Navigation Tabs */}
-      <div className="p-2 border-b dark:border-card-border border-slate-200 dark:bg-background bg-slate-100">
-        <div className="grid grid-cols-4 p-0.5 rounded-lg dark:bg-[#12141e] bg-slate-200/80 border dark:border-card-border/70 border-slate-300/80 text-[10px] font-bold">
+      <div className="p-2 border-b border-card-border bg-sidebar">
+        <div className="grid grid-cols-4 p-0.5 rounded-lg bg-card border border-card-border text-[10px] font-bold">
           <button
             onClick={() => setActiveTab("files")}
             className={`flex items-center justify-center gap-1 py-1.5 rounded-md transition-all duration-200 cursor-pointer ${activeTab === "files"
-                ? "dark:bg-[#1d2030] bg-white text-amber-600 dark:text-[#fbbf24] shadow-xs border border-amber-500/40"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-300/40 dark:hover:bg-[#161825]/50 border border-transparent"
+                ? "bg-indigo-600 text-white shadow-xs border border-indigo-500/40"
+                : "text-slate-500 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-black/5 dark:hover:bg-white/5 border border-transparent"
               }`}
             title="Folder & file vault explorer"
           >
@@ -643,28 +705,70 @@ export const FileTree: React.FC = () => {
       {activeTab === "files" && (
         <div className="flex flex-col flex-1 overflow-hidden">
           <div className="p-3 border-b dark:border-card-border border-slate-200">
-            <div className="relative mb-2.5">
-              <Search className="absolute top-2.5 left-2.5 h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
+            <div className="relative mb-2">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 dark:text-slate-500 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Filter files..."
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                className="w-full rounded-md dark:bg-card bg-white text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 border dark:border-card-border border-slate-300 focus:outline-hidden focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/30 transition-all"
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setFilter("");
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                className="w-full rounded-md dark:bg-card bg-white pl-8 pr-7 py-1.5 text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 border dark:border-card-border border-slate-300 focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/30 transition-all shadow-xs"
               />
-              {filter && (
+              {filter ? (
                 <button
                   onClick={() => setFilter("")}
-                  className="absolute top-2 right-2 text-slate-500 hover:text-slate-300 p-0.5"
-                  title="Clear filter"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-0.5 rounded cursor-pointer"
+                  title="Clear filter (Esc)"
                 >
                   <X className="h-3 w-3" />
                 </button>
+              ) : (
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-mono text-slate-500 bg-sidebar px-1.5 py-0.5 rounded border border-card-border pointer-events-none select-none">
+                  Ctrl+K
+                </span>
               )}
             </div>
 
+            {/* Quick Type Filter Chips */}
+            <div className="flex items-center gap-1 mb-2.5 text-[10px] font-medium overflow-x-auto">
+              {[
+                { id: "all", label: "All" },
+                { id: "md", label: "Notes" },
+                { id: "canvas", label: "Canvas" },
+                { id: "templates", label: "Templates" },
+              ].map((chip) => {
+                const isActive = fileTypeFilter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    onClick={() => setFileTypeFilter(chip.id as any)}
+                    className={`px-2.5 py-0.5 rounded-full transition-all cursor-pointer border text-[10.5px] ${
+                      isActive
+                        ? "bg-indigo-600 text-white border-indigo-500 font-bold shadow-xs"
+                        : "bg-card text-slate-700 dark:text-slate-300 border-card-border hover:bg-card-hover"
+                    }`}
+                  >
+                    {chip.label}
+                  </button>
+                );
+              })}
+            </div>
+
             <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 tracking-wider">
-              <span>VAULT NOTES</span>
+              <span className="flex items-center gap-1.5">
+                VAULT NOTES
+                {(filter || fileTypeFilter !== "all") && (
+                  <span className="text-[9.5px] font-mono font-normal text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-1.5 py-0.2 rounded-full">
+                    {flatVisibleFiles.length}
+                  </span>
+                )}
+              </span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleDailyNote}
@@ -807,9 +911,6 @@ export const FileTree: React.FC = () => {
             <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase flex items-center gap-1">
               <Tag className="h-3 w-3 text-[#94a3b8]/60" /> Connections & Tags
             </span>
-            <button onClick={scanVaultData} disabled={isScanning} className="text-slate-500 hover:text-slate-300 cursor-pointer">
-              <RefreshCw className={`h-3 w-3 ${isScanning ? "animate-spin" : ""}`} />
-            </button>
           </div>
 
           {/* Search (no type filter) */}
@@ -844,10 +945,10 @@ export const FileTree: React.FC = () => {
                     >
                       &larr; Back to all tags
                     </button>
-                    <div className={`rounded-lg border p-2.5 flex flex-col gap-2 bg-[#161825] ${selectedTag.type === "manual" ? "border-slate-500/20" : "border-amber-500/20"
+                    <div className={`rounded-lg border p-2.5 flex flex-col gap-2 bg-card ${selectedTag.type === "manual" ? "border-card-border" : "border-amber-500/20"
                       }`}>
                       <div className="flex items-center justify-between border-b border-card-border pb-1.5">
-                        <span className={`text-xs font-bold ${selectedTag.type === "manual" ? "text-slate-300" : "text-amber-400"
+                        <span className={`text-xs font-bold ${selectedTag.type === "manual" ? "text-slate-800 dark:text-slate-200" : "text-amber-600 dark:text-amber-400"
                           }`}>
                           #{selectedTag.name} {selectedTag.type === "ai" && <span className="text-[9px] opacity-60">(AI)</span>}
                         </span>
@@ -867,7 +968,7 @@ export const FileTree: React.FC = () => {
                           <button
                             key={note.path}
                             onClick={() => openFile(note)}
-                            className="flex items-center gap-1.5 rounded-lg border border-card-border bg-card p-2 text-left text-xs text-slate-300 hover:border-[#d946ef]/50 hover:text-slate-100 transition-colors cursor-pointer w-full"
+                            className="flex items-center gap-1.5 rounded-lg border border-card-border bg-card p-2 text-left text-xs text-slate-700 dark:text-slate-300 hover:border-purple-500/50 hover:text-slate-900 dark:hover:text-slate-100 transition-colors cursor-pointer w-full"
                           >
                             <FileText className="h-3 w-3 text-[#d946ef]/80 shrink-0" />
                             <span className="truncate">{note.name}</span>
@@ -909,23 +1010,23 @@ export const FileTree: React.FC = () => {
                     clearDragState();
                   }}
                   className={`flex items-center justify-between rounded-lg border bg-card px-3 py-2 text-xs transition-all cursor-grab active:cursor-grabbing ${tag.type === "manual"
-                      ? "border-card-border hover:border-indigo-500/50 hover:bg-[#161825]"
-                      : "border-card-border hover:border-amber-500/50 hover:bg-[#1d1b16]"
+                      ? "border-card-border hover:border-indigo-500/50 hover:bg-card-hover"
+                      : "border-card-border hover:border-amber-500/50 hover:bg-amber-500/5"
                     }`}
                 >
                   <button
                     onClick={() => handleTagSelect(tag.name, tag.type)}
                     className={`flex-1 text-left font-semibold cursor-pointer truncate ${tag.type === "manual"
-                        ? "text-slate-300 hover:text-slate-200"
-                        : "text-amber-300 hover:text-amber-400"
+                        ? "text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
+                        : "text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300"
                       }`}
                   >
                     #{tag.name} {tag.type === "ai" && <span className="text-[9px] opacity-50 font-normal">(AI)</span>}
                   </button>
                   <div className="flex items-center gap-2">
                     <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${tag.type === "manual"
-                        ? "bg-slate-800 text-slate-400"
-                        : "bg-amber-500/10 text-amber-400 border border-amber-500/15"
+                        ? "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700/50"
+                        : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
                       }`}>
                       {tag.count} {tag.count === 1 ? "note" : "notes"}
                     </span>
@@ -954,8 +1055,12 @@ export const FileTree: React.FC = () => {
             <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase flex items-center gap-1">
               <Paperclip className="h-3.5 w-3.5 text-emerald-400" /> Attachments ({attachmentsList.length})
             </span>
-            <button onClick={scanVaultData} className="text-slate-500 hover:text-slate-300">
-              <RefreshCw className={`h-3 w-3 ${isScanning ? "animate-spin" : ""}`} />
+            <button
+              onClick={handleAddAttachment}
+              className="p-1 rounded-md text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all cursor-pointer"
+              title="Import Attachment"
+            >
+              <Plus className="h-3.5 w-3.5" />
             </button>
           </div>
 
@@ -990,7 +1095,7 @@ export const FileTree: React.FC = () => {
                     onDragEnd={() => {
                       clearDragState();
                     }}
-                    className="flex flex-col gap-2 rounded-xl border border-card-border bg-card p-3 hover:border-emerald-500/30 hover:bg-[#161825] transition-all group cursor-grab active:cursor-grabbing"
+                    className="flex flex-col gap-2 rounded-xl border border-card-border bg-card p-3 hover:border-emerald-500/50 hover:bg-card-hover transition-all group cursor-grab active:cursor-grabbing shadow-xs hover:shadow-md"
                   >
                     {/* Thumbnail row */}
                     <div className="flex items-center gap-3">
@@ -1015,37 +1120,37 @@ export const FileTree: React.FC = () => {
                       <div className="flex-1 min-w-0">
                         <button
                           onClick={() => setPreviewAttachment({ path: item.path, name: item.name })}
-                          className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 truncate block w-full text-left cursor-pointer"
+                          className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 truncate block w-full text-left cursor-pointer"
                           title={item.path}
                         >
                           {item.name}
                         </button>
-                        <span className="text-[9px] text-slate-500 block mt-0.5">
+                        <span className="text-[9px] text-slate-500 dark:text-slate-400 block mt-0.5">
                           {isImg ? "Image" : "File"}
                         </span>
                         {/* Used in notes */}
                         {usedIn.length > 0 && (
                           <div className="mt-1">
-                            <span className="text-[9px] font-bold text-slate-600 uppercase tracking-wider">Used in:</span>
+                            <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Used in:</span>
                             <div className="flex flex-col gap-0.5 mt-0.5">
                               {usedIn.slice(0, 3).map((note) => (
                                 <button
                                   key={note.path}
                                   onClick={() => openFile(note)}
-                                  className="flex items-center gap-1 text-[9px] text-slate-400 hover:text-slate-200 hover:underline text-left cursor-pointer"
+                                  className="flex items-center gap-1 text-[9px] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:underline text-left cursor-pointer"
                                 >
                                   <FileText className="h-2 w-2 text-[#d946ef]/60 shrink-0" />
                                   <span className="truncate">{note.name.replace(/\.md$/, "")}</span>
                                 </button>
                               ))}
                               {usedIn.length > 3 && (
-                                <span className="text-[9px] text-slate-600">+{usedIn.length - 3} more</span>
+                                <span className="text-[9px] text-slate-500 dark:text-slate-400">+{usedIn.length - 3} more</span>
                               )}
                             </div>
                           </div>
                         )}
                         {usedIn.length === 0 && (
-                          <span className="text-[9px] text-slate-700 mt-1 block italic">Not referenced in any note</span>
+                          <span className="text-[9px] text-slate-500 dark:text-slate-400 mt-1 block italic">Not referenced in any note</span>
                         )}
                       </div>
                       <button
@@ -1060,7 +1165,7 @@ export const FileTree: React.FC = () => {
                             }
                           }
                         }}
-                        className="text-slate-600 hover:text-red-400 p-1 rounded transition-colors cursor-pointer opacity-0 group-hover:opacity-100 shrink-0"
+                        className="text-slate-400 hover:text-red-500 dark:hover:text-red-400 p-1 rounded transition-colors cursor-pointer opacity-0 group-hover:opacity-100 shrink-0"
                         title="Delete Attachment"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -1077,7 +1182,7 @@ export const FileTree: React.FC = () => {
       {/* In-app Image Preview Modal */}
       {previewAttachment && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in"
+          className="fixed inset-0 z-300 flex items-center justify-center bg-black/85 backdrop-blur-md animate-fade-in"
           onClick={() => setPreviewAttachment(null)}
         >
           <div
@@ -1094,18 +1199,18 @@ export const FileTree: React.FC = () => {
                 <span className="text-xs font-semibold text-slate-200">{previewAttachment.name}</span>
               </div>
               <div className="flex items-center gap-2">
-                <a
-                  href={convertFileSrc(previewAttachment.path)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-1.5 rounded-md text-slate-400 hover:text-slate-200 hover:bg-card-border transition-colors"
-                  title="Open in OS viewer"
+                <button
+                  onClick={() => {
+                    invokeIPC("open_with_default", { path: previewAttachment.path }).catch(console.error);
+                  }}
+                  className="p-1.5 rounded-md text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors cursor-pointer"
+                  title="Open with default app"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
-                </a>
+                </button>
                 <button
                   onClick={() => setPreviewAttachment(null)}
-                  className="p-1.5 rounded-md text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                  className="p-1.5 rounded-md text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -1121,13 +1226,14 @@ export const FileTree: React.FC = () => {
               <div className="p-8 text-center text-slate-500 text-xs">
                 <Paperclip className="h-12 w-12 mx-auto mb-3 text-emerald-400/40" />
                 <p>Preview not available for this file type.</p>
-                <a
-                  href={convertFileSrc(previewAttachment.path)}
-                  target="_blank"
-                  className="text-emerald-400 underline mt-2 inline-block"
+                <button
+                  onClick={() => {
+                    invokeIPC("open_with_default", { path: previewAttachment.path }).catch(console.error);
+                  }}
+                  className="text-emerald-400 underline mt-2 inline-block cursor-pointer"
                 >
-                  Open with OS Viewer
-                </a>
+                  Open with default app
+                </button>
               </div>
             )}
           </div>
@@ -1141,9 +1247,6 @@ export const FileTree: React.FC = () => {
             <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase flex items-center gap-1">
               <Globe className="h-3.5 w-3.5 text-indigo-400" /> Extracted URLs ({urlsList.length})
             </span>
-            <button onClick={scanVaultData} className="text-slate-500 hover:text-slate-300">
-              <RefreshCw className={`h-3 w-3 ${isScanning ? "animate-spin" : ""}`} />
-            </button>
           </div>
 
           <div className="flex-1 overflow-y-auto flex flex-col gap-2">
@@ -1194,10 +1297,10 @@ export const FileTree: React.FC = () => {
       )}
 
       {/* Sleek Vault Info Footer Bar */}
-      <div className="shrink-0 border-t dark:border-card-border border-slate-200 dark:bg-background/95 bg-slate-100/90 backdrop-blur-md select-none text-[10px] font-sans">
+      <div className="shrink-0 border-t border-card-border bg-sidebar backdrop-blur-md select-none text-[10px] font-sans">
         {/* Expanded Details Popover Drawer */}
         {isFooterExpanded && (
-          <div className="p-2.5 border-b dark:border-card-border border-slate-200 dark:bg-[#0d0e16] bg-slate-200/90 space-y-1.5 animate-fade-in">
+          <div className="p-2.5 border-b border-card-border bg-card space-y-1.5 animate-fade-in">
             <div className="flex items-center justify-between text-[9px] font-bold text-slate-500 uppercase tracking-wider">
               <span>Vault Storage Breakdown</span>
               {isScanning && <span className="text-[#d946ef] animate-pulse">RE-INDEXING...</span>}
@@ -1535,7 +1638,7 @@ const TreeItem: React.FC<TreeItemProps> = ({ item, depth, isOpen, onToggleFolder
             </span>
 
             {item.is_dir && (
-              <span className="text-[9px] font-mono font-medium text-slate-500 bg-[#161825] px-1.5 py-0.2 rounded-full border border-card-border shrink-0 ml-0.5" title={`${folderNoteCount} items`}>
+              <span className="text-[9px] font-mono font-medium text-slate-500 bg-sidebar px-1.5 py-0.2 rounded-full border border-card-border shrink-0 ml-0.5" title={`${folderNoteCount} items`}>
                 {folderNoteCount}
               </span>
             )}

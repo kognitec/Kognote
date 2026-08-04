@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import { EditorState } from "@codemirror/state";
 import { EditorView, lineNumbers, keymap } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
@@ -7,7 +7,6 @@ import { defaultKeymap } from "@codemirror/commands";
 import { autocompletion, CompletionContext, CompletionResult } from "@codemirror/autocomplete";
 
 import { useVault, FileEntry } from "../../contexts/VaultContext";
-import { Copy, Check, FileCode, Edit3 } from "lucide-react";
 import { getDateSuggestions, isDateQueryCompleted } from "../../lib/date-parser";
 import { getShortestUniquePath } from "../../lib/wikilink-utils";
 import { getDragState } from "../../lib/drag-state";
@@ -35,7 +34,6 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const { files, vaultPath, attachmentsFolderPath, refreshFiles } = useVault();
-  const [copied, setCopied] = useState(false);
 
   // Store props in refs to keep callback identities stable and prevent
   // editor destruction/recreation while typing in source mode.
@@ -52,17 +50,6 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
   useEffect(() => { vaultPathRef.current = vaultPath; }, [vaultPath]);
   useEffect(() => { attachmentsFolderPathRef.current = attachmentsFolderPath; }, [attachmentsFolderPath]);
   useEffect(() => { refreshFilesRef.current = refreshFiles; }, [refreshFiles]);
-
-  const handleCopy = async () => {
-    try {
-      const currentDoc = viewRef.current ? viewRef.current.state.doc.toString() : content;
-      await navigator.clipboard.writeText(currentDoc);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy raw markdown:", err);
-    }
-  };
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -231,10 +218,29 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
 
     viewRef.current = view;
 
+    const isVaultFile = (pathStr: string): boolean => {
+      if (!pathStr || typeof pathStr !== "string") return false;
+      const norm = pathStr.replace(/\\/g, "/").toLowerCase().trim();
+      const check = (entries: FileEntry[]): boolean => {
+        for (const e of entries) {
+          if (!e.is_dir && e.path.replace(/\\/g, "/").toLowerCase() === norm) return true;
+          if (e.is_dir && e.children && check(e.children)) return true;
+        }
+        return false;
+      };
+      return check(filesRef.current);
+    };
+
     const handleDragOver = (e: DragEvent) => {
-      e.preventDefault();
-      if (e.dataTransfer) {
-        e.dataTransfer.dropEffect = "copy";
+      const isAppDrag = getDragState() !== null ||
+        (e.dataTransfer?.types && Array.from(e.dataTransfer.types).some(t => t.startsWith("application/kognote")));
+      const isOsFileDrag = e.dataTransfer?.types && Array.from(e.dataTransfer.types).includes("Files");
+
+      if (isAppDrag || isOsFileDrag) {
+        e.preventDefault();
+        if (e.dataTransfer) {
+          e.dataTransfer.dropEffect = "copy";
+        }
       }
     };
 
@@ -242,8 +248,20 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
       const fileDataStr = e.dataTransfer?.getData("application/kognote-file");
       const plainTextPath = e.dataTransfer?.getData("text/plain");
 
-      let droppedFilePath: string | null = null;
       const draggedState = getDragState("file") || getDragState("card");
+      const isOsFileDrop = e.dataTransfer?.files && e.dataTransfer.files.length > 0;
+
+      const isExternalOrSidebarDrag =
+        draggedState !== null ||
+        !!fileDataStr ||
+        isOsFileDrop ||
+        (!!plainTextPath && isVaultFile(plainTextPath.trim()));
+
+      if (!isExternalOrSidebarDrag) {
+        return; // Allow CodeMirror native drag and drop
+      }
+
+      let droppedFilePath: string | null = null;
       if (draggedState) {
         droppedFilePath = draggedState.path || draggedState.file?.path || null;
       }
@@ -255,7 +273,7 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
           }
         } catch {}
       }
-      if (!droppedFilePath && plainTextPath && plainTextPath.trim().length > 0) {
+      if (!droppedFilePath && plainTextPath && isVaultFile(plainTextPath.trim())) {
         droppedFilePath = plainTextPath.trim();
       }
 
@@ -264,15 +282,22 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
         e.stopPropagation();
 
         const isImg = isImageFile(droppedFilePath);
-        const linkTarget = getShortestUniquePath(droppedFilePath, vaultPathRef.current, filesRef.current);
-        const backlinkText = isImg ? `![[${linkTarget}]]` : `[[${linkTarget}]]`;
+        let insertText = "";
+        if (isImg) {
+          const fileName = droppedFilePath.split(/[/\\]/).pop() || "image";
+          insertText = `![[${fileName}]]`;
+        } else {
+          const linkTarget = getShortestUniquePath(droppedFilePath, vaultPathRef.current, filesRef.current);
+          insertText = `[[${linkTarget}]]`;
+        }
+
         const v = viewRef.current;
         const coords = v.posAtCoords({ x: e.clientX, y: e.clientY });
         const pos = coords ?? v.state.selection.main.head;
 
         v.dispatch({
-          changes: { from: pos, insert: backlinkText },
-          selection: { anchor: pos + backlinkText.length }
+          changes: { from: pos, insert: insertText },
+          selection: { anchor: pos + insertText.length }
         });
         return;
       }
@@ -349,34 +374,6 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-[#07080c] flex flex-col">
-      {/* Top Banner indicating editable source mode */}
-      <div className="flex items-center justify-between px-4 py-2 bg-sidebar border-b border-card-border text-xs">
-        <div className="flex items-center gap-2 text-slate-400 font-medium">
-          <FileCode className="h-4 w-4 text-indigo-400" />
-          <span>Markdown Source Mode</span>
-          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold flex items-center gap-1">
-            <Edit3 className="h-2.5 w-2.5" />
-            Editable
-          </span>
-        </div>
-        <button
-          onClick={handleCopy}
-          className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#161825] hover:bg-indigo-600/20 border border-card-border text-slate-300 hover:text-indigo-300 transition-all text-[11px] font-medium cursor-pointer"
-        >
-          {copied ? (
-            <>
-              <Check className="h-3.5 w-3.5 text-emerald-400" />
-              <span className="text-emerald-400">Copied!</span>
-            </>
-          ) : (
-            <>
-              <Copy className="h-3.5 w-3.5 text-indigo-400" />
-              <span>Copy Markdown</span>
-            </>
-          )}
-        </button>
-      </div>
-
       {/* CodeMirror Editable Container */}
       <div ref={containerRef} className="flex-1 overflow-auto font-mono text-xs" />
     </div>

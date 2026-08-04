@@ -1,13 +1,15 @@
 import { pipeline, env } from "@huggingface/transformers";
 
-// Tell transformers.js to load models from HuggingFace CDN and cache them locally in browser Cache API
-env.allowLocalModels = false;
+// Configure transformers.js to load bundled local static models from /models/
+env.allowLocalModels = true;
+env.allowRemoteModels = false; // Strictly offline from local assets
+(env as any).localURL = "/models/";
 
 let pipelineInstance: any = null;
 
 async function getPipeline() {
   if (!pipelineInstance) {
-    pipelineInstance = await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2", {
+    pipelineInstance = await pipeline("feature-extraction", "Xenova/bge-small-en-v1.5", {
       progress_callback: (data: any) => {
         if (data.status === "progress") {
           self.postMessage({ type: "progress", file: data.file, progress: data.progress });

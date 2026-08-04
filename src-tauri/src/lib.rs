@@ -3,6 +3,7 @@ mod llm;
 mod db;
 mod watcher;
 mod parser;
+mod vault_scanner;
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -297,6 +298,7 @@ pub fn run() {
             update_block_status,
             run_block_query,
             scan_vault_delta,
+            vault_scanner::scan_vault_tasks,
             // LLM commands
             llm_list_models,
             llm_get_system_info,

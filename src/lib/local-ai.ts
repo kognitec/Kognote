@@ -58,12 +58,14 @@ export async function streamFetchSSE(
   headers: Record<string, string>,
   body: any,
   onToken: (token: string) => void,
-  extractToken: (dataObj: any) => string | null
+  extractToken: (dataObj: any) => string | null,
+  signal?: AbortSignal
 ): Promise<string> {
   const res = await fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
+    signal,
   });
 
   if (!res.ok) {
@@ -111,7 +113,7 @@ class AIService {
   private inactivityTimeout: any = null;
   private settings: AISettings = {
     provider: "local",
-    localModel: "llama3.2-3b",
+    localModel: "qwen2.5-coder-3b",
     apiUrl: "https://api.openai.com/v1",
     apiKey: "",
     apiModel: "gpt-4o-mini",
@@ -120,6 +122,11 @@ class AIService {
   /** Update configuration. Call whenever settings change. */
   updateSettings(newSettings: Partial<AISettings>) {
     this.settings = { ...this.settings, ...newSettings };
+  }
+
+  /** Get current AI configuration. */
+  getSettings(): AISettings {
+    return { ...this.settings };
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -288,7 +295,7 @@ class AIService {
     prompt: string,
     systemPrompt: string | undefined,
     onToken: (token: string) => void,
-    options?: { imageBase64?: string; imageMimeType?: string }
+    options?: { imageBase64?: string; imageMimeType?: string; temperature?: number; tools?: any; abortSignal?: AbortSignal }
   ): Promise<string> {
     if (this.inactivityTimeout) {
       clearTimeout(this.inactivityTimeout);
@@ -308,7 +315,7 @@ class AIService {
 
       return streamFetchSSE(url, { "Content-Type": "application/json" }, body, onToken, (data) => {
         return data.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
-      });
+      }, options?.abortSignal);
     }
 
     if (this.settings.provider === "anthropic") {
@@ -338,7 +345,8 @@ class AIService {
         },
         body,
         onToken,
-        (data) => data.delta?.text ?? null
+        (data) => data.delta?.text ?? null,
+        options?.abortSignal
       );
     }
 
@@ -369,7 +377,8 @@ class AIService {
           stream: true,
         },
         onToken,
-        (data) => data.choices?.[0]?.delta?.content ?? null
+        (data) => data.choices?.[0]?.delta?.content ?? null,
+        options?.abortSignal
       );
     }
 
@@ -402,13 +411,31 @@ class AIService {
         resolveDone();
       });
 
+      const onAbort = () => {
+        resolveDone();
+      };
+
+      if (options?.abortSignal) {
+        if (options.abortSignal.aborted) {
+          unlistenToken();
+          unlistenDone();
+          return "";
+        }
+        options.abortSignal.addEventListener("abort", onAbort);
+      }
+
       try {
         await invoke("llm_generate_stream", {
           prompt,
           systemPrompt: systemPrompt ?? null,
+          temperature: options?.temperature ?? null,
+          tools: options?.tools ?? null,
         });
         await donePromise;
       } finally {
+        if (options?.abortSignal) {
+          options.abortSignal.removeEventListener("abort", onAbort);
+        }
         unlistenToken();
         unlistenDone();
       }
@@ -429,7 +456,7 @@ class AIService {
   async generateText(
     prompt: string,
     systemPrompt?: string,
-    options?: { imageBase64?: string; imageMimeType?: string }
+    options?: { imageBase64?: string; imageMimeType?: string; temperature?: number; tools?: any }
   ): Promise<string> {
     if (this.inactivityTimeout) {
       clearTimeout(this.inactivityTimeout);
@@ -454,6 +481,8 @@ class AIService {
         const result = await invoke<string>("llm_generate", {
           prompt,
           systemPrompt: systemPrompt ?? null,
+          temperature: options?.temperature ?? null,
+          tools: options?.tools ?? null,
         });
 
         // Auto-unload after 45 seconds of inactivity to free system RAM
@@ -661,6 +690,46 @@ class AIService {
     );
   }
 
+  /** Expand text selection with more depth, context, and detail. */
+  async expandText(text: string): Promise<string> {
+    return this.generateText(
+      `Expand and elaborate on the following text with rich detail and context:\n\n${text}`,
+      "You are an expert technical writer. Expand the text cleanly with deeper context and examples while maintaining accuracy. Output ONLY the expanded markdown text."
+    );
+  }
+
+  /** Shorten and condense text selection. */
+  async shortenText(text: string): Promise<string> {
+    return this.generateText(
+      `Shorten and condense the following text while preserving essential information:\n\n${text}`,
+      "You are a concise editor. Reduce the length of the text while retaining all critical facts. Output ONLY the condensed markdown text."
+    );
+  }
+
+  /** Convert text selection into spaced-repetition flashcards. */
+  async makeFlashcards(text: string): Promise<string> {
+    return this.generateText(
+      `Create spaced-repetition flashcards from the following text:\n\n${text}`,
+      "You are a study assistant. Generate spaced repetition flashcards in the format:\n@flashcard (Question :: Answer)\nCreate 2-4 high quality cards. Output ONLY the flashcard lines."
+    );
+  }
+
+  /** Extract actionable tasks from text selection. */
+  async extractTasks(text: string): Promise<string> {
+    return this.generateText(
+      `Extract all actionable tasks and to-dos from the following text:\n\n${text}`,
+      "You are a productivity assistant. Extract actionable to-dos as markdown task checkboxes (- [ ] Task description). Output ONLY the task list."
+    );
+  }
+
+  /** Rewrite text in a specific tone. */
+  async changeTone(text: string, tone: string): Promise<string> {
+    return this.generateText(
+      `Rewrite the following text in a ${tone} tone:\n\n${text}`,
+      `You are an expert communicator. Rewrite the text using a ${tone} tone. Keep the core meaning intact. Output ONLY the rewritten markdown text.`
+    );
+  }
+
   /** General chat / transformation on text. */
   async chat(prompt: string, context?: string): Promise<string> {
     const fullPrompt = context ? `Context:\n${context}\n\nTask: ${prompt}` : prompt;
@@ -684,10 +753,11 @@ class AIService {
   /** Suggest wiki-links for the active note based on semantic similarities. */
   async suggestLinks(content: string, relatedNotes: string[]): Promise<{ originalText: string; linkTarget: string }[]> {
     if (relatedNotes.length === 0) return [];
+    const candidateNotes = relatedNotes.slice(0, 20);
     
     const prompt = 
-      `Current Note Content:\n"""\n${content}\n"""\n\n` +
-      `Here is a list of existing related notes in the vault:\n${relatedNotes.map(n => `- ${n}`).join("\n")}\n\n` +
+      `Current Note Content:\n"""\n${content.slice(0, 4000)}\n"""\n\n` +
+      `Here is a list of existing related notes in the vault:\n${candidateNotes.map(n => `- ${n}`).join("\n")}\n\n` +
       `Identify exact phrases or words in the current note content that refer to or match these related notes. ` +
       `Suggest wiki-links by replacing those phrases. For example, if the current note has the text "spaced repetition" and there is a related note named "Spaced Repetition", suggest replacing "spaced repetition" with "[[Spaced Repetition]]".\n\n` +
       `Format your output as a strict JSON array of objects, each containing:\n` +

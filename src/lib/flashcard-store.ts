@@ -2,7 +2,8 @@ import { invokeIPC } from "./ipc";
 import { writeTextFile, readTextFile, exists, mkdir } from "@tauri-apps/plugin-fs";
 import { parseFlashcards, Flashcard } from "./flashcard-parser";
 import { FileEntry } from "../contexts/VaultContext";
-import { ScanOptions, isArchivedPath, isTrashPath } from "./task-scanner";
+import { ScanOptions, isArchivedPath, isTrashPath, isTemplatePath } from "./task-scanner";
+import { parseFrontmatter, ensureAndSyncFrontmatter } from "./frontmatter";
 
 interface ProgressItem {
   interval: number;
@@ -16,6 +17,7 @@ interface ProgressItem {
 
 export class FlashcardStore {
   private vaultPath: string = "";
+  public noteMetaMap: Map<string, { dueDate?: string; priority?: string }> = new Map();
 
   setVaultPath(path: string) {
     this.vaultPath = path;
@@ -119,7 +121,11 @@ export class FlashcardStore {
         }
       }
 
-      const today = new Date().toISOString().split("T")[0];
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, "0");
+      const dd = String(now.getDate()).padStart(2, "0");
+      const today = `${yyyy}-${mm}-${dd}`;
       history[today] = (history[today] || 0) + count;
 
       const jsonStr = JSON.stringify({ progress, history }, null, 2);
@@ -129,12 +135,81 @@ export class FlashcardStore {
     }
   }
 
+  // Update card content directly inside the source markdown file
+  async updateFlashcardInNote(card: Flashcard, newFront: string, newBack: string): Promise<boolean> {
+    if (!card.filePath) return false;
+    try {
+      const content = await invokeIPC("read_note", { path: card.filePath }) as string;
+      if (!content) return false;
+
+      const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const pattern1 = new RegExp(`@flashcards?\\s*\\(\\s*${escapeRegex(card.front)}\\s*::\\s*${escapeRegex(card.back)}\\s*\\)`, "i");
+
+      const newText = `@flashcard (${newFront.trim()} :: ${newBack.trim()})`;
+      let updatedContent = content;
+
+      if (pattern1.test(content)) {
+        updatedContent = content.replace(pattern1, newText);
+      } else {
+        const patternFront = new RegExp(`@flashcards?\\s*\\(\\s*${escapeRegex(card.front)}\\s*::[\\s\\S]*?\\)`, "i");
+        if (patternFront.test(content)) {
+          updatedContent = content.replace(patternFront, newText);
+        }
+      }
+
+      if (updatedContent !== content) {
+        const syncedContent = ensureAndSyncFrontmatter(updatedContent, { forceUpdateTimestamp: true }).fullContent;
+        await invokeIPC("write_note", { path: card.filePath, content: syncedContent });
+        window.dispatchEvent(new CustomEvent("reload-active-file", { detail: { path: card.filePath } }));
+        window.dispatchEvent(new CustomEvent("vault-file-changed", { detail: { path: card.filePath } }));
+        return true;
+      }
+    } catch (err) {
+      console.error("Failed to update flashcard in note:", err);
+    }
+    return false;
+  }
+
+  // Remove card syntax line directly from the source markdown file
+  async deleteFlashcardFromNote(card: Flashcard): Promise<boolean> {
+    if (!card.filePath) return false;
+    try {
+      const content = await invokeIPC("read_note", { path: card.filePath }) as string;
+      if (!content) return false;
+
+      const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const pattern1 = new RegExp(`[\\t ]*@flashcards?\\s*\\(\\s*${escapeRegex(card.front)}\\s*::\\s*${escapeRegex(card.back)}\\s*\\)[\\t ]*\\r?\\n?`, "i");
+
+      let updatedContent = content;
+      if (pattern1.test(content)) {
+        updatedContent = content.replace(pattern1, "");
+      } else {
+        const patternFront = new RegExp(`[\\t ]*@flashcards?\\s*\\(\\s*${escapeRegex(card.front)}\\s*::[\\s\\S]*?\\)[\\t ]*\\r?\\n?`, "i");
+        if (patternFront.test(content)) {
+          updatedContent = content.replace(patternFront, "");
+        }
+      }
+
+      if (updatedContent !== content) {
+        const syncedContent = ensureAndSyncFrontmatter(updatedContent, { forceUpdateTimestamp: true }).fullContent;
+        await invokeIPC("write_note", { path: card.filePath, content: syncedContent });
+        window.dispatchEvent(new CustomEvent("reload-active-file", { detail: { path: card.filePath } }));
+        window.dispatchEvent(new CustomEvent("vault-file-changed", { detail: { path: card.filePath } }));
+        return true;
+      }
+    } catch (err) {
+      console.error("Failed to delete flashcard from note:", err);
+    }
+    return false;
+  }
+
   // Helper to flatten recursive FileEntry list into a flat list of absolute file paths
   private flattenFiles(items: FileEntry[], options?: ScanOptions): string[] {
     let flat: string[] = [];
     for (const item of items) {
       if (!options?.includeArchived && isArchivedPath(item.path)) continue;
       if (!options?.includeTrash && isTrashPath(item.path)) continue;
+      if (isTemplatePath(item.path)) continue;
 
       if (item.is_dir) {
         if (item.children) {
@@ -145,6 +220,44 @@ export class FlashcardStore {
       }
     }
     return flat;
+  }
+
+  // Replace or append flashcard lines in a target note file
+  async replaceOrAppendFlashcardsInNote(
+    filePath: string,
+    newCards: { front: string; back: string }[],
+    mode: "replace" | "append"
+  ): Promise<boolean> {
+    if (!filePath || newCards.length === 0) return false;
+    try {
+      let content = (await invokeIPC("read_note", { path: filePath })) as string;
+      if (typeof content !== "string") content = "";
+
+      if (mode === "replace") {
+        // Strip out existing @flashcard (...) lines
+        content = content
+          .replace(/[\t ]*@flashcards?\s*\([\s\S]*?::[\s\S]*?\)\r?\n?/gi, "")
+          .trimEnd();
+      }
+
+      const formattedNewCards = newCards
+        .map((c) => `@flashcard (${c.front.trim()} :: ${c.back.trim()})`)
+        .join("\n");
+
+      const hasContent = content.trim().length > 0;
+      const updatedContent = hasContent
+        ? `${content.trimEnd()}\n\n${formattedNewCards}\n`
+        : `${formattedNewCards}\n`;
+
+      const syncedContent = ensureAndSyncFrontmatter(updatedContent, { forceUpdateTimestamp: true }).fullContent;
+      await invokeIPC("write_note", { path: filePath, content: syncedContent });
+      window.dispatchEvent(new CustomEvent("reload-active-file", { detail: { path: filePath } }));
+      window.dispatchEvent(new CustomEvent("vault-file-changed", { detail: { path: filePath } }));
+      return true;
+    } catch (err) {
+      console.error("Failed to replace or append flashcards in note:", err);
+      return false;
+    }
   }
 
   // Scans all files, parses flashcards, and merges progress history
@@ -165,11 +278,27 @@ export class FlashcardStore {
           if (!content) continue;
           if (!options?.includeArchived && /storage:\s*["']?archived["']?/i.test(content)) continue;
           if (!options?.includeTrash && /storage:\s*["']?deleted["']?/i.test(content)) continue;
+          if (/type:\s*["']?template["']?/i.test(content) || isTemplatePath(filePath)) continue;
+
+          // Parse frontmatter due date & priority if present
+          const parsedFm = parseFrontmatter(content);
+          let noteDueDate: string | undefined = undefined;
+          if (parsedFm.fields.due) {
+            const clean = parsedFm.fields.due.trim().replace(/^@/, "");
+            if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
+              noteDueDate = clean.substring(0, 10);
+            }
+          }
+          const notePriority = parsedFm.fields.priority && parsedFm.fields.priority !== "none" ? parsedFm.fields.priority : undefined;
+
+          this.noteMetaMap.set(filePath, { dueDate: noteDueDate, priority: notePriority });
 
           const cards = parseFlashcards(content, filePath);
           
           // Merge historical progress metadata if it exists
           for (const card of cards) {
+            card.noteDueDate = noteDueDate;
+            card.notePriority = notePriority;
             const history = progressMap[card.id];
             if (history) {
               card.interval = history.interval;

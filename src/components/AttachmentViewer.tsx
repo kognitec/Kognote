@@ -18,7 +18,7 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({ file }) => {
   const [rotate, setRotate] = useState(0);
 
   const ext = file.name.toLowerCase().split('.').pop() || '';
-  const isImage = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(ext);
+  const isImage = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif'].includes(ext);
   const isAudio = ['mp3', 'wav', 'm4a'].includes(ext);
   const isVideo = ['mp4', 'mov'].includes(ext);
   const isPdf = ext === 'pdf';

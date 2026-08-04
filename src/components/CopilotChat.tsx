@@ -7,6 +7,8 @@ import { parseDiffBlocks, applyDiffBlocks } from "../lib/diff-applier";
 import { StreamActionBuffer } from "../lib/stream-action-buffer";
 import { actionRegistry } from "../lib/action-registry";
 import { DEFAULT_AGENTS_MD } from "../constants/defaultAgents";
+import { classifyIntent } from "../lib/intent-router";
+import { searchEngine } from "../lib/search-engine";
 import { 
   Paperclip, 
   Mic,
@@ -23,7 +25,6 @@ import {
   AtSign,
   CheckCircle,
   Tag as TagIcon,
-  Code2,
   Package,
   Layers,
   ChevronDown,
@@ -33,18 +34,19 @@ import {
   Navigation,
   Target,
   CheckSquare,
-  Repeat,
   BookOpen,
   Undo2,
   History,
   Plus,
   Trash2,
   Search,
-  MessageSquare
+  MessageSquare,
+  Square
 } from "lucide-react";
 import { message } from "@tauri-apps/plugin-dialog";
 import aiStaticIcon from "../assets/ai-static.png";
 import aiAnimatedGif from "../assets/ai-animated.gif";
+import { MarkdownRenderer } from "./chat/MarkdownRenderer";
 
 export interface ContextChip {
   id: string;
@@ -80,6 +82,8 @@ export interface ChatMessage {
   referenceFile?: { name: string; path: string };
   pendingAction?: PendingActionCard;
   isEditApplied?: boolean;
+  diffResult?: { original: string; updated: string; file: string };
+  isEditing?: boolean;
 }
 
 interface ParsedAction {
@@ -173,10 +177,38 @@ function parseActions(text: string): ParsedAction[] {
     index = endBraceIndex + 1;
   }
   
+  // Bare JSON Fallback Parser: Catch raw JSON tool calls if standard [ACTION: ...] wrapper is missing
+  if (actions.length === 0) {
+    const jsonMatch = text.match(/\{[\s\S]*?"action"\s*:\s*"([^"]+)"[\s\S]*?\}/);
+    if (jsonMatch) {
+      try {
+        const rawJson = jsonMatch[0];
+        const parsed = JSON.parse(rawJson);
+        if (parsed && parsed.action) {
+          actions.push({
+            action: parsed.action,
+            args: parsed.args || parsed.arguments || {},
+            rawTag: rawJson
+          });
+        }
+      } catch (e) {
+        console.warn("Failed to parse bare JSON tool call:", e);
+      }
+    }
+  }
+
   return actions;
 }
 
-const DESTRUCTIVE_ACTIONS = new Set(["delete_note", "write_note", "rename_note"]);
+const DESTRUCTIVE_ACTIONS = new Set(["delete_note", "rename_note"]);
+
+export interface CustomSkill {
+  id: string;
+  key: string;
+  label: string;
+  prompt: string;
+  createdAt?: number;
+}
 
 interface CopilotChatProps {
   onClose?: () => void;
@@ -186,6 +218,7 @@ interface CopilotChatProps {
 }
 
 export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: externalDetached, onToggleDetach, onOpenSettings }) => {
+  const { userTimezone } = useSettings();
   const { 
     files, 
     activeFile, 
@@ -205,6 +238,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
   const [loading, setLoading] = useState(false);
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [userScrolledUp, setUserScrolledUp] = useState(false);
   const [internalDetached, setInternalDetached] = useState(false);
   const isDetached = externalDetached !== undefined ? externalDetached : internalDetached;
   const toggleDetach = onToggleDetach || (() => setInternalDetached(!internalDetached));
@@ -245,6 +279,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
   // Voice Dictation Speech Recognition
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const baseInputRef = useRef<string>("");
 
   // Attachment and Context Pins
   const [attachedFile, setAttachedFile] = useState<{ name: string; path: string } | null>(null);
@@ -261,27 +296,33 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
     query: string;
   }>({ active: false, trigger: "@", query: "" });
 
+  // Custom AI Skills Management & Persistence
+  const [customSkills, setCustomSkills] = useState<CustomSkill[]>([]);
+  const [showCreateSkillModal, setShowCreateSkillModal] = useState(false);
+  const [newSkillName, setNewSkillName] = useState("");
+  const [newSkillKey, setNewSkillKey] = useState("");
+  const [newSkillPrompt, setNewSkillPrompt] = useState("");
+
+  // Slash Menu (/ trigger)
+  const [showSlashMenu, setShowSlashMenu] = useState<{ active: boolean; query: string }>({ active: false, query: "" });
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const agentsCacheRef = useRef<{ path: string; content: string; mtime: number } | null>(null);
+  const pinnedCacheRef = useRef<Map<string, { content: string; mtime: number }>>(new Map());
 
   const WELCOME_TEXT = "Hi! I am **Kognote Copilot**, your local AI workspace agent. I can extract tasks, update Kanban board cards, sync frontmatter, live edit notes, and answer questions across your vault.";
 
   const separator = vaultPath?.includes("\\") ? "\\" : "/";
 
-  // Skills Registry
-  const SKILLS_AND_LOOPS_GROUPS = [
-    {
-      category: "Skills",
-      items: [
-        { key: "create_note", label: "Create Structured Note", icon: FileText, prompt: "Create a new note titled \"Project Ideas\" with tags #ideas" },
-        { key: "add_task", label: "Create Task Checklist", icon: CheckSquare, prompt: "Add a task checklist item for @task" },
-        { key: "set_board_card", label: "Update Kanban Card", icon: Layers, prompt: "Add card to Kanban board column In Progress: " },
-        { key: "extract_flashcards", label: "Extract Flashcards", icon: BookOpen, prompt: "Extract flashcards from active note with format (Question :: Answer)" },
-        { key: "suggest_links", label: "Suggest Backlinks", icon: Sparkles, prompt: "Analyze active note and suggest wikilink connections across vault." },
-        { key: "navigate", label: "Switch App View", icon: Navigation, prompt: "Switch view to calendar" }
-      ]
-    }
-  ];
+  const BUILTIN_SKILLS = [
+  { key: "create_note", label: "Create Structured Note", icon: FileText, prompt: "Create a new note titled \"Project Ideas\" with tags #ideas" },
+  { key: "add_task", label: "Create Task Checklist", icon: CheckSquare, prompt: "Add a task checklist item for @task" },
+  { key: "set_board_card", label: "Update Kanban Card", icon: Layers, prompt: "Add card to Kanban board column In Progress: " },
+  { key: "extract_flashcards", label: "Extract Flashcards", icon: BookOpen, prompt: "Extract flashcards from active note with format (Question :: Answer)" },
+  { key: "suggest_links", label: "Suggest Backlinks", icon: Sparkles, prompt: "Analyze active note and suggest wikilink connections across vault." },
+  { key: "navigate", label: "Switch App View", icon: Navigation, prompt: "Switch view to calendar" }
+];
 
   const handleAppFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -295,6 +336,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
     }
   };
 
+  // Voice Dictation Speech Recognition (Native OS Speech API Integration)
   const toggleVoiceInput = () => {
     if (isListening) {
       if (recognitionRef.current) recognitionRef.current.stop();
@@ -304,7 +346,12 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
 
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      message("Speech Recognition is not supported in this environment.", { title: "Voice Error", kind: "error" });
+      message(
+        "Speech Recognition engine is not available natively in this WebKit window.\n\n" +
+        "Tip for Windows: Press Win + H to activate Windows System Voice Typing anywhere.\n" +
+        "Tip for Mac: Press Fn key twice or F5 to activate macOS System Dictation.",
+        { title: "System Voice Typing Available", kind: "info" }
+      );
       return;
     }
 
@@ -312,27 +359,55 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = "en-US";
+      recognition.lang = navigator.language || "en-US";
 
-      recognition.onstart = () => setIsListening(true);
+      // Lock base input text so interim results don't duplicate existing text
+      baseInputRef.current = inputMessage;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
       recognition.onerror = (event: any) => {
-        console.error("Speech Recognition Error", event);
+        console.warn("Speech Recognition Error:", event.error);
+        setIsListening(false);
+        if (event.error !== "no-speech" && event.error !== "aborted") {
+          message(
+            `Voice dictation note: ${event.error || "Permission required"}.\n\n` +
+            `You can also use Win + H (Windows) or Fn key twice (Mac) for OS system voice dictation directly into the chat input!`,
+            { title: "Voice Transcription", kind: "info" }
+          );
+        }
+      };
+
+      recognition.onend = () => {
         setIsListening(false);
       };
-      recognition.onend = () => setIsListening(false);
+
       recognition.onresult = (event: any) => {
-        let transcript = "";
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          transcript += event.results[i][0].transcript;
+        let finalTranscript = "";
+        let interimTranscript = "";
+
+        for (let i = 0; i < event.results.length; i++) {
+          const res = event.results[i];
+          if (res.isFinal) {
+            finalTranscript += res[0].transcript + " ";
+          } else {
+            interimTranscript += res[0].transcript;
+          }
         }
-        if (transcript) {
-          setInputMessage((prev) => (prev ? `${prev} ${transcript}` : transcript));
+
+        const accumulatedText = (finalTranscript + interimTranscript).trim();
+        if (accumulatedText) {
+          const base = baseInputRef.current;
+          const newCombined = base ? `${base} ${accumulatedText}` : accumulatedText;
+          setInputMessage(newCombined);
         }
       };
 
       recognitionRef.current = recognition;
       recognition.start();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to start speech recognition:", err);
       setIsListening(false);
     }
@@ -452,7 +527,20 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         path
       }) as string;
 
-      const cleanText = textToInsert.replace(/\[ACTION:.*?\]/g, "").trim();
+      let cleanText = textToInsert
+        .replace(/\[ACTION:[^\]]*\]/gi, "")
+        .replace(/<<<<<<< SEARCH[\s\S]*?>>>>>>> REPLACE/gi, "")
+        .trim();
+
+      const outerFenceRegex = /^```(?:markdown|md|text)?\s*\n([\s\S]*?)\n```$/i;
+      if (outerFenceRegex.test(cleanText)) {
+        cleanText = cleanText.replace(outerFenceRegex, "$1").trim();
+      }
+      cleanText = cleanText
+        .replace(/^```(?:markdown|md|text)?\s*\n?/i, "")
+        .replace(/\n?```$/, "")
+        .trim();
+
       const updatedContent = currentContent 
         ? `${currentContent}\n\n${cleanText}`
         : cleanText;
@@ -491,10 +579,104 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
     }
   };
 
-  // Restore or Initialize Chat Threads
+  // Persistent Custom Skills Loading & Storage (localStorage + Vault File Sync)
+  useEffect(() => {
+    async function loadSkills() {
+      try {
+        let loadedSkills: CustomSkill[] = [];
+        if (vaultPath) {
+          const sep = vaultPath.includes("\\") ? "\\" : "/";
+          const skillsFilePath = `${vaultPath}${sep}.kognote${sep}skills.json`;
+          try {
+            const exists = await invokeIPC("fs_exists", { path: skillsFilePath }).catch(() => false);
+            if (exists) {
+              const fileData = (await invokeIPC("read_note", { path: skillsFilePath })) as string;
+              if (fileData) {
+                const parsed = JSON.parse(fileData);
+                if (Array.isArray(parsed)) loadedSkills = parsed;
+              }
+            }
+          } catch {}
+        }
+
+        if (loadedSkills.length === 0) {
+          const saved = localStorage.getItem("kognote_custom_skills");
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) loadedSkills = parsed;
+          }
+        }
+
+        if (loadedSkills.length > 0) {
+          setCustomSkills(loadedSkills);
+        }
+      } catch (e) {
+        console.warn("Failed to load custom skills:", e);
+      }
+    }
+    loadSkills();
+  }, [vaultPath]);
+
+  const saveSkillsToStorageAndVault = async (updatedSkills: CustomSkill[]) => {
+    setCustomSkills(updatedSkills);
+    try {
+      localStorage.setItem("kognote_custom_skills", JSON.stringify(updatedSkills));
+    } catch {}
+
+    if (vaultPath) {
+      try {
+        const sep = vaultPath.includes("\\") ? "\\" : "/";
+        const kognoteDir = `${vaultPath}${sep}.kognote`;
+        const skillsFilePath = `${kognoteDir}${sep}skills.json`;
+        const dirExists = await invokeIPC("fs_exists", { path: kognoteDir }).catch(() => false);
+        if (!dirExists) {
+          await invokeIPC("create_folder", { path: kognoteDir }).catch(() => {});
+        }
+        await invokeIPC("write_note", {
+          path: skillsFilePath,
+          content: JSON.stringify(updatedSkills, null, 2),
+        }).catch(() => {});
+      } catch (err) {
+        console.warn("Failed to write skills.json to vault:", err);
+      }
+    }
+  };
+
+  const handleSaveCustomSkill = () => {
+    if (!newSkillName.trim() || !newSkillPrompt.trim()) return;
+    const cleanKey = (newSkillKey.trim() || newSkillName.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_")).replace(/^[\/]/, "");
+
+    const newSkill: CustomSkill = {
+      id: "skill_" + Date.now(),
+      key: cleanKey,
+      label: newSkillName.trim(),
+      prompt: newSkillPrompt.trim(),
+      createdAt: Date.now()
+    };
+
+    const updated = [newSkill, ...customSkills];
+    saveSkillsToStorageAndVault(updated);
+
+    setNewSkillName("");
+    setNewSkillKey("");
+    setNewSkillPrompt("");
+    setShowCreateSkillModal(false);
+  };
+
+  const handleDeleteCustomSkill = (skillId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = customSkills.filter((s) => s.id !== skillId);
+    saveSkillsToStorageAndVault(updated);
+  };
+
+  // Restore or Initialize Chat Threads (Fresh thread if opened >2 mins after last close)
   useEffect(() => {
     try {
       const saved = localStorage.getItem("kognote_copilot_chat_threads");
+      const lastClosed = localStorage.getItem("kognote_copilot_last_closed");
+      const now = Date.now();
+      const isFreshOpen = !lastClosed || (now - parseInt(lastClosed, 10) > 120000); // 2 minute threshold
+
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -503,18 +685,30 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
             messages: (t.messages || []).map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) }))
           }));
           setThreads(formattedThreads);
-          const first = formattedThreads[0];
-          setActiveThreadId(first.id);
-          setMessages(first.messages || []);
-          setConversationHistory(first.conversationHistory || []);
-          return;
+
+          if (!isFreshOpen) {
+            // Re-opened within 2 minutes: preserve active chat thread
+            const first = formattedThreads[0];
+            setActiveThreadId(first.id);
+            setMessages(first.messages || []);
+            setConversationHistory(first.conversationHistory || []);
+            return;
+          }
         }
       }
     } catch (e) {
       console.warn("Failed to parse chat threads:", e);
     }
 
+    // Fresh open (>2 minutes or fresh start): start a clean new thread!
     createNewThread();
+
+    return () => {
+      // Record timestamp when panel is closed/unmounted
+      try {
+        localStorage.setItem("kognote_copilot_last_closed", Date.now().toString());
+      } catch {}
+    };
   }, []);
 
   // Sync Current Thread State & Persist
@@ -547,6 +741,13 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       return updated;
     });
   }, [messages, conversationHistory, activeThreadId]);
+
+  // Smart Auto-Scroll to Bottom during stream unless user manually scrolled up
+  useEffect(() => {
+    if (!userScrolledUp) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, loading, userScrolledUp]);
 
   // Reactive Token Count Estimation
   useEffect(() => {
@@ -619,6 +820,9 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
           return m;
         })
       );
+      if (activeFile) {
+        window.dispatchEvent(new CustomEvent("reload-active-file", { detail: { path: activeFile.path } }));
+      }
     } catch (e: any) {
       await message(`Action failed: ${e.message || e}`, { title: "Action Error", kind: "error" });
     }
@@ -678,40 +882,78 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
 
       // 1. Workspace Context Assembly
       let contextHeader = `Kognote Workspace Context:\n`;
+      contextHeader += `- Current ISO Timestamp: ${new Date().toISOString()}\n`;
+      contextHeader += `- User Configured Timezone: ${userTimezone}\n`;
       contextHeader += `- Active View: ${activeView}\n`;
+      contextHeader += `- Selected Context Scope Mode: ${contextScopeMode}\n`;
       if (activeFile) {
         contextHeader += `- Currently Focused Note: ${activeFile.name}\n`;
       }
 
-      // Vault-Wide Scope Context Injection
+      // 2. Scope-Specific Context Assembly (Dynamic Token-Budget Allocation RAG)
+      const tokenBudget = aiProvider === "local" ? 3000 : 16000;
+
       if (contextScopeMode === "vault") {
-        contextHeader += `\n[ENTIRE VAULT INDEX & NOTE SUMMARIES]:\n`;
-        const entries = Object.values(noteCache).slice(0, 80);
-        for (const entry of entries) {
-          const title = entry.path.split(/[\/\\]/).pop()?.replace(/\.md$/, "") || "";
-          const tagsStr = entry.tags?.length ? ` #${entry.tags.join(" #")}` : "";
-          const taskCount = entry.tasks?.length ? ` (${entry.tasks.filter(t => !t.completed).length} open tasks)` : "";
-          contextHeader += `- Note: [[${title}]]${tagsStr}${taskCount}\n`;
+        contextHeader += `\n[ENTIRE VAULT VECTOR RAG CONTEXT (Time-Weighted & Dynamic Budget Matches)]:\n`;
+        try {
+          const searchResults = await searchEngine.hybridRrfSearchWithBudget(userText, tokenBudget);
+          if (searchResults && searchResults.length > 0) {
+            for (let idx = 0; idx < searchResults.length; idx++) {
+              const res = searchResults[idx];
+              const noteName = res.filePath.split(/[\/\\]/).pop()?.replace(/\.md$/i, "") || res.filePath;
+              const dateStr = res.updatedAt ? new Date(res.updatedAt).toISOString().split("T")[0] : "Recent";
+              contextHeader += `--- Match ${idx + 1} (From Note: [[${noteName}]], Last Edited: ${dateStr}) ---\n${res.chunkText}\n\n`;
+            }
+          } else {
+            // Fallback note summary index if vector search returns 0
+            const entries = Object.values(noteCache).slice(0, 30);
+            for (const entry of entries) {
+              const title = entry.path.split(/[\/\\]/).pop()?.replace(/\.md$/, "") || "";
+              contextHeader += `- Note: [[${title}]]\n`;
+            }
+          }
+        } catch (err) {
+          console.warn("Vault RAG search error:", err);
+        }
+      } else if (contextScopeMode === "none") {
+        // NO CONTEXT / PURE READ-ONLY QA MODE: Extract database facts only, no note editing
+        contextHeader += `\n[DATABASE REFERENCE FACTS (READ-ONLY QA MODE)]:\n`;
+        try {
+          const searchResults = await searchEngine.hybridRrfSearchWithBudget(userText, Math.min(tokenBudget, 2000));
+          if (searchResults && searchResults.length > 0) {
+            for (let idx = 0; idx < searchResults.length; idx++) {
+              const res = searchResults[idx];
+              const noteName = res.filePath.split(/[\/\\]/).pop()?.replace(/\.md$/i, "") || res.filePath;
+              const dateStr = res.updatedAt ? new Date(res.updatedAt).toISOString().split("T")[0] : "Recent";
+              contextHeader += `--- Database Fact ${idx + 1} (From Note: [[${noteName}]], Last Edited: ${dateStr}): ---\n${res.chunkText}\n\n`;
+            }
+          }
+        } catch (err) {
+          console.warn("Database QA search error:", err);
         }
       }
 
-      // Multi-Turn Conversation History (6 Turns)
+      // 3. Isolated Turn History (strictly for active thread)
       if (conversationHistory.length > 0) {
-        contextHeader += `\n[RECENT CONVERSATION HISTORY (LAST 6 TURNS)]:\n`;
+        contextHeader += `\n[CURRENT CHAT CONVERSATION HISTORY (LAST 6 TURNS)]:\n`;
         const recentTurns = conversationHistory.slice(-6);
         for (const turn of recentTurns) {
           contextHeader += `${turn.role.toUpperCase()}: ${turn.content}\n`;
         }
       }
 
-      // Ingest Pinned Context Chips (@notes and #tags)
+      // 4. Ingest Pinned Context Chips (@notes and #tags) with caching
       if (pinnedContexts.length > 0) {
         contextHeader += `\n[PINNED CONTEXT REPOSITORIES]:\n`;
         for (const chip of pinnedContexts) {
           if (chip.path) {
             try {
-              const text = await invokeIPC("read_note", { path: chip.path }) as string;
-              contextHeader += `--- PINNED NOTE: "${chip.label}" ---\n${text}\n\n`;
+              let text = pinnedCacheRef.current.get(chip.path)?.content;
+              if (!text) {
+                text = (await invokeIPC("read_note", { path: chip.path })) as string;
+                pinnedCacheRef.current.set(chip.path, { content: text, mtime: Date.now() });
+              }
+              contextHeader += `--- PINNED NOTE: "${chip.label}" ---\n${text.slice(0, 4000)}\n\n`;
             } catch {}
           } else if (chip.tag) {
             contextHeader += `--- PINNED TAG: #${chip.tag} ---\n`;
@@ -722,39 +964,57 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
 
             for (const tf of taggedFiles) {
               try {
-                const text = await invokeIPC("read_note", { path: tf.path }) as string;
-                contextHeader += `[Tag Match: ${tf.name}]\n${text}\n\n`;
+                let text = pinnedCacheRef.current.get(tf.path)?.content;
+                if (!text) {
+                  text = (await invokeIPC("read_note", { path: tf.path })) as string;
+                  pinnedCacheRef.current.set(tf.path, { content: text, mtime: Date.now() });
+                }
+                contextHeader += `[Tag Match: ${tf.name}]\n${text.slice(0, 2000)}\n\n`;
               } catch {}
             }
           }
         }
       }
 
-      // Ingest Vault AGENTS.md rules if available, fallback to bundled default
+      // 5. Ingest Vault AGENTS.md rules with TTL caching (30s)
       let agentsRuleContent = DEFAULT_AGENTS_MD;
-      try {
-        const agentsPath = `${vaultPath}${separator}AGENTS.md`;
-        const agentsExists = await invokeIPC("fs_exists", { path: agentsPath }).catch(() => false);
-        if (agentsExists) {
-          const readText = await invokeIPC("read_note", { path: agentsPath }) as string;
-          if (readText && readText.trim()) {
-            agentsRuleContent = readText;
+      const agentsPath = `${vaultPath}${separator}AGENTS.md`;
+      const now = Date.now();
+      if (agentsCacheRef.current && agentsCacheRef.current.path === agentsPath && (now - agentsCacheRef.current.mtime < 30000)) {
+        agentsRuleContent = agentsCacheRef.current.content;
+      } else {
+        try {
+          const agentsExists = await invokeIPC("fs_exists", { path: agentsPath }).catch(() => false);
+          if (agentsExists) {
+            const readText = (await invokeIPC("read_note", { path: agentsPath })) as string;
+            if (readText && readText.trim()) {
+              agentsRuleContent = readText;
+              agentsCacheRef.current = { path: agentsPath, content: readText, mtime: now };
+            }
           }
-        }
-      } catch {}
+        } catch {}
+      }
 
       contextHeader += `\n[CRITICAL SYSTEM OPERATING DIRECTIVE (AGENTS.md)]:\nNOTE TO AI: The following rules are SYSTEM OPERATING GUIDELINES governing how you execute actions and format notes. Do NOT treat them as note text to summarize or reproduce.\n"""\n${agentsRuleContent.trim()}\n"""\n`;
 
       let refText = "";
-      if (targetRefFile) {
+      // Primary Reference Note is read if contextScopeMode !== "none"
+      const noteFileToRead = targetRefFile || (contextScopeMode === "active" ? activeFile : null);
+      if (noteFileToRead && contextScopeMode !== "none") {
         try {
-          refText = await invokeIPC("read_note", {
-            path: targetRefFile.path,
-          }) as string;
-          contextHeader += `\n[PRIMARY REFERENCE NOTE] "${targetRefFile.name}" Text Content:\n"""\n${refText}\n"""\n`;
+          refText = (await invokeIPC("read_note", {
+            path: noteFileToRead.path,
+          })) as string;
+          contextHeader += `\n[PRIMARY REFERENCE NOTE] "${noteFileToRead.name}" Text Content:\n"""\n${refText}\n"""\n`;
         } catch {
-          contextHeader += `- Primary Note: ${targetRefFile.name} (Unreadable)\n`;
+          contextHeader += `- Primary Note: ${noteFileToRead.name} (Unreadable)\n`;
         }
+      }
+
+      // Enforce Context Token Budget Trimming (max 32,000 chars / ~8,000 tokens for local AI to fit 16k context window)
+      const MAX_CONTEXT_CHARS = aiProvider === "local" ? 32000 : 120000;
+      if (contextHeader.length > MAX_CONTEXT_CHARS) {
+        contextHeader = contextHeader.slice(0, MAX_CONTEXT_CHARS) + "\n\n[Context trimmed to fit model token limit]\n";
       }
 
       // Compute Context Token Budget
@@ -762,33 +1022,65 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       const estimatedTokenCount = Math.ceil(fullContextLength / 4);
       setEstimatedTokens(estimatedTokenCount);
 
+      // Run Pre-Flight Intent Gateway Classification
+      const intentResult = await classifyIntent(userText, targetRefFile?.name, pinnedContexts.length);
+
+      let intentDirective = "";
+      if (contextScopeMode === "none") {
+        intentDirective =
+          `[ROUTED INTENT: NO CONTEXT / PURE READ-ONLY QA MODE]\n` +
+          `The user selected NO CONTEXT mode. You MUST answer the user's prompt directly, accurately, and concisely based on retrieved database facts.\n` +
+          `CRITICAL: Do NOT output search/replace blocks or attempt to edit any note.\n\n`;
+      } else if (intentResult.intent === "DO") {
+        const editTargetName = noteFileToRead?.name || intentResult.targetFile || targetRefFile?.name || "the open note";
+        intentDirective =
+          `[ROUTED INTENT: DO MODE — MANDATORY NOTE EDIT]\n` +
+          `The user wants you to directly modify "${editTargetName}".\n` +
+          `YOU MUST OUTPUT A SEARCH/REPLACE BLOCK. Do NOT show the content in a code fence or chat response.\n` +
+          `Do NOT explain what you are doing. Just emit the block and nothing else.\n\n` +
+          `HOW TO USE SEARCH/REPLACE BLOCKS:\n` +
+          `Rule 1 — REPLACING existing content: put the exact lines to remove in SEARCH, put the new lines in REPLACE.\n` +
+          `Rule 2 — INSERTING / APPENDING new content (no existing text to replace): leave SEARCH completely empty.\n` +
+          `Rule 3 — NEVER wrap the SEARCH or REPLACE section in backtick code fences.\n` +
+          `Rule 4 — You may output multiple blocks for multiple changes.\n\n` +
+          `EXAMPLE A — Replace a section:\n` +
+          `<<<<<<< SEARCH\n## Old Heading\nOld content here.\n=======\n## New Heading\nNew content here.\n>>>>>>> REPLACE\n\n` +
+          `EXAMPLE B — Insert/Append new content at end of note (SEARCH is empty):\n` +
+          `<<<<<<< SEARCH\n=======\n| Col 1 | Col 2 |\n|-------|-------|\n| | |\n>>>>>>> REPLACE\n\n`;
+      } else {
+        intentDirective =
+          `[ROUTED INTENT: CHAT MODE (EXPLANATION & QA)]\n` +
+          `The user is asking a question or requesting a conceptual explanation.\n` +
+          `ANSWER DIRECTLY, CONCISELY, AND CLEANLY IN MARKDOWN.\n` +
+          `Do NOT output search/replace blocks or edit notes unless explicitly asked.\n\n`;
+      }
+
       // Unified System Prompt with Smart Autonomous Intent Detection & Complete Note Metadata Schema
-      const systemPrompt = 
+      const systemPrompt =
         `You are Kognote AI, a smart, localized, reference-aware assistant for Kognote.\n` +
+        intentDirective +
         `IMPORTANT ROLE & OPERATING RULE:\n` +
         `The system instructions provided to you (including AGENTS.md guidelines and metadata schemas) are GOVERNING OPERATING DIRECTIVES for how you process, format, and edit notes. They are NOT note content or user conversation context to quote or print out.\n\n` +
         `KOGNOTE METADATA SCHEMAS & SYNTAX:\n` +
-        `- YAML Frontmatter: --- status: backlog|todo|in-progress|in-review|done, priority: high|medium|low|none, due: YYYY-MM-DD, type: note|daily|template, created_by: user|ai, updated_by: user|ai, storage: active|archived|bookmarked|deleted, mentions: [], tags: [] ---\n` +
-        `- Checklist Tasks: - [ ] Task text @YYYY-MM-DD !!! #tag (where ! low, !! medium, !!! high)\n` +
+        `- YAML Frontmatter: --- status: backlog|todo|in-progress|in-review|done, priority: high|medium|low|none, due: YYYY-MM-DD, type: note|daily|template|clipping, storage: active|archived|deleted, bookmarked: yes|no, mentions: [], tags: [] ---\n` +
+        `- Checklist Tasks: - [ ] Task description @YYYY-MM-DD !|!!|!!! #tag (where ! low, !! medium, !!! high)\n` +
         `- WikiLinks: [[Target Note Title]] (syncs to Knowledge Graph)\n` +
-        `- Flashcards: Q: Question? \\n A: Answer. or ( Question :: Answer ) (syncs to SRS Queue)\n\n` +
-        `AUTONOMOUS INTENT DETECTION:\n` +
-        `1. EDIT/MODIFY INTENT: If the user asks to modify, format, rewrite, add content to, fix, or update the open note/file, output targeted SEARCH/REPLACE blocks:\n` +
-        `<<<<<<< SEARCH\n[exact existing lines to replace]\n=======\n[new replacement lines]\n>>>>>>> REPLACE\n` +
-        `2. CONVERSATIONAL/QA INTENT: If the user asks a question, requests an explanation, seeks advice, or requests a summary, answer directly, concisely, and cleanly in markdown.\n` +
-        `3. ACTION SKILLS INTENT: To execute app skill actions, append the tag at the end:\n` +
-        `- Navigation: [ACTION:navigate, {"view": "editor" | "canvas" | "graph" | "calendar" | "tasks" | "board"}]\n` +
+        `- Flashcards: Q: Question? \\n A: Answer. or ( Question :: Answer ) (syncs to SRS Review Deck)\n\n` +
+        `ACTION SKILLS (use these tags when the user asks to switch views, create/delete/rename notes, or update Kanban/tasks):\n` +
+        `- Switch view: [ACTION:navigate, {"view": "editor|canvas|graph|calendar|tasks|board|flashcards"}]\n` +
         `- Create note: [ACTION:create_note, {"name": "Note Name"}]\n` +
         `- Overwrite note: [ACTION:write_note, {"name": "Note Name", "content": "..."}]\n` +
+        `- Replace text block: [ACTION:replace_block, {"name": "Note Name", "search_text": "old text", "replace_text": "new text"}]\n` +
         `- Append note: [ACTION:append_note, {"name": "Note Name", "content": "..."}]\n` +
         `- Delete note: [ACTION:delete_note, {"name": "Note Name"}]\n` +
-        `- Rename note: [ACTION:rename_note, {"oldName": "Old", "newName": "New"}]\n` +
-        `- Kanban board update: [ACTION:set_board_card, {"name": "Note Name", "status": "backlog" | "todo" | "in-progress" | "in-review" | "done", "priority": "high" | "medium" | "low"}]\n` +
-        `- Toggle task status: [ACTION:set_task_status, {"noteName": "Note Name", "taskText": "snippet", "completed": true | false}]\n` +
+        `- Rename note: [ACTION:rename_note, {"oldName": "Old Title", "newName": "New Title"}]\n` +
+        `- Kanban board update: [ACTION:set_board_card, {"name": "Note Name", "status": "backlog|todo|in-progress|in-review|done", "priority": "high|medium|low|none"}]\n` +
+        `- Toggle task status: [ACTION:set_task_status, {"noteName": "Note Name", "taskText": "snippet", "completed": true}]\n` +
         `- Add task item: [ACTION:add_task, {"text": "Task description", "noteName": "Target Note", "date": "YYYY-MM-DD", "tag": "work"}]\n` +
         `- Suggest wikilinks: [ACTION:suggest_links, {}]\n\n` +
-        `PROTECTED FILES: Never modify AGENTS.md or .kognote/ system files directly via note edits.\n` +
-        `CRITICAL DIRECTIVE: Be direct and to the point. Perform EXACTLY what the user asks without adding extra unrequested fluff, commentary, or conversational filler.`;
+        `PROTECTED FILES: Never modify AGENTS.md, Daily Logs/, or .kognote/ system files.\n` +
+        `CRITICAL OUTPUT FORMAT DIRECTIVE: Never wrap your overall text output or lists inside markdown code blocks (e.g. \`\`\`markdown ... \`\`\`). Output clean, raw Markdown text directly so it renders visually with interactive wikilinks and rich text formatting.\n` +
+        `CRITICAL DIRECTIVE: Be direct and to the point. Perform EXACTLY what the user asks.`;
 
       const prompt = `${contextHeader}\nUser Directive: ${userText || "Understand this note contents."}`;
 
@@ -806,20 +1098,45 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       const actionBuffer = new StreamActionBuffer();
       let capturedPendingCard: PendingActionCard | undefined = undefined;
 
+      const abortCtrl = new AbortController();
+      abortControllerRef.current = abortCtrl;
+
+      // 60fps Debounced Token Streaming Buffer
+      let pendingTokens = "";
+      let animationFrameId: number | null = null;
+
+      const flushTokens = () => {
+        if (pendingTokens) {
+          const chunk = pendingTokens;
+          pendingTokens = "";
+          setMessages((prev) =>
+            prev.map((msg) => {
+              if (msg.id === assistantMessageId) {
+                const combined = msg.text + chunk;
+                if (combined.includes("<<<<<<< SEARCH")) {
+                  return { ...msg, text: "✏️ *Applying targeted edit to note...*" };
+                }
+                return { ...msg, text: combined };
+              }
+              return msg;
+            })
+          );
+        }
+        animationFrameId = null;
+      };
+
       const aiResponse = await aiService.generateTextStreaming(
         prompt,
         systemPrompt,
         (token) => {
           const { newCleanTokens, completedActions } = actionBuffer.append(token);
 
-          setMessages((prev) =>
-            prev.map((msg) => {
-              if (msg.id === assistantMessageId) {
-                return { ...msg, text: msg.text + newCleanTokens };
-              }
-              return msg;
-            })
-          );
+          if (newCleanTokens) {
+            pendingTokens += newCleanTokens;
+            if (!animationFrameId) {
+              animationFrameId = requestAnimationFrame(flushTokens);
+            }
+          }
 
           for (const act of completedActions) {
             if (DESTRUCTIVE_ACTIONS.has(act.action.toLowerCase())) {
@@ -834,19 +1151,25 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
             }
           }
         },
-        mediaOptions
+        { ...mediaOptions, abortSignal: abortCtrl.signal }
       );
+
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        flushTokens();
+      }
 
       const { finalCleanText, remainingActions } = actionBuffer.flush();
 
       // Smart Target Note Resolution for AI Block Diffs
       let autoEditApplied = false;
+      let diffData: { original: string; updated: string; file: string } | undefined = undefined;
+      let diffTargetFile: { name: string; path: string } | null = noteFileToRead || targetRefFile || null;
+      let diffTargetText = refText;
       const diffBlocks = parseDiffBlocks(aiResponse);
-      if (diffBlocks.length > 0) {
-        let diffTargetFile = targetRefFile;
-        let diffTargetText = refText;
 
-        // If targetRefFile is not set, attempt to find matching note from user prompt or AI response
+      if (diffBlocks.length > 0) {
+        // Fallback 1: Try to find a note mentioned by name in the prompt or response
         if (!diffTargetFile || !diffTargetText) {
           const mentionedFile = flatMdFiles.find((f) => {
             const clean = f.name.replace(/\.md$/i, "").toLowerCase();
@@ -860,6 +1183,14 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
           }
         }
 
+        // Fallback 2: Use the currently active file as a last resort
+        if (!diffTargetFile && activeFile) {
+          try {
+            diffTargetFile = activeFile;
+            diffTargetText = (await invokeIPC("read_note", { path: activeFile.path })) as string;
+          } catch {}
+        }
+
         if (diffTargetFile && diffTargetText) {
           const diffRes = applyDiffBlocks(diffTargetText, diffBlocks);
           if (diffRes.appliedCount > 0) {
@@ -867,6 +1198,12 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
               path: diffTargetFile.path,
               content: diffRes.updatedContent,
             });
+
+            diffData = {
+              original: diffTargetText,
+              updated: diffRes.updatedContent,
+              file: diffTargetFile.name,
+            };
 
             updateNoteCache(diffTargetFile.path, diffRes.updatedContent);
             refreshFiles();
@@ -877,8 +1214,15 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         }
       }
 
+      const writeActions = new Set(["write_note", "append_note", "replace_block"]);
       const parsedActions = [...parseActions(aiResponse), ...remainingActions];
-      const nonDestructiveActions = parsedActions.filter((a) => !DESTRUCTIVE_ACTIONS.has(a.action.toLowerCase()));
+      const nonDestructiveActions = parsedActions.filter((a) => {
+        const actName = a.action.toLowerCase();
+        if (DESTRUCTIVE_ACTIONS.has(actName)) return false;
+        // Mutual exclusion: if search/replace diff block was applied, skip redundant write actions
+        if (autoEditApplied && writeActions.has(actName)) return false;
+        return true;
+      });
       const destructiveActions = parsedActions.filter((a) => DESTRUCTIVE_ACTIONS.has(a.action.toLowerCase()));
 
       let skillFeedbacks: string[] = [];
@@ -904,7 +1248,18 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         };
       }
 
-      const cleanResp = finalCleanText.replace(/<<<<<<< SEARCH[\s\S]*?>>>>>>> REPLACE/g, "").trim();
+      // Thoroughly sanitize response: strip residual diff blocks, partial diff tags, and empty code fences
+      let cleanResp = finalCleanText
+        .replace(/<<<<<<< SEARCH[\s\S]*?>>>>>>> REPLACE/gi, "")
+        .replace(/<<<<<<< SEARCH[\s\S]*/gi, "")
+        .replace(/```(?:markdown|md|code|text)?\s*\n?```/gi, "")
+        .replace(/```(?:markdown|md|code|text)?\s*$/gi, "")
+        .trim();
+
+      const outerFenceRegex = /^```(?:markdown|md|text)?\s*\n([\s\S]*?)\n```$/i;
+      if (outerFenceRegex.test(cleanResp)) {
+        cleanResp = cleanResp.replace(outerFenceRegex, "$1").trim();
+      }
 
       setConversationHistory((prev) => [
         ...prev.slice(-10),
@@ -916,10 +1271,14 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         prev.map((msg) => {
           if (msg.id === assistantMessageId) {
             const actionSummary = skillFeedbacks.length > 0 ? skillFeedbacks.join("\n") : "";
-            
+
             let fullText = cleanResp;
-            if (autoEditApplied) {
-              fullText = `✏️ **Edit applied to [[${targetRefFile!.name.replace(/\.md$/, "")}]]** successfully!` + (cleanResp ? `\n\n${cleanResp}` : "");
+            if (autoEditApplied && diffTargetFile) {
+              const noteName = diffTargetFile.name.replace(/\.md$/i, "");
+              fullText = `✏️ **Edit applied to [[${noteName}]]** successfully!` + (cleanResp ? `\n\n${cleanResp}` : "");
+            } else if (diffBlocks.length > 0 && !autoEditApplied) {
+              const suggestedContent = diffBlocks.map((b) => b.replace).filter(Boolean).join("\n\n");
+              fullText = `✏️ **Suggested edits for note**:\n\n${suggestedContent}`;
             } else if (actionSummary) {
               fullText = cleanResp ? `${cleanResp}\n\n${actionSummary}` : actionSummary;
             }
@@ -929,6 +1288,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
               text: fullText,
               pendingAction: pendingCard,
               isEditApplied: autoEditApplied,
+              diffResult: diffData,
             };
           }
           return msg;
@@ -945,10 +1305,27 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
           timestamp: new Date()
         }
       ]);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }, [activeView, activeFile, files, pinnedContexts, contextScopeMode, conversationHistory, attachedMediaFile, noteCache, vaultPath]);
+
+  // Handle external prompt dispatches (Command Palette, AI Summarize, Ask AI)
+  useEffect(() => {
+    const handleCopilotPrompt = (e: CustomEvent) => {
+      const prompt = e.detail;
+      if (typeof prompt === "string" && prompt.trim()) {
+        submitPrompt(prompt.trim(), activeFile);
+      }
+    };
+
+    window.addEventListener("submit-copilot-prompt", handleCopilotPrompt as EventListener);
+    window.addEventListener("open-ai-chat-with-prompt", handleCopilotPrompt as EventListener);
+    return () => {
+      window.removeEventListener("submit-copilot-prompt", handleCopilotPrompt as EventListener);
+      window.removeEventListener("open-ai-chat-with-prompt", handleCopilotPrompt as EventListener);
+    };
+  }, [submitPrompt, activeFile]);
 
   // Textarea auto-resize
   useEffect(() => {
@@ -959,21 +1336,40 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
   }, [inputMessage]);
 
   // Mention Scanner & Popover Handlers
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setInputMessage(val);
 
     const lastAt = val.lastIndexOf("@");
     const lastHash = val.lastIndexOf("#");
+    const lastSlash = val.lastIndexOf("/");
 
-    if (lastAt !== -1 && lastAt >= val.length - 20 && (lastAt === 0 || val[lastAt - 1] === " " || val[lastAt - 1] === "\n")) {
+    const isValidMentionQuery = (idx: number) => {
+      if (idx === -1 || idx < val.length - 20) return false;
+      const charBefore = idx > 0 ? val[idx - 1] : " ";
+      if (charBefore !== " " && charBefore !== "\n" && charBefore !== "(" && charBefore !== "[") return false;
+      const query = val.slice(idx + 1);
+      return !query.includes(" ") && !query.includes("\n") && !query.includes("@") && !query.includes("#");
+    };
+
+    if (isValidMentionQuery(lastSlash) && (lastSlash === 0 || val[lastSlash - 1] === " " || val[lastSlash - 1] === "\n")) {
+      const query = val.slice(lastSlash + 1).toLowerCase();
+      setShowSlashMenu({ active: true, query });
+      setMentionPopover({ active: false, trigger: "@", query: "" });
+    } else if (isValidMentionQuery(lastAt)) {
       const query = val.slice(lastAt + 1).toLowerCase();
       setMentionPopover({ active: true, trigger: "@", query });
-    } else if (lastHash !== -1 && lastHash >= val.length - 20 && (lastHash === 0 || val[lastHash - 1] === " " || val[lastHash - 1] === "\n")) {
+      setShowSlashMenu({ active: false, query: "" });
+    } else if (isValidMentionQuery(lastHash)) {
       const query = val.slice(lastHash + 1).toLowerCase();
       setMentionPopover({ active: true, trigger: "#", query });
+      setShowSlashMenu({ active: false, query: "" });
     } else {
       setMentionPopover({ active: false, trigger: "@", query: "" });
+      setShowSlashMenu({ active: false, query: "" });
     }
   };
 
@@ -1004,120 +1400,44 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
     setInputMessage("");
   };
 
+  // Helper to parse thinking steps (<think>...</think> or ▶ thinking tags)
+  const parseThinkingAndResponse = (text: string) => {
+    let thinkingContent = "";
+    let mainResponse = text;
+
+    const thinkMatch = text.match(/<think>([\s\S]*?)<\/think>/i);
+    if (thinkMatch) {
+      thinkingContent = thinkMatch[1].trim();
+      mainResponse = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+    } else if (text.includes("▶ Thinking") || text.includes("▶ Executing") || text.includes("▶")) {
+      const lines = text.split("\n");
+      const thinkLines: string[] = [];
+      const respLines: string[] = [];
+      lines.forEach((l) => {
+        if (l.trim().startsWith("▶") || l.toLowerCase().includes("executing skill")) {
+          thinkLines.push(l);
+        } else {
+          respLines.push(l);
+        }
+      });
+      if (thinkLines.length > 0) {
+        thinkingContent = thinkLines.join("\n");
+        mainResponse = respLines.join("\n").trim();
+      }
+    }
+
+    return { thinkingContent, mainResponse };
+  };
+
   // Render rich markdown & code blocks with language labels & syntax styles
   const renderMessageText = (text: string) => {
-    const lines = text.split("\n");
-    let inCodeBlock = false;
-    let codeLanguage = "code";
-    let codeBlockText = "";
-
-    return lines.map((line, lIdx) => {
-      const trimmed = line.trim();
-
-      if (trimmed.startsWith("```")) {
-        if (inCodeBlock) {
-          inCodeBlock = false;
-          const currentCode = codeBlockText;
-          const langLabel = codeLanguage;
-          codeBlockText = "";
-          codeLanguage = "code";
-          return (
-            <div key={lIdx} className="my-2.5 rounded-xl bg-[#090b12] border border-card-border overflow-hidden font-mono text-[11px] shadow-lg">
-              <div className="flex items-center justify-between px-3 py-1.5 bg-[#121422] border-b border-card-border text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">
-                <span className="flex items-center gap-1.5 text-indigo-400">
-                  <Code2 className="h-3.5 w-3.5" />
-                  <span>{langLabel}</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleCopyText(currentCode, `code-${lIdx}`)}
-                  className="hover:text-slate-100 transition-colors flex items-center gap-1 cursor-pointer bg-slate-800/50 px-2 py-0.5 rounded border border-slate-700/50"
-                >
-                  <Copy className="h-2.5 w-2.5" />
-                  <span>Copy</span>
-                </button>
-              </div>
-              <pre className="p-3.5 text-slate-200 overflow-x-auto whitespace-pre leading-relaxed select-text font-mono">{currentCode}</pre>
-            </div>
-          );
-        } else {
-          inCodeBlock = true;
-          codeLanguage = trimmed.substring(3).trim() || "code";
-          return null;
-        }
-      }
-
-      if (inCodeBlock) {
-        codeBlockText += (codeBlockText ? "\n" : "") + line;
-        return null;
-      }
-
-      // Markdown Headers
-      if (trimmed.startsWith("# ")) {
-        return <h1 key={lIdx} className="text-sm font-extrabold text-slate-100 my-2 border-b border-card-border pb-1">{trimmed.substring(2)}</h1>;
-      }
-      if (trimmed.startsWith("## ")) {
-        return <h2 key={lIdx} className="text-xs font-bold text-indigo-300 my-1.5">{trimmed.substring(3)}</h2>;
-      }
-      if (trimmed.startsWith("### ")) {
-        return <h3 key={lIdx} className="text-xs font-bold text-slate-200 my-1">{trimmed.substring(4)}</h3>;
-      }
-
-      // Task Checklist Line
-      if (trimmed.startsWith("- [ ]") || trimmed.startsWith("- [x]") || trimmed.startsWith("☑️")) {
-        const isDone = trimmed.includes("[x]") || trimmed.includes("☑️");
-        const taskText = trimmed.replace(/^-\s*\[[ xX]\]/, "").replace(/^☑️/, "").trim();
-        return (
-          <div key={lIdx} className="flex items-center gap-2 text-xs text-indigo-300 font-medium my-1 bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/20">
-            <CheckCircle className={`h-3.5 w-3.5 ${isDone ? "text-emerald-400" : "text-indigo-400"} shrink-0`} />
-            <span className={isDone ? "line-through text-slate-400" : "text-slate-200"}>{taskText}</span>
-          </div>
-        );
-      }
-
-      // Callout Banner (> [!NOTE] / > [!WARNING])
-      if (trimmed.startsWith("> ")) {
-        return (
-          <blockquote key={lIdx} className="my-1.5 pl-3 py-1 border-l-2 border-indigo-500 bg-indigo-500/5 text-slate-300 italic text-xs rounded-r-lg">
-            {trimmed.substring(2)}
-          </blockquote>
-        );
-      }
-
-      // Standard Text Paragraph with Inline Wikilinks and Formatting
-      return (
-        <p key={lIdx} className="text-xs leading-relaxed my-1 select-text">
-          {line.split(" ").map((word, wIdx) => {
-            if (word.startsWith("[[") && word.endsWith("]]")) {
-              const cleanName = word.substring(2, word.length - 2);
-              return (
-                <button
-                  key={wIdx}
-                  type="button"
-                  onClick={() => openNoteByName(cleanName)}
-                  className="text-indigo-400 hover:text-indigo-300 font-bold bg-indigo-500/15 hover:bg-indigo-500/25 px-1.5 py-0.5 rounded-md cursor-pointer mr-1 inline-flex items-center gap-1 transition-colors border border-indigo-500/30"
-                >
-                  {cleanName}
-                </button>
-              );
-            }
-            if (word.startsWith("**") && word.endsWith("**") && word.length > 4) {
-              return <strong key={wIdx} className="text-slate-100 font-bold mr-1">{word.substring(2, word.length - 2)}</strong>;
-            }
-            if (word.startsWith("`") && word.endsWith("`") && word.length > 2) {
-              return <code key={wIdx} className="bg-slate-800 text-indigo-300 font-mono text-[11px] px-1 py-0.5 rounded border border-slate-700 mr-1">{word.substring(1, word.length - 1)}</code>;
-            }
-            return word + " ";
-          })}
-        </p>
-      );
-    });
+    return <MarkdownRenderer content={text} openNoteByName={openNoteByName} />;
   };
 
   const activeScopeName = activeFile ? activeFile.name : "Vault All Notes";
 
   return (
-    <div className={`flex flex-col w-full h-full bg-[#08090e]/70 text-slate-200 selection:bg-indigo-600/30 overflow-hidden relative transition-all duration-300 backdrop-blur-md ${isDetached ? "bg-background/90 rounded-2xl border border-indigo-500/40 shadow-2xl" : "rounded-2xl"}`}>
+    <div className="flex flex-col w-full h-full text-slate-200 selection:bg-indigo-600/30 overflow-hidden relative transition-all duration-300 backdrop-blur-xl bg-sidebar/90 rounded-2xl">
       
       {/* ── CHAT THREAD HISTORY DRAWER OVERLAY ─────────────────────────────────── */}
       {isHistoryDrawerOpen && (
@@ -1232,14 +1552,13 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
             </button>
 
             {modelMenuOpen && (
-              <div className="absolute left-0 top-full mt-1.5 z-100 w-64 bg-[#121422] border border-[#24283b] rounded-xl p-1.5 shadow-2xl backdrop-blur-xl text-xs space-y-1">
+              <div className="absolute left-0 top-full mt-1.5 z-100 w-64 bg-card border border-card-border rounded-xl p-1.5 shadow-2xl backdrop-blur-xl text-xs space-y-1">
                 <div className="px-2 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-wider">Local AI Models (Offline)</div>
                 
                 {[
-                  { id: "llama3.2-1b", name: "Llama 3.2 (1.5B)", desc: "Ultra Fast CPU" },
-                  { id: "llama3.2-3b", name: "Llama 3.2 (3B)", desc: "Balanced Default" },
-                  { id: "qwen2.5-7b", name: "Qwen 2.5 (7B)", desc: "Apple Silicon & 16GB+" },
-                  { id: "qwen2.5-14b", name: "Qwen 2.5 (14B)", desc: "Pro Workstation" },
+                  { id: "qwen2.5-coder-1.5b", name: "Qwen 2.5 Coder (1.5B)", desc: "Ultra Fast CPU" },
+                  { id: "qwen2.5-coder-3b", name: "Qwen 2.5 Coder (3B)", desc: "Balanced Default" },
+                  { id: "qwen2.5-coder-7b", name: "Qwen 2.5 Coder (7B)", desc: "Apple Silicon & 16GB+" },
                 ].map((m) => {
                   const status = localModelsList.find(item => item.id === m.id);
                   const isDownloaded = status?.downloaded;
@@ -1252,41 +1571,45 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                       onClick={() => { setAiProvider("local"); setAiLocalModel(m.id); setModelMenuOpen(false); }}
                       className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${
                         isSelected
-                          ? "bg-indigo-600/30 text-indigo-300 font-bold border border-indigo-500/30"
-                          : "hover:bg-[#1a1d2e] text-slate-300"
+                          ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30"
+                          : "hover:bg-card-hover text-slate-700 dark:text-slate-300"
                       }`}
                     >
                       <div className="flex flex-col">
                         <span className="flex items-center gap-1.5 font-bold text-xs">
                           {m.name}
                           {isDownloaded && (
-                            <span className="text-[8px] text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded font-extrabold">
+                            <span className="text-[8px] text-emerald-500 dark:text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded font-extrabold">
                               READY
                             </span>
                           )}
                         </span>
                         <span className="text-[9.5px] text-slate-500">{m.desc}</span>
                       </div>
-                      {isSelected && <Check className="h-3.5 w-3.5 text-indigo-400 shrink-0" />}
+                      {isSelected && <Check className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400 shrink-0" />}
                     </button>
                   );
                 })}
+
+                <div className="px-2 py-1 text-[9.5px] text-slate-600 dark:text-slate-400 leading-tight border-t border-card-border pt-1.5 mt-1">
+                  ⚡ <strong>Auto Memory:</strong> Boots on demand when you chat and auto-unloads from RAM/VRAM when idle.
+                </div>
 
                 <div className="pt-1 border-t border-card-border px-2 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-wider">Cloud AI Providers</div>
 
                 <button
                   type="button"
                   onClick={() => { setAiProvider("gemini"); setModelMenuOpen(false); }}
-                  className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${aiProvider === "gemini" ? "bg-indigo-600/30 text-indigo-300 font-bold" : "hover:bg-[#1a1d2e] text-slate-300"}`}
+                  className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${aiProvider === "gemini" ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30" : "hover:bg-card-hover text-slate-700 dark:text-slate-300"}`}
                 >
                   <span>Google Gemini</span>
-                  {aiProvider === "gemini" && <Check className="h-3.5 w-3.5 text-indigo-400" />}
+                  {aiProvider === "gemini" && <Check className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />}
                 </button>
 
                 <button
                   type="button"
                   onClick={() => { setAiProvider("openai"); setModelMenuOpen(false); }}
-                  className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${aiProvider === "openai" ? "bg-indigo-600/30 text-indigo-300 font-bold" : "hover:bg-[#1a1d2e] text-slate-300"}`}
+                  className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${aiProvider === "openai" ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30" : "hover:bg-card-hover text-slate-700 dark:text-slate-300"}`}
                 >
                   <span>OpenAI GPT-4o</span>
                   {aiProvider === "openai" && <Check className="h-3.5 w-3.5 text-indigo-400" />}
@@ -1369,7 +1692,29 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       </div>
 
       {/* ── B. MESSAGES LOG & EMPTY STATE KOGNOTE AI CHEATSHEET ───────────────────── */}
-      <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-4 selection:bg-indigo-600/30 z-10 custom-scrollbar">
+      <div 
+        ref={messagesContainerRef}
+        onScroll={(e) => {
+          const target = e.currentTarget;
+          const isAtBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 60;
+          setUserScrolledUp(!isAtBottom);
+        }}
+        className="flex-1 p-4 overflow-y-auto flex flex-col gap-4 selection:bg-indigo-600/30 z-10 custom-scrollbar relative"
+      >
+        {/* Floating Scroll to Bottom Pill when user scrolls up */}
+        {userScrolledUp && (
+          <button
+            type="button"
+            onClick={() => {
+              setUserScrolledUp(false);
+              messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            }}
+            className="sticky bottom-2 self-center z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-indigo-600/90 hover:bg-indigo-500 text-white text-[11px] font-bold shadow-xl border border-indigo-400/40 backdrop-blur-md cursor-pointer animate-bounce"
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+            <span>Scroll to latest</span>
+          </button>
+        )}
         
         {/* Local AI Not Ready Guidance Banner (Only shown if NO local models are downloaded) */}
         {aiProvider === "local" && !localModelsList.some((m) => m.downloaded) && (
@@ -1480,105 +1825,174 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         )}
 
         {/* Render Active Conversation Messages */}
-        {messages.filter(m => m.id !== "welcome").map((msg) => (
-          <div 
-            key={msg.id}
-            className={`flex flex-col gap-1 max-w-[92%] animate-in fade-in slide-in-from-bottom-2 duration-300 ${
-              msg.sender === "user" ? "self-end items-end" : "self-start items-start"
-            }`}
-          >
-            {/* Chat Bubble Card */}
-            <div 
-              className={`p-3.5 rounded-2xl border transition-all ${
-                msg.sender === "user"
-                  ? "bg-linear-to-br from-indigo-600 via-indigo-500 to-violet-600 border-indigo-400/40 rounded-tr-xs text-white shadow-lg shadow-indigo-600/20"
-                  : msg.sender === "system"
-                  ? "bg-red-500/10 border-red-500/30 text-red-300"
-                  : "bg-card border-card-border text-slate-200 rounded-tl-xs shadow-sm"
-              }`}
-            >
-              {renderMessageText(msg.text)}
-
-              {/* Applied Edit Confirmation Badge */}
-              {msg.isEditApplied && (
-                <div className="mt-2.5 pt-2 border-t border-emerald-500/20 flex items-center gap-1.5 text-[10px] text-emerald-400 font-semibold">
-                  <CheckCircle className="h-3 w-3 text-emerald-400" />
-                  <span>Applied targeted edit directly to open note</span>
-                </div>
-              )}
-
-              {/* Interactive Action Preview Card for Destructive Actions */}
-              {msg.pendingAction && (
-                <div className="mt-3 p-3 rounded-xl bg-amber-950/40 border border-amber-500/40 text-xs text-amber-200 flex flex-col gap-2">
-                  <div className="flex items-center gap-1.5 text-amber-400 font-bold">
-                    <AlertTriangle className="h-3.5 w-3.5 animate-pulse shrink-0" />
-                    <span>Action Requires Confirmation</span>
-                  </div>
-                  <p className="text-[11px] text-slate-300 font-mono bg-black/40 p-2 rounded-lg border border-white/5">
-                    {msg.pendingAction.description}
-                  </p>
-                  <div className="flex items-center gap-2 justify-end mt-1">
-                    <button
-                      onClick={() => handleApprovePendingAction(msg.pendingAction!, msg.id)}
-                      className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold cursor-pointer transition shadow-md flex items-center gap-1"
+        {messages.filter(m => m.id !== "welcome").map((msg) => {
+          if (msg.sender === "user") {
+            return (
+              <div 
+                key={msg.id}
+                className="w-full animate-in fade-in slide-in-from-bottom-1 duration-200 group relative"
+              >
+                <div className="bg-[#14172a]/70 border border-indigo-500/20 text-slate-100 rounded-2xl p-3 text-xs shadow-xs select-text w-full relative">
+                  {msg.isEditing ? (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const editedText = (e.currentTarget.elements.namedItem("editedPrompt") as HTMLInputElement)?.value;
+                        if (editedText && editedText.trim()) {
+                          const msgIdx = messages.findIndex((m) => m.id === msg.id);
+                          if (msgIdx !== -1) {
+                            setMessages((prev) => prev.slice(0, msgIdx));
+                            submitPrompt(editedText.trim(), attachedFile);
+                          }
+                        }
+                      }}
+                      className="flex flex-col gap-2"
                     >
-                      <CheckCircle className="h-3 w-3" />
-                      Approve Action
-                    </button>
-                    <button
-                      onClick={() => handleDismissPendingAction(msg.id)}
-                      className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold cursor-pointer transition"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {msg.sender === "copilot" && (
-              <div className="flex items-center gap-2 mt-1 self-start ml-1 opacity-70 hover:opacity-100 transition-opacity">
-                <button
-                  onClick={() => handleCopyText(msg.text, msg.id)}
-                  className="flex items-center gap-1 text-[9px] text-slate-400 hover:text-slate-200 transition-colors p-1 rounded-md hover:bg-slate-800/60"
-                  title="Copy response"
-                >
-                  {copiedId === msg.id ? (
-                    <>
-                      <Check className="h-2.5 w-2.5 text-emerald-500" />
-                      <span className="text-emerald-500 font-medium">Copied</span>
-                    </>
+                      <textarea
+                        name="editedPrompt"
+                        defaultValue={msg.text}
+                        autoFocus
+                        rows={2}
+                        className="w-full bg-black/60 border border-indigo-500/50 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-400 font-sans"
+                      />
+                      <div className="flex items-center gap-2 justify-end">
+                        <button type="submit" className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold cursor-pointer transition">
+                          Resubmit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMessages((prev) => prev.map((m) => m.id === msg.id ? { ...m, isEditing: false } : m))}
+                          className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
                   ) : (
                     <>
-                      <Copy className="h-2.5 w-2.5" />
-                      <span>Copy</span>
+                      <span className="whitespace-pre-wrap leading-relaxed pr-6 block">{msg.text}</span>
+                      <button
+                        type="button"
+                        onClick={() => setMessages((prev) => prev.map((m) => m.id === msg.id ? { ...m, isEditing: true } : m))}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity absolute top-2.5 right-2.5 p-1 rounded-md bg-[#1d2036] hover:bg-[#282c4b] text-slate-400 hover:text-white cursor-pointer"
+                        title="Edit prompt & regenerate"
+                      >
+                        <SquarePen className="h-3.5 w-3.5" />
+                      </button>
                     </>
                   )}
-                </button>
-
-                <button
-                  onClick={() => handleInsertToNote(msg.text)}
-                  className="flex items-center gap-1 text-[9px] text-slate-400 hover:text-indigo-400 transition-colors p-1 rounded-md hover:bg-slate-800/60"
-                  title="Insert to open note"
-                >
-                  <CornerDownLeft className="h-2.5 w-2.5" />
-                  <span>Insert to note</span>
-                </button>
+                </div>
               </div>
-            )}
+            );
+          }
 
-            {msg.referenceFile && (
-              <span className="text-[9px] text-slate-500 flex items-center gap-1 mt-0.5 font-medium">
-                <FileText className="h-2.5 w-2.5 text-indigo-400" />
-                Reference: {msg.referenceFile.name}
-              </span>
-            )}
-            
-            <span className="text-[8px] text-slate-600 font-semibold px-1">
-              {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </span>
-          </div>
-        ))}
+          // Copilot AI Message Rendering (Full width, no header, bottom bar has Copy, Insert & Time)
+          return (
+            <div 
+              key={msg.id}
+              className="w-full flex flex-col gap-1.5 animate-in fade-in slide-in-from-bottom-1 duration-200 group py-1"
+            >
+              <div className="w-full text-slate-200 text-xs leading-relaxed">
+                {(() => {
+                  const { thinkingContent, mainResponse } = parseThinkingAndResponse(msg.text);
+                  return (
+                    <>
+                      {thinkingContent && (
+                        <details className="mb-2.5 rounded-xl border border-white/8 bg-[#080912] p-2 text-xs group/acc">
+                          <summary className="cursor-pointer font-semibold text-[10px] text-indigo-400 uppercase tracking-wider flex items-center justify-between p-0.5 select-none">
+                            <span className="flex items-center gap-1.5">
+                              <Sparkles className="h-3 w-3 text-indigo-400 animate-pulse" />
+                              <span>Thinking & Reasoning</span>
+                            </span>
+                            <ChevronDown className="h-3 w-3 group-open/acc:rotate-180 transition-transform text-indigo-400" />
+                          </summary>
+                          <div className="mt-1.5 p-2 rounded-lg bg-black/40 text-[11px] text-slate-300 font-mono leading-relaxed max-h-48 overflow-y-auto custom-scrollbar border border-white/5">
+                            {renderMessageText(thinkingContent)}
+                          </div>
+                        </details>
+                      )}
+                      {renderMessageText(mainResponse || (thinkingContent ? "Completed execution." : msg.text))}
+                    </>
+                  );
+                })()}
+
+                {/* Applied Edit Confirmation Badge */}
+                {msg.isEditApplied && (
+                  <div className="mt-2 text-[10.5px] text-emerald-400/90 font-medium flex items-center gap-1.5">
+                    <CheckCircle className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>Applied targeted edit directly to open note</span>
+                  </div>
+                )}
+
+                {/* Interactive Confirmation Card for Destructive Actions */}
+                {msg.pendingAction && (
+                  <div className="mt-2.5 p-3 rounded-xl bg-amber-950/40 border border-amber-500/30 text-xs text-amber-200 flex flex-col gap-2">
+                    <div className="flex items-center gap-1.5 text-amber-400 font-bold">
+                      <AlertTriangle className="h-3.5 w-3.5 animate-pulse shrink-0" />
+                      <span>Action Requires Confirmation</span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 font-mono bg-black/40 p-2 rounded-lg border border-white/5">
+                      {msg.pendingAction.description}
+                    </p>
+                    <div className="flex items-center gap-2 justify-end mt-0.5">
+                      <button
+                        onClick={() => handleApprovePendingAction(msg.pendingAction!, msg.id)}
+                        className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold cursor-pointer transition shadow-sm flex items-center gap-1"
+                      >
+                        <CheckCircle className="h-3 w-3" />
+                        Approve Action
+                      </button>
+                      <button
+                        onClick={() => handleDismissPendingAction(msg.id)}
+                        className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold cursor-pointer transition"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Bottom Action Footer with Copy, Insert to Note, and Timestamp */}
+              <div className="flex items-center justify-between w-full mt-1 pt-0.5">
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => handleCopyText(msg.text, msg.id)}
+                    className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors py-0.5 px-1.5 rounded hover:bg-white/6 cursor-pointer"
+                    title="Copy response"
+                  >
+                    {copiedId === msg.id ? (
+                      <>
+                        <Check className="h-3 w-3 text-emerald-400" />
+                        <span className="text-emerald-400 font-medium">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3 w-3" />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleInsertToNote(msg.text)}
+                    className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-300 transition-colors py-0.5 px-1.5 rounded hover:bg-white/6 cursor-pointer"
+                    title="Insert to active note"
+                  >
+                    <CornerDownLeft className="h-3 w-3" />
+                    <span>Insert to note</span>
+                  </button>
+                </div>
+
+                <span className="text-[10px] text-slate-500 font-normal select-none">
+                  {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+            </div>
+          );
+        })}
 
         <div ref={messagesEndRef} />
       </div>
@@ -1586,6 +2000,84 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       {/* ── C & D. LINEAR FLOATING COMPOSITE INPUT DOCK ─────────────────────────── */}
       <div className="p-3 shrink-0 relative z-20">
         
+        {/* Slash Commands Popover (/ trigger for Quick Commands & AI Skills) */}
+        {showSlashMenu.active && (
+          <div className="absolute left-4 bottom-full mb-2 z-100 w-80 max-h-64 overflow-y-auto rounded-2xl bg-[#121422] border border-indigo-500/40 p-2 shadow-2xl backdrop-blur-xl animate-fade-in text-xs text-slate-200 custom-scrollbar space-y-2">
+            {/* Quick Commands Group */}
+            <div>
+              <div className="px-2 py-1 border-b border-slate-800/80 mb-1 flex items-center gap-1.5 text-[9px] font-bold text-amber-400 uppercase tracking-wider">
+                <Zap className="h-3 w-3" />
+                <span>Quick Commands</span>
+              </div>
+              {[
+                { key: "active", label: "Switch Scope: Active Note Context", action: () => setContextScopeMode("active") },
+                { key: "vault", label: "Switch Scope: Entire Vault (Vector RAG)", action: () => setContextScopeMode("vault") },
+                { key: "none", label: "Switch Scope: Standalone Chat (No Context)", action: () => setContextScopeMode("none") },
+                { key: "clear", label: "Start Fresh Chat Thread", action: () => createNewThread() },
+                { key: "newskill", label: "+ Create Custom AI Skill", action: () => setShowCreateSkillModal(true) },
+              ]
+                .filter((act) => !showSlashMenu.query || act.key.toLowerCase().includes(showSlashMenu.query) || act.label.toLowerCase().includes(showSlashMenu.query))
+                .map((act) => (
+                  <button
+                    key={act.key}
+                    type="button"
+                    onClick={() => {
+                      act.action();
+                      setShowSlashMenu({ active: false, query: "" });
+                      setInputMessage("");
+                      if (textareaRef.current) textareaRef.current.focus();
+                    }}
+                    className="w-full rounded-xl px-2.5 py-1.5 text-left hover:bg-amber-500/15 hover:text-amber-300 transition-colors truncate flex items-center justify-between cursor-pointer group"
+                  >
+                    <span className="font-semibold text-[11px] truncate">{act.label}</span>
+                    <span className="text-[9px] text-slate-500 font-mono">/{act.key}</span>
+                  </button>
+                ))}
+            </div>
+
+            {/* AI Skills Group */}
+            <div>
+              <div className="px-2 py-1 border-b border-slate-800/80 mb-1 flex items-center gap-1.5 text-[9px] font-bold text-indigo-400 uppercase tracking-wider">
+                <Package className="h-3 w-3" />
+                <span>AI Skills ({BUILTIN_SKILLS.length + customSkills.length})</span>
+              </div>
+              {[
+                ...BUILTIN_SKILLS,
+                ...customSkills.map((c) => ({
+                  key: c.key,
+                  label: c.label,
+                  icon: Sparkles,
+                  prompt: c.prompt,
+                  isCustom: true,
+                  id: c.id
+                }))
+              ]
+                .filter((sk) => !showSlashMenu.query || sk.key.toLowerCase().includes(showSlashMenu.query) || sk.label.toLowerCase().includes(showSlashMenu.query))
+                .map((sk) => {
+                  const Icon = sk.icon || Sparkles;
+                  return (
+                    <button
+                      key={(sk as any).id || sk.key}
+                      type="button"
+                      onClick={() => {
+                        setInputMessage(sk.prompt);
+                        setShowSlashMenu({ active: false, query: "" });
+                        if (textareaRef.current) textareaRef.current.focus();
+                      }}
+                      className="w-full rounded-xl px-2.5 py-1.5 text-left hover:bg-indigo-600/20 hover:text-indigo-300 transition-colors truncate flex items-center justify-between cursor-pointer group"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Icon className="h-3.5 w-3.5 text-indigo-400 group-hover:scale-110 transition-transform shrink-0" />
+                        <span className="font-semibold text-[11px] truncate">{sk.label}</span>
+                      </div>
+                      <span className="text-[9px] text-slate-500 font-mono">/{sk.key}</span>
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+        )}
+
         {/* Mention Fuzzy Search Popover (@ and # triggers) */}
         {mentionPopover.active && (
           <div className="absolute left-4 bottom-full mb-2 z-100 w-64 max-h-48 overflow-y-auto rounded-2xl bg-[#121422] border border-indigo-500/40 p-2 shadow-2xl backdrop-blur-xl animate-fade-in text-xs text-slate-200">
@@ -1650,7 +2142,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         {/* D. Linear Composite Floating Input Box */}
         <form 
           onSubmit={handleSendMessage}
-          className="flex flex-col rounded-2xl bg-[#0d0f17]/65 border border-card-border/70 focus-within:border-indigo-500/60 p-3 shadow-2xl backdrop-blur-md transition-all"
+          className="flex flex-col rounded-2xl bg-card border border-card-border focus-within:border-indigo-500/60 p-3 shadow-xl backdrop-blur-md transition-all"
         >
           {/* Hidden File Input for App Media/File Attachments */}
           <input 
@@ -1715,55 +2207,97 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             rows={1}
-            placeholder="Ask KogNote... (or type @ to mention notes, # for tags)"
-            className="w-full bg-transparent border-none p-1 text-xs sm:text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-0 resize-none min-h-10.5 max-h-32 leading-relaxed"
+            placeholder="Ask KogNote... (or type / for skills/actions, @ for notes, # for tags)"
+            className="w-full bg-transparent border-none p-1 text-xs sm:text-sm text-foreground placeholder:text-slate-400 focus:outline-none focus:ring-0 resize-none min-h-10.5 max-h-32 leading-relaxed"
           />
 
           {/* 2. Bottom Section - Inner Tool Utility Bar */}
           <div className="flex items-center justify-between pt-2 border-t border-card-border/70 relative select-none">
             
-            {/* Left Side: Skills & Loops Dropdown Button + Agent Mode Toggle */}
+            {/* Left Side: Skills Dropdown Button */}
             <div className="flex items-center gap-1.5">
               <div className="relative">
                 <button
                   type="button"
                   onClick={() => setShowSkillsDropdown(!showSkillsDropdown)}
-                  className="flex items-center gap-1.5 text-xs text-slate-300 hover:text-white bg-[#141624] hover:bg-[#1c1e30] border border-[#24283b] px-2.5 py-1 rounded-lg transition-colors cursor-pointer font-medium"
+                  className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-sidebar border border-card-border hover:bg-card-hover px-2.5 py-1 rounded-lg transition-colors cursor-pointer font-medium"
                 >
                   <Package className="h-3.5 w-3.5 text-indigo-400" />
-                  <span>Skills & Loops</span>
+                  <span>Skills</span>
                   <ChevronDown className="h-3 w-3 text-slate-400" />
                 </button>
 
-                {/* Skills & Loops Dropdown Popover */}
+                {/* Skills Dropdown Popover */}
                 {showSkillsDropdown && (
-                  <div className="absolute left-0 bottom-full mb-2 z-50 w-72 max-h-72 overflow-y-auto rounded-2xl border border-[#24283b] bg-card p-2 shadow-2xl animate-fade-in text-xs custom-scrollbar">
-                    {SKILLS_AND_LOOPS_GROUPS.map((group) => (
-                      <div key={group.category} className="mb-2 last:mb-0">
-                        <div className="px-2.5 py-1 text-[9px] font-bold text-indigo-400 uppercase tracking-wider border-b border-card-border/80 mb-1 flex items-center justify-between">
-                          <span>{group.category}</span>
-                          {group.category === "Automated Loops" ? <Repeat className="h-3 w-3 text-emerald-400" /> : <Sparkles className="h-3 w-3 text-amber-400" />}
-                        </div>
-                        {group.items.map((sk) => {
-                          const IconComp = sk.icon;
-                          return (
+                  <div className="absolute left-0 bottom-full mb-2 z-50 w-72 max-h-80 overflow-y-auto rounded-2xl border border-card-border bg-card p-2 shadow-2xl animate-fade-in text-xs custom-scrollbar space-y-2">
+                    <div className="flex items-center justify-between px-2 py-1 border-b border-card-border/80">
+                      <span className="text-[9px] font-bold text-indigo-400 uppercase tracking-wider">AI Skills Library</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowSkillsDropdown(false);
+                          setShowCreateSkillModal(true);
+                        }}
+                        className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-0.5 rounded-md cursor-pointer transition"
+                      >
+                        <Plus className="h-3 w-3" />
+                        <span>Create Skill</span>
+                      </button>
+                    </div>
+
+                    {/* Built-in Skills */}
+                    <div>
+                      <div className="px-2 py-0.5 text-[9px] font-bold text-slate-500 uppercase tracking-wider">Built-in Skills</div>
+                      {BUILTIN_SKILLS.map((sk) => {
+                        const IconComp = sk.icon;
+                        return (
+                          <button
+                            key={sk.key}
+                            type="button"
+                            onClick={() => {
+                              setInputMessage(sk.prompt);
+                              setShowSkillsDropdown(false);
+                              if (textareaRef.current) textareaRef.current.focus();
+                            }}
+                            className="w-full rounded-xl px-2.5 py-1.5 text-left hover:bg-card-hover hover:text-indigo-400 transition-colors flex items-center gap-2.5 cursor-pointer group"
+                          >
+                            <IconComp className="h-3.5 w-3.5 text-indigo-400 group-hover:scale-110 transition-transform shrink-0" />
+                            <span className="truncate font-medium text-[11px] text-foreground">{sk.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Custom Skills */}
+                    {customSkills.length > 0 && (
+                      <div className="border-t border-card-border/60 pt-1">
+                        <div className="px-2 py-0.5 text-[9px] font-bold text-amber-400 uppercase tracking-wider">Custom Skills</div>
+                        {customSkills.map((sk) => (
+                          <div
+                            key={sk.id}
+                            onClick={() => {
+                              setInputMessage(sk.prompt);
+                              setShowSkillsDropdown(false);
+                              if (textareaRef.current) textareaRef.current.focus();
+                            }}
+                            className="w-full rounded-xl px-2.5 py-1.5 text-left hover:bg-card-hover hover:text-indigo-400 transition-colors flex items-center justify-between cursor-pointer group"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Sparkles className="h-3.5 w-3.5 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
+                              <span className="truncate font-medium text-[11px] text-foreground">{sk.label}</span>
+                            </div>
                             <button
-                              key={sk.key}
                               type="button"
-                              onClick={() => {
-                                setInputMessage(sk.prompt);
-                                setShowSkillsDropdown(false);
-                                if (textareaRef.current) textareaRef.current.focus();
-                              }}
-                              className="w-full rounded-xl px-2.5 py-2 text-left hover:bg-indigo-600/20 hover:text-indigo-300 transition-colors flex items-center gap-2.5 cursor-pointer group"
+                              onClick={(e) => handleDeleteCustomSkill(sk.id, e)}
+                              className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-md transition-all cursor-pointer"
+                              title="Delete Skill"
                             >
-                              <IconComp className="h-3.5 w-3.5 text-indigo-400 group-hover:scale-110 transition-transform shrink-0" />
-                              <span className="truncate font-medium text-[11px] text-slate-200">{sk.label}</span>
+                              <Trash2 className="h-3 w-3" />
                             </button>
-                          );
-                        })}
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
               </div>
@@ -1772,7 +2306,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
             {/* Right Side: Action Group (Context Scope Toggle, Attachment Picker, Voice Mic, Send) */}
             <div className="flex items-center gap-1.5">
               
-              {/* Context Scope Toggle Button (Replaces duplicate bottom expand button) */}
+              {/* Context Scope Toggle Button */}
               <button
                 type="button"
                 onClick={() => {
@@ -1781,7 +2315,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                 }}
                 className={`p-1.5 rounded-lg transition-all cursor-pointer ${
                   contextScopeMode === "none"
-                    ? "text-slate-500 hover:text-slate-300 hover:bg-[#191b29]"
+                    ? "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-card-hover"
                     : contextScopeMode === "vault"
                     ? "text-emerald-400 bg-emerald-500/10 border border-emerald-500/30"
                     : "text-indigo-400 bg-indigo-500/10 border border-indigo-500/30"
@@ -1795,7 +2329,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${attachedMediaFile ? "text-emerald-400 bg-emerald-500/15" : "text-slate-400 hover:text-slate-200 hover:bg-[#191b29]"}`}
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${attachedMediaFile ? "text-emerald-400 bg-emerald-500/15" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-card-hover"}`}
                 title="Attach image, video, audio, or PDF file"
               >
                 <Paperclip className="h-3.5 w-3.5" />
@@ -1808,28 +2342,118 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                 className={`p-1.5 rounded-lg transition-all cursor-pointer ${
                   isListening 
                     ? "bg-rose-600/30 text-rose-400 border border-rose-500/50 animate-pulse" 
-                    : "text-slate-400 hover:text-slate-200 hover:bg-[#191b29]"
+                    : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-card-hover"
                 }`}
                 title={isListening ? "Stop voice dictation" : "Start voice dictation"}
               >
                 <Mic className="h-3.5 w-3.5" />
               </button>
 
-              {/* Circular Send Button */}
-              <button
-                type="submit"
-                disabled={loading || (!inputMessage.trim() && !attachedFile && !attachedMediaFile && pinnedContexts.length === 0)}
-                className="w-7 h-7 rounded-full bg-slate-100 text-slate-900 flex items-center justify-center font-bold hover:bg-white disabled:opacity-30 transition-all hover:scale-105 shadow-md shrink-0 cursor-pointer"
-                title="Send message"
-              >
-                <SendHorizontal className="h-3.5 w-3.5 text-slate-900 stroke-[2.5]" />
-              </button>
+              {/* Stop Generation Button / Send Button */}
+              {loading ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (abortControllerRef.current) {
+                      abortControllerRef.current.abort();
+                    }
+                    setLoading(false);
+                  }}
+                  className="w-7 h-7 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center font-bold transition-all hover:scale-105 shadow-md shadow-rose-600/40 shrink-0 cursor-pointer animate-pulse"
+                  title="Stop LLM inference immediately"
+                >
+                  <Square className="h-3 w-3 fill-current" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!inputMessage.trim() && !attachedFile && !attachedMediaFile && pinnedContexts.length === 0}
+                  className="w-7 h-7 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center font-bold disabled:opacity-30 transition-all hover:scale-105 shadow-md shadow-indigo-600/30 shrink-0 cursor-pointer"
+                  title="Send message"
+                >
+                  <SendHorizontal className="h-3.5 w-3.5 text-white stroke-[2.5]" />
+                </button>
+              )}
             </div>
 
           </div>
         </form>
 
       </div>
+
+      {/* Create Custom Skill Modal */}
+      {showCreateSkillModal && (
+        <div className="fixed inset-0 z-300 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-[#121424] border border-indigo-500/40 rounded-2xl w-full max-w-md p-5 shadow-2xl flex flex-col gap-4 text-slate-200">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2 text-indigo-400 font-bold text-sm">
+                <Sparkles className="h-4 w-4" />
+                <span>Create Custom AI Skill</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreateSkillModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-md cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3 text-xs">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Skill Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Code Summarizer"
+                  value={newSkillName}
+                  onChange={(e) => setNewSkillName(e.target.value)}
+                  className="w-full bg-black/50 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Slash Key / Shortcut (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. code_summary (triggered via /code_summary)"
+                  value={newSkillKey}
+                  onChange={(e) => setNewSkillKey(e.target.value)}
+                  className="w-full bg-black/50 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono text-[11px]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Prompt Template Instructions</label>
+                <textarea
+                  rows={3}
+                  placeholder="e.g. Analyze the active note and extract a bulleted summary of key decisions, open questions, and next steps."
+                  value={newSkillPrompt}
+                  onChange={(e) => setNewSkillPrompt(e.target.value)}
+                  className="w-full bg-black/50 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 resize-none leading-relaxed"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setShowCreateSkillModal(false)}
+                className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveCustomSkill}
+                disabled={!newSkillName.trim() || !newSkillPrompt.trim()}
+                className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold disabled:opacity-40 cursor-pointer transition shadow-md shadow-indigo-600/30"
+              >
+                Save Skill
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

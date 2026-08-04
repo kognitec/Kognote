@@ -23,8 +23,8 @@ export const OutlineSidebar: React.FC<OutlineSidebarProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="w-64 border-l border-[#1f2335] bg-[#0b0c10] flex flex-col h-full shrink-0 select-none animate-fade-in">
-      <div className="p-3 border-b border-[#1f2335] flex items-center justify-between">
+    <div className="w-64 border-l border-card-border bg-sidebar flex flex-col h-full shrink-0 select-none animate-fade-in">
+      <div className="p-3 border-b border-card-border flex items-center justify-between">
         <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase flex items-center gap-1.5">
           <List className="h-3.5 w-3.5 text-indigo-400" />
           Document Outline

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useRef } from 
 import { aiService } from "../lib/local-ai";
 
 export type SyncStep = {
+  key?: string;
   label: string;
   status: "pending" | "running" | "done" | "skipped" | "error";
   error?: string;
@@ -55,50 +56,54 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       detail: { message: "Syncing vault files, tasks & views..." } 
     }));
 
-    // 2. Check if AI is active
+    // 2. Check if AI is active (cached for external API providers to save credits)
     let isAiConnected = false;
     try {
-      isAiConnected = await aiService.checkConnection();
+      const settings = aiService.getSettings();
+      if (settings.provider !== "local") {
+        isAiConnected = Boolean(settings.apiKey && settings.apiKey.trim().length > 0);
+      } else {
+        isAiConnected = await aiService.checkConnection();
+      }
     } catch (e) {
       console.warn("AI connection check failed, assuming off:", e);
     }
     setAiOff(!isAiConnected);
 
     const handlers = Array.from(handlersRef.current.entries());
-    const initialSteps: SyncStep[] = handlers.map(([, { label }]) => ({
+    const initialSteps: SyncStep[] = handlers.map(([key, { label }]) => ({
+      key,
       label,
       status: "pending",
     }));
     setSteps(initialSteps);
 
     let errorCount = 0;
-    for (let i = 0; i < handlers.length; i++) {
-      const [, { handler, label, requiresAi }] = handlers[i];
+    const updateStep = (targetKey: string, update: Partial<SyncStep>) => {
+      setSteps((prev) =>
+        prev.map((s) => (s.key === targetKey || s.label === update.label ? { ...s, ...update } : s))
+      );
+    };
 
+    const tasks = handlers.map(async ([key, { handler, label, requiresAi }]) => {
       if (requiresAi && !isAiConnected) {
-        setSteps((prev) =>
-          prev.map((s, idx) => (idx === i ? { ...s, status: "skipped" } : s))
-        );
-        continue;
+        updateStep(key, { status: "skipped" });
+        return;
       }
 
-      setSteps((prev) =>
-        prev.map((s, idx) => (idx === i ? { ...s, status: "running" } : s))
-      );
+      updateStep(key, { status: "running" });
 
       try {
         await handler();
-        setSteps((prev) =>
-          prev.map((s, idx) => (idx === i ? { ...s, status: "done" } : s))
-        );
+        updateStep(key, { status: "done" });
       } catch (err) {
         errorCount++;
         console.error(`Sync step "${label}" failed:`, err);
-        setSteps((prev) =>
-          prev.map((s, idx) => (idx === i ? { ...s, status: "error", error: String(err) } : s))
-        );
+        updateStep(key, { status: "error", error: String(err) });
       }
-    }
+    });
+
+    await Promise.allSettled(tasks);
 
     const now = new Date();
     setLastSyncAt(now);

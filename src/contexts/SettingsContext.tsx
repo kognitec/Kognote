@@ -13,6 +13,7 @@ interface SettingsContextType {
   aiApiUrl: string;
   aiApiKey: string;
   aiApiModel: string;
+  userTimezone: string;
   includeArchivedInScans: boolean;
   includeTrashInScans: boolean;
   setVaultPath: (path: string | null) => Promise<void>;
@@ -21,6 +22,7 @@ interface SettingsContextType {
   setAiApiUrl: (url: string) => Promise<void>;
   setAiApiKey: (key: string) => Promise<void>;
   setAiApiModel: (model: string) => Promise<void>;
+  setUserTimezone: (tz: string) => Promise<void>;
   setIncludeArchivedInScans: (enabled: boolean) => Promise<void>;
   setIncludeTrashInScans: (enabled: boolean) => Promise<void>;
   loading: boolean;
@@ -31,10 +33,11 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [vaultPath, _setVaultPathState] = useState<string | null>(null);
   const [aiProvider, _setAiProviderState] = useState<"local" | "anthropic" | "gemini" | "openai" | "api">("local");
-  const [aiLocalModel, _setAiLocalModelState] = useState<string>("llama3.2-3b");
+  const [aiLocalModel, _setAiLocalModelState] = useState<string>("qwen2.5-coder-3b");
   const [aiApiUrl, _setAiApiUrlState] = useState<string>("https://api.openai.com/v1");
   const [aiApiKey, _setAiApiKeyState] = useState<string>("");
   const [aiApiModel, _setAiApiModelState] = useState<string>("gpt-4o-mini");
+  const [userTimezone, _setUserTimezoneState] = useState<string>("auto");
   const [includeArchivedInScans, _setIncludeArchivedInScansState] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -53,21 +56,28 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           savedAiLocalModel,
           savedAiApiUrl,
           savedAiApiModel,
+          savedTimezone,
           savedIncludeArchived,
         ] = await Promise.all([
           store.get<string>("vaultPath"),
           store.get<"local" | "anthropic" | "gemini" | "openai" | "api">("aiProvider"),
-          store.get<"llama3.2" | "qwen3:8b">("aiLocalModel"),
+          store.get<string>("aiLocalModel"),
           store.get<string>("aiApiUrl"),
           store.get<string>("aiApiModel"),
+          store.get<string>("userTimezone"),
           store.get<boolean>("includeArchivedInScans"),
         ]);
 
         if (savedVault) _setVaultPathState(savedVault);
         if (savedAiProvider) _setAiProviderState(savedAiProvider);
-        if (savedAiLocalModel) _setAiLocalModelState(savedAiLocalModel);
+        if (savedAiLocalModel) {
+          const legacyNames = ["llama3.2", "qwen3:8b", "qwen2.5:3b"];
+          const validModel = legacyNames.includes(savedAiLocalModel) ? "qwen2.5-coder-3b" : savedAiLocalModel;
+          _setAiLocalModelState(validModel);
+        }
         if (savedAiApiUrl) _setAiApiUrlState(savedAiApiUrl);
         if (savedAiApiModel) _setAiApiModelState(savedAiApiModel);
+        if (savedTimezone) _setUserTimezoneState(savedTimezone);
 
         if (savedIncludeArchived !== null && savedIncludeArchived !== undefined) {
           _setIncludeArchivedInScansState(savedIncludeArchived);
@@ -143,14 +153,24 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     await store.save();
   };
 
+  const setUserTimezone = async (val: string) => {
+    _setUserTimezoneState(val);
+    try {
+      localStorage.setItem("kognote-user-timezone", val);
+    } catch (e) {}
+    await store.set("userTimezone", val);
+    await store.save();
+  };
+
   const setIncludeArchivedInScans = async (enabled: boolean) => {
     _setIncludeArchivedInScansState(enabled);
     await store.set("includeArchivedInScans", enabled);
     await store.save();
   };
 
+  /** Trash notes are permanently excluded from vault scans and AI context for safety & privacy */
   const setIncludeTrashInScans = async (_enabled: boolean) => {
-    // Unconditionally false (trash files are always excluded)
+    // Unconditionally false — trash notes are strictly isolated and never scanned
   };
 
   return (
@@ -162,6 +182,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         aiApiUrl,
         aiApiKey,
         aiApiModel,
+        userTimezone,
         includeArchivedInScans,
         includeTrashInScans: false,
         setVaultPath,
@@ -170,6 +191,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setAiApiUrl,
         setAiApiKey,
         setAiApiModel,
+        setUserTimezone,
         setIncludeArchivedInScans,
         setIncludeTrashInScans,
         loading,

@@ -82,6 +82,16 @@ export function parseNaturalDate(input: string): { dateStr: string; timeStr?: st
   return null;
 }
 
+export function formatUtcIsoFromDateAndTime(dateStr: string, timeStr?: string): string {
+  if (!timeStr) return dateStr;
+  const localDateTimeStr = `${dateStr}T${timeStr}:00`;
+  const d = new Date(localDateTimeStr);
+  if (!isNaN(d.getTime())) {
+    return d.toISOString();
+  }
+  return `${dateStr}T${timeStr}:00Z`;
+}
+
 export function getDateSuggestions(query: string): DateSuggestion[] {
   const q = query.trim();
 
@@ -90,7 +100,9 @@ export function getDateSuggestions(query: string): DateSuggestion[] {
   if (!chronoParsed) return [];
 
   const prefix = chronoParsed.isDueDate ? "@due:" : "@";
-  const valWithTime = chronoParsed.timeStr ? `${chronoParsed.dateStr} ${chronoParsed.timeStr}` : chronoParsed.dateStr;
+  const valWithTime = chronoParsed.timeStr
+    ? formatUtcIsoFromDateAndTime(chronoParsed.dateStr, chronoParsed.timeStr)
+    : chronoParsed.dateStr;
   const timeFormatted = formatTime12(chronoParsed.timeStr);
   const dateTitle = chronoParsed.isDueDate
     ? `Due ${chronoParsed.dateStr}${timeFormatted}`
