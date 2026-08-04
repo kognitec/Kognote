@@ -28,6 +28,12 @@ class ActionRegistry {
     args: any,
     vaultPath: string
   ): Promise<{ success: boolean; message: string; recordId?: string }> {
+    const targetName = (args.name || args.oldName || args.noteName || args.path || "").toString().toLowerCase();
+    const PROTECTED_FILES = ["agents.md", ".kognote"];
+    if (PROTECTED_FILES.some((p) => targetName.endsWith(p) || targetName.includes(`/${p}`) || targetName.includes(`\\${p}`))) {
+      return { success: false, message: `Access denied: Target "${targetName}" is a protected system file and cannot be modified.` };
+    }
+
     const separator = vaultPath.includes("\\") ? "\\" : "/";
 
     try {

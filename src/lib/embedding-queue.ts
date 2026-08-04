@@ -10,7 +10,19 @@ class PriorityEmbeddingQueue {
   private activeNoteQueue: TextChunkItem[] = [];
   private backgroundQueue: TextChunkItem[] = [];
   private isProcessing = false;
+  private isPaused = false;
   private queuedSet = new Set<string>();
+
+  /** Pause background processing (e.g. during active AI streaming) */
+  public pause() {
+    this.isPaused = true;
+  }
+
+  /** Resume background processing */
+  public resume() {
+    this.isPaused = false;
+    this.scheduleIdleProcessing();
+  }
 
   /** Priority 1: Enqueue active note chunks to embed immediately */
   public enqueueActiveNote(chunks: TextChunkItem[]) {
@@ -45,7 +57,7 @@ class PriorityEmbeddingQueue {
   }
 
   private async processQueue() {
-    if (this.isProcessing) return;
+    if (this.isProcessing || this.isPaused) return;
     this.isProcessing = true;
 
     try {

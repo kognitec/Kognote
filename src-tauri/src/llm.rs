@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::process::{Child, Command};
 use std::io::Write;
 use futures_util::StreamExt;
@@ -87,6 +88,7 @@ pub struct LlmState {
     pub current_model_id: Mutex<Option<String>>,
     pub server_port: u16,
     pub http_client: reqwest::Client,
+    pub is_loading: AtomicBool,
 }
 
 impl LlmState {
@@ -102,6 +104,7 @@ impl LlmState {
             current_model_id: Mutex::new(None),
             server_port: 11435, // Avoid collision with Ollama's 11434
             http_client,
+            is_loading: AtomicBool::new(false),
         }
     }
 }
@@ -743,6 +746,18 @@ pub async fn llm_load_model(
     state: tauri::State<'_, Arc<LlmState>>,
     model_id: String,
 ) -> Result<(), String> {
+    if state.is_loading.swap(true, Ordering::SeqCst) {
+        return Err("Model loading is already in progress".to_string());
+    }
+
+    struct LoadGuard<'a>(&'a AtomicBool);
+    impl<'a> Drop for LoadGuard<'a> {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::SeqCst);
+        }
+    }
+    let _guard = LoadGuard(&state.is_loading);
+
     let info = find_model(&model_id).ok_or_else(|| format!("Unknown model: {model_id}"))?;
     let model_path = models_dir(&app)?.join(info.filename);
 

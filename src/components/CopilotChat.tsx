@@ -9,6 +9,7 @@ import { actionRegistry } from "../lib/action-registry";
 import { DEFAULT_AGENTS_MD } from "../constants/defaultAgents";
 import { classifyIntent } from "../lib/intent-router";
 import { searchEngine } from "../lib/search-engine";
+import { embeddingQueue } from "../lib/embedding-queue";
 import { 
   Paperclip, 
   Mic,
@@ -859,6 +860,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
 
     setMessages((prev) => [...prev, activeMsg]);
     setLoading(true);
+    embeddingQueue.pause();
 
     try {
       // Media attachment base64 reading
@@ -1011,10 +1013,21 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         }
       }
 
-      // Enforce Context Token Budget Trimming (max 32,000 chars / ~8,000 tokens for local AI to fit 16k context window)
+      // Priority-Aware Context Trimming (protect System Rules & Primary Note over RAG chunks)
       const MAX_CONTEXT_CHARS = aiProvider === "local" ? 32000 : 120000;
       if (contextHeader.length > MAX_CONTEXT_CHARS) {
-        contextHeader = contextHeader.slice(0, MAX_CONTEXT_CHARS) + "\n\n[Context trimmed to fit model token limit]\n";
+        // Find RAG context block and trim RAG chunks first
+        const ragIndex = contextHeader.indexOf("[ENTIRE VAULT VECTOR RAG CONTEXT");
+        const agentsIndex = contextHeader.indexOf("[CRITICAL SYSTEM OPERATING DIRECTIVE");
+        if (ragIndex !== -1 && agentsIndex > ragIndex) {
+          const beforeRag = contextHeader.slice(0, ragIndex);
+          const afterRag = contextHeader.slice(agentsIndex);
+          const allowedRagChars = Math.max(1000, MAX_CONTEXT_CHARS - (beforeRag.length + afterRag.length));
+          const ragBlock = contextHeader.slice(ragIndex, agentsIndex).slice(0, allowedRagChars);
+          contextHeader = `${beforeRag}${ragBlock}\n[...RAG context trimmed for length...]\n\n${afterRag}`;
+        } else {
+          contextHeader = contextHeader.slice(0, MAX_CONTEXT_CHARS) + "\n\n[Context trimmed to fit model token limit]\n";
+        }
       }
 
       // Compute Context Token Budget
@@ -1183,8 +1196,8 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
           }
         }
 
-        // Fallback 2: Use the currently active file as a last resort
-        if (!diffTargetFile && activeFile) {
+        // Fallback 2: Use activeFile ONLY if contextScopeMode is "active" or explicitly referenced
+        if (!diffTargetFile && activeFile && contextScopeMode === "active") {
           try {
             diffTargetFile = activeFile;
             diffTargetText = (await invokeIPC("read_note", { path: activeFile.path })) as string;
@@ -1307,6 +1320,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       ]);
     } finally {
       setLoading(false);
+      embeddingQueue.resume();
     }
   }, [activeView, activeFile, files, pinnedContexts, contextScopeMode, conversationHistory, attachedMediaFile, noteCache, vaultPath]);
 

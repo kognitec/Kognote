@@ -321,11 +321,28 @@ export class SearchEngine {
           currentHeading = headingMatch[2].trim();
         }
 
-        const chunkText = currentHeading && !block.startsWith("#")
+        const baseChunk = currentHeading && !block.startsWith("#")
           ? `[Section: ${currentHeading}] ${block}`
           : block;
 
-        chunks.push(chunkText);
+        // Smart 512-token cap (~2000 chars max per chunk)
+        if (baseChunk.length > 2000) {
+          const sentences = baseChunk.split(/(?<=[.?!])\s+/);
+          let currentSubChunk = "";
+          for (const sentence of sentences) {
+            if ((currentSubChunk + " " + sentence).length > 2000 && currentSubChunk) {
+              chunks.push(currentSubChunk.trim());
+              currentSubChunk = currentHeading ? `[Section: ${currentHeading} (cont.)] ${sentence}` : sentence;
+            } else {
+              currentSubChunk = currentSubChunk ? `${currentSubChunk} ${sentence}` : sentence;
+            }
+          }
+          if (currentSubChunk.trim()) {
+            chunks.push(currentSubChunk.trim());
+          }
+        } else {
+          chunks.push(baseChunk);
+        }
       }
 
       for (const chunkText of chunks) {
@@ -434,6 +451,46 @@ export class SearchEngine {
     // Apply Self-Query Date Filter if specified
     if (filter?.dateAfter) {
       filtered = filtered.filter((item) => (item.updatedAt || 0) >= filter.dateAfter!);
+    }
+
+    // Apply Self-Query Tag Filter if specified
+    if (filter?.tags && filter.tags.length > 0 && this.db) {
+      try {
+        const tagRows = (await this.db.select<{ file_path: string; tags: string }>(
+          `SELECT file_path, tags FROM note_metadata`
+        )) || [];
+        if (Array.isArray(tagRows)) {
+          const matchingPaths = new Set(
+            tagRows
+              .filter((r: { file_path: string; tags: string }) => {
+                try {
+                  const fileTags: string[] = JSON.parse(r.tags || "[]").map((t: string) => t.toLowerCase());
+                  return filter.tags!.some((ft) => fileTags.includes(ft));
+                } catch {
+                  return false;
+                }
+              })
+              .map((r: { file_path: string; tags: string }) => r.file_path)
+          );
+          if (matchingPaths.size > 0) {
+            filtered = filtered.filter((item) => matchingPaths.has(item.filePath));
+          }
+        }
+      } catch {}
+    }
+
+    // Apply Self-Query Status Filter if specified
+    if (filter?.status && this.db) {
+      try {
+        const statusRows = (await this.db.select<{ file_path: string }>(
+          `SELECT file_path FROM note_metadata WHERE tags LIKE $1`,
+          [`%${filter.status}%`]
+        ).catch(() => [])) || [];
+        if (Array.isArray(statusRows) && statusRows.length > 0) {
+          const statusPaths = new Set(statusRows.map((r: { file_path: string }) => r.file_path));
+          filtered = filtered.filter((item) => statusPaths.has(item.filePath));
+        }
+      } catch {}
     }
 
     // Dynamic Token Budget Accumulation
