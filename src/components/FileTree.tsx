@@ -704,8 +704,8 @@ export const FileTree: React.FC = () => {
       {/* Tab Contents: FILES */}
       {activeTab === "files" && (
         <div className="flex flex-col flex-1 overflow-hidden">
-          <div className="p-3 border-b dark:border-card-border border-slate-200">
-            <div className="relative mb-2">
+          <div className="p-2 border-b border-card-border bg-sidebar/50">
+            <div className="relative mb-1.5">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 dark:text-slate-500 pointer-events-none" />
               <input
                 type="text"
@@ -718,25 +718,25 @@ export const FileTree: React.FC = () => {
                     (e.target as HTMLInputElement).blur();
                   }
                 }}
-                className="w-full rounded-md dark:bg-card bg-white pl-8 pr-7 py-1.5 text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 border dark:border-card-border border-slate-300 focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/30 transition-all shadow-xs"
+                className="w-full rounded-md bg-card pl-8 pr-7 py-1 text-xs text-foreground placeholder-slate-400 dark:placeholder-slate-500 border border-card-border focus:outline-none focus:border-indigo-500/80 transition-all shadow-2xs"
               />
               {filter ? (
                 <button
                   onClick={() => setFilter("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-0.5 rounded cursor-pointer"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-foreground p-0.5 rounded cursor-pointer"
                   title="Clear filter (Esc)"
                 >
                   <X className="h-3 w-3" />
                 </button>
               ) : (
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-mono text-slate-500 bg-sidebar px-1.5 py-0.5 rounded border border-card-border pointer-events-none select-none">
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8.5px] font-mono text-slate-400 bg-sidebar px-1 py-0.2 rounded border border-card-border pointer-events-none select-none">
                   Ctrl+K
                 </span>
               )}
             </div>
 
             {/* Quick Type Filter Chips */}
-            <div className="flex items-center gap-1 mb-2.5 text-[10px] font-medium overflow-x-auto">
+            <div className="flex items-center gap-1 mb-1 text-[10px] font-medium overflow-x-auto">
               {[
                 { id: "all", label: "All" },
                 { id: "md", label: "Notes" },
@@ -748,9 +748,9 @@ export const FileTree: React.FC = () => {
                   <button
                     key={chip.id}
                     onClick={() => setFileTypeFilter(chip.id as any)}
-                    className={`px-2.5 py-0.5 rounded-full transition-all cursor-pointer border text-[10.5px] ${
+                    className={`px-2 py-0.5 rounded-full transition-all cursor-pointer border text-[10px] ${
                       isActive
-                        ? "bg-indigo-600 text-white border-indigo-500 font-bold shadow-xs"
+                        ? "bg-indigo-600 text-white border-indigo-500 font-bold shadow-2xs"
                         : "bg-card text-slate-700 dark:text-slate-300 border-card-border hover:bg-card-hover"
                     }`}
                   >
@@ -1456,7 +1456,8 @@ const TreeItem: React.FC<TreeItemProps> = ({ item, depth, isOpen, onToggleFolder
       if (lower === "archived") return "Archived";
       if (lower === "trash") return "Trash";
     }
-    return name;
+    let clean = name.replace(/^!\[\[/, "").replace(/\]\]$/, "");
+    return clean.replace(/\.excalidraw$/i, "").replace(/\.md$/i, "");
   };
 
   const handleToggle = (e: React.MouseEvent) => {
@@ -1607,33 +1608,28 @@ const TreeItem: React.FC<TreeItemProps> = ({ item, depth, isOpen, onToggleFolder
               clearDragState();
             }
           }}
-          style={{ paddingLeft: `${depth * 12 + 10}px` }}
-          className={`group flex items-center justify-between py-1.5 pr-2 rounded-lg mx-1.5 my-0.5 cursor-pointer transition-all duration-200 ${isDragOverFolder
-              ? "bg-indigo-600/30 border border-indigo-500 text-white shadow-md"
+          style={{ paddingLeft: `${depth * 10 + 6}px` }}
+          className={`group flex items-center justify-between py-1 px-1.5 rounded-md mx-1 my-[1px] cursor-pointer transition-all duration-150 text-xs ${isDragOverFolder
+              ? "bg-indigo-600/30 border border-indigo-500 text-white shadow-xs"
               : isActive
                 ? item.name.endsWith(".excalidraw")
-                  ? "bg-[#9f00ff]/10 text-[#c084fc] font-bold shadow-sm"
-                  : "bg-[#d946ef]/10 text-[#f472b6] font-bold shadow-sm"
-                : isSystemFolder
-                  ? "hover:bg-[#161825]/45 hover:text-slate-200 text-slate-400"
-                  : "hover:bg-[#161825]/45 hover:text-slate-200 text-slate-400"
+                  ? "bg-purple-500/15 text-purple-950 dark:text-purple-200 font-bold border-l-2 border-purple-500 shadow-2xs"
+                  : "bg-indigo-500/15 text-indigo-950 dark:text-indigo-200 font-bold border-l-2 border-indigo-500 shadow-2xs"
+                : "hover:bg-card-hover text-slate-700 dark:text-slate-300 hover:text-foreground"
             }`}
         >
-          <div className="flex items-center gap-2 truncate">
+          <div className="flex items-center gap-1.5 truncate">
             {item.is_dir ? (
-              <span className="text-slate-500 shrink-0">
+              <span className="text-slate-400 shrink-0">
                 <ChevronRight
-                  className={`h-3.5 w-3.5 transform transition-transform duration-200 ${isOpen ? "rotate-90 text-indigo-400" : ""}`}
+                  className={`h-3.5 w-3.5 transform transition-transform duration-150 ${isOpen ? "rotate-90 text-indigo-500 dark:text-indigo-400" : ""}`}
                 />
               </span>
             ) : null}
 
-            {getFileIcon(item, noteCache, { className: "h-4 w-4 shrink-0", isOpenFolder: isOpen })}
+            {getFileIcon(item, noteCache, { className: "h-3.5 w-3.5 shrink-0", isOpenFolder: isOpen })}
 
-            <span
-              className="truncate"
-              style={!isActive && item.name.endsWith(".excalidraw") ? { color: "#9f00ff" } : undefined}
-            >
+            <span className="truncate">
               {getDisplayName(item.name)}
             </span>
 

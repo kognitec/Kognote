@@ -111,5 +111,5 @@ export function getFileIcon(
   }
 
   // Default Markdown / text note icon
-  return <FileText className={`${sizeClass} ${getColor("text-[#d946ef]/80")}`} />;
+  return <FileText className={`${sizeClass} ${getColor("text-indigo-500 dark:text-indigo-400 opacity-90")}`} />;
 }
