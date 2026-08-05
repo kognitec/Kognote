@@ -1444,7 +1444,7 @@ const VirtualFileList: React.FC<{
   const rowVirtualizer = useVirtualizer({
     count: flatItems.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 24,
+    estimateSize: () => 28,
     overscan: 10,
   });
 
@@ -1687,7 +1687,7 @@ const TreeItem: React.FC<TreeItemProps> = ({ item, depth, isOpen, onToggleFolder
             }
           }}
           style={{ paddingLeft: `${depth * 7 + 4}px` }}
-          className={`group flex items-center justify-between py-px px-1.5 rounded-md mx-0.5 my-0 cursor-pointer transition-all duration-150 text-[12px] ${isDragOverFolder
+          className={`group flex items-center justify-between py-1 px-1.5 rounded-md mx-0.5 my-0 cursor-pointer transition-all duration-150 text-[12px] ${isDragOverFolder
               ? "bg-indigo-600/30 border border-indigo-500 text-white shadow-xs"
               : isActive
                 ? item.name.endsWith(".excalidraw")
