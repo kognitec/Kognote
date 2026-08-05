@@ -1,10 +1,10 @@
 import { pipeline, env } from "@huggingface/transformers";
 
-// Configure transformers.js to load bundled local static models from /models/
-// Configure transformers.js to load local static models or download/cache ONNX model weights
+// Load the bundled local model from public/models/ — no internet required on fresh systems.
+// nomic-ai/nomic-embed-text-v1.5 ONNX files are shipped inside the app bundle.
 env.allowLocalModels = true;
-env.allowRemoteModels = true;
-(env as any).localURL = "/models/";
+env.allowRemoteModels = false;   // Enforce offline-only: only use the bundled model
+(env as any).localModelPath = "/models/";
 
 let pipelineInstance: any = null;
 
