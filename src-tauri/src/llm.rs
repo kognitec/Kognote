@@ -974,16 +974,30 @@ struct OaiResponse {
     choices: Vec<OaiChoice>,
 }
 
-/// Check if the local llama-server process is active and responding to health pings.
 #[tauri::command]
 pub async fn llm_check_connection(
     state: tauri::State<'_, Arc<LlmState>>,
 ) -> Result<bool, String> {
+    // Return false instantly (0ms) if no child llama-server process exists in state
+    {
+        let mut proc_guard = state.server_process.lock().map_err(|e| e.to_string())?;
+        if let Some(ref mut child) = *proc_guard {
+            if let Ok(Some(_)) = child.try_wait() {
+                let _ = proc_guard.take();
+                let mut current = state.current_model_id.lock().map_err(|e| e.to_string())?;
+                *current = None;
+                return Ok(false);
+            }
+        } else {
+            return Ok(false);
+        }
+    }
+
     let port = state.server_port.load(Ordering::SeqCst);
     let client = &state.http_client;
     let is_healthy = client
         .get(format!("http://127.0.0.1:{port}/health"))
-        .timeout(tokio::time::Duration::from_secs(2))
+        .timeout(tokio::time::Duration::from_millis(300))
         .send()
         .await
         .map(|r| r.status().is_success())
