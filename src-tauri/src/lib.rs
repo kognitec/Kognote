@@ -47,6 +47,7 @@ use db::{
 };
 
 
+#[allow(dead_code)]
 fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<tauri::menu::Menu<R>, tauri::Error> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 
