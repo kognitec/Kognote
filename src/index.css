@@ -962,19 +962,19 @@ html.light .custom-preview-link:hover {
 
 /* Light Mode Overrides */
 html.light .custom-preview-flashcard {
-  color: #d97706 !important;
+  color: #f59e0b !important;
 }
 
 html.light .custom-preview-flashcard::before {
-  background-color: #d97706 !important;
+  background-color: #f59e0b !important;
 }
 
 html.light .custom-preview-flashcard:hover {
-  color: #b45309 !important;
+  color: #d97706 !important;
 }
 
 html.light .custom-preview-flashcard:hover::before {
-  background-color: #b45309 !important;
+  background-color: #d97706 !important;
 }
 
 /* Style standard URLs and hyperlinks inside the editor in preview/WYSIWYG mode */
