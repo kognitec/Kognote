@@ -6,7 +6,7 @@ import {
   FolderOpen, X,
   Download, Trash2, Loader2,
   FileCode, Lock, Brain, Archive,
-  Info, Globe, ExternalLink, ShieldCheck, Cpu, Sparkles, Clock,
+  Info, ExternalLink, ShieldCheck, Cpu, Sparkles, Clock,
   BookOpen, Layers, Edit, Waypoints, GraduationCap, CheckSquare, Wand2
 } from "lucide-react";
 import { aiService, type ModelStatus, type DownloadProgressEvent, type SystemHardwareInfo } from "../lib/local-ai";
@@ -1231,7 +1231,9 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                     onClick={() => handleOpenWebsite("https://kognitec.com/")}
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition-all active:scale-95 cursor-pointer shadow-md shrink-0"
                   >
-                    <Globe className="h-3.5 w-3.5" />
+                    <span className="flex items-center justify-center h-4 w-4 rounded-full bg-white p-[1.5px] shrink-0 shadow-2xs">
+                      <img src={logoImg} alt="Kognitec Logo" className="h-full w-full object-contain" />
+                    </span>
                     <span>kognitec.com</span>
                     <ExternalLink className="h-3 w-3 opacity-80" />
                   </button>
