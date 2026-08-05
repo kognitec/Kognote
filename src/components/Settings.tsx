@@ -6,19 +6,29 @@ import {
   FolderOpen, X,
   Download, Trash2, Loader2,
   FileCode, Lock, Brain, Archive,
-  Info, Globe, ExternalLink, ShieldCheck, Cpu, Sparkles, Clock
+  Info, Globe, ExternalLink, ShieldCheck, Cpu, Sparkles, Clock,
+  BookOpen, Layers, Edit, Waypoints, GraduationCap, CheckSquare, Wand2
 } from "lucide-react";
 import { aiService, type ModelStatus, type DownloadProgressEvent, type SystemHardwareInfo } from "../lib/local-ai";
 import { DEFAULT_AGENTS_MD } from "../constants/defaultAgents";
 import { formatTimestampForDisplay } from "../lib/frontmatter";
 import logoImg from "../assets/logo.png";
 
+const GithubIcon: React.FC<{ className?: string }> = ({ className = "h-4 w-4" }) => (
+  <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+    <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+  </svg>
+);
+
+export type SettingsTab = "vault" | "timezone" | "ai" | "sysinfo" | "agents" | "docs" | "about";
+
 interface SettingsProps {
   isOpen: boolean;
   onClose: () => void;
+  initialTab?: SettingsTab;
 }
 
-export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
+export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab }) => {
   const {
     vaultPath,
     setVaultPath,
@@ -40,7 +50,7 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   const { triggerSync } = useSync();
 
   // Active navigation tab on the left sidebar
-  const [activeTab, setActiveTab] = useState<"vault" | "timezone" | "ai" | "sysinfo" | "agents" | "about">("vault");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab || "vault");
 
   // Per-model download & load state
   const [models, setModels] = useState<ModelStatus[]>([]);
@@ -104,10 +114,13 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
 
   useEffect(() => {
     if (isOpen) {
+      if (initialTab) {
+        setActiveTab(initialTab);
+      }
       refreshModels();
       loadAgentsMd();
     }
-  }, [isOpen, refreshModels, loadAgentsMd]);
+  }, [isOpen, initialTab, refreshModels, loadAgentsMd]);
 
   const handleDownloadModel = async (modelId: string) => {
     setDownloadingId(modelId);
@@ -231,6 +244,7 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
               { id: "ai", label: "AI Engine & Models", icon: Brain, desc: "Local GGUF & API keys" },
               { id: "sysinfo", label: "Hardware & Stats", icon: Cpu, desc: "System diagnostics" },
               { id: "agents", label: "AI Rules (AGENTS)", icon: FileCode, desc: "Protected schemas" },
+              { id: "docs", label: "Documentation", icon: BookOpen, desc: "User manual & guides" },
               { id: "about", label: "About KogNote", icon: Info, desc: "App & Kognitec specs" },
             ].map((sec) => {
               const Icon = sec.icon;
@@ -876,7 +890,202 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
               </div>
             )}
 
-            {/* 6. ABOUT KOGNOTE & KOGNITEC */}
+            {/* 6. DOCUMENTATION & USER MANUAL */}
+            {activeTab === "docs" && (
+              <div className="flex flex-col gap-6 animate-fade-in">
+                {/* Hero Banner with GitHub Button */}
+                <div className="flex items-center justify-between p-4.5 rounded-2xl bg-linear-to-r from-indigo-500/10 via-purple-500/5 to-pink-500/10 dark:from-indigo-950/60 dark:via-card dark:to-purple-950/40 border border-indigo-200 dark:border-indigo-500/20 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-indigo-600 text-white shadow-md">
+                      <BookOpen className="h-6 w-6" />
+                    </div>
+                    <div className="flex flex-col">
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                        KogNote Documentation & User Guide
+                      </h3>
+                      <p className="text-xs text-slate-600 dark:text-slate-400">
+                        Complete reference manual for notes, canvas, graph, flashcards, tasks & AI rules.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenWebsite("https://github.com/kognitec/Kognote?tab=readme-ov-file")}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-semibold text-xs transition-all active:scale-95 cursor-pointer shadow-md shrink-0 border border-slate-700/50"
+                    title="Open KogNote GitHub Repository & README"
+                  >
+                    <GithubIcon className="h-4 w-4 text-white" />
+                    <span>View on GitHub</span>
+                    <ExternalLink className="h-3 w-3 text-slate-400" />
+                  </button>
+                </div>
+
+                {/* System Architecture Flow Diagram */}
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-card border border-slate-200 dark:border-card-border/80 flex flex-col gap-3 shadow-2xs">
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <Layers className="h-3.5 w-3.5 text-indigo-500" /> Local System Architecture & Data Flow
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 text-center text-xs">
+                    <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center gap-1 shadow-2xs">
+                      <FolderOpen className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                      <span className="font-bold text-slate-800 dark:text-slate-200 text-[11px]">Local Vault (.md)</span>
+                      <span className="text-[9.5px] text-slate-500">Plaintext Markdown</span>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center gap-1 shadow-2xs">
+                      <Layers className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                      <span className="font-bold text-slate-800 dark:text-slate-200 text-[11px]">In-Memory Parser</span>
+                      <span className="text-[9.5px] text-slate-500">WikiLinks & Cache</span>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center gap-1 shadow-2xs">
+                      <Cpu className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                      <span className="font-bold text-slate-800 dark:text-slate-200 text-[11px]">Vector Engine</span>
+                      <span className="text-[9.5px] text-slate-500">sqlite-vec Search</span>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center gap-1 shadow-2xs">
+                      <Brain className="h-4 w-4 text-amber-500" />
+                      <span className="font-bold text-slate-800 dark:text-slate-200 text-[11px]">AI Copilot</span>
+                      <span className="text-[9.5px] text-slate-500">AGENTS.md Rules</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Core Feature Sections Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* 1. Markdown Editor & Syntax */}
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-card border border-slate-200 dark:border-card-border/80 flex flex-col gap-2 shadow-2xs">
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      <Edit className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                      1. Editor, WikiLinks & Frontmatter
+                    </h4>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                      KogNote features dual WYSIWYG & Source split editing with auto-save.
+                    </p>
+                    <div className="mt-1 p-2.5 rounded-lg bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 font-mono text-[10.5px] text-slate-700 dark:text-slate-300 flex flex-col gap-1">
+                      <div><span className="text-indigo-500 font-bold">[[Note Name]]</span> — Internal WikiLink</div>
+                      <div><span className="text-purple-500 font-bold">[[Note|Custom Alias]]</span> — Custom link label</div>
+                      <div><span className="text-pink-500 font-bold">[[Note#Section Header]]</span> — Direct section header link</div>
+                      <div><span className="text-amber-500 font-bold">due: @2026-08-05 14:00</span> — Calendar date & time sync</div>
+                      <div><span className="text-emerald-500 font-bold">priority: High | Medium | Low</span> — Task priority level</div>
+                    </div>
+                  </div>
+
+                  {/* 2. Whiteboard Canvas & Excalidraw */}
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-card border border-slate-200 dark:border-card-border/80 flex flex-col gap-2 shadow-2xs">
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      <Layers className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                      2. Spatial Whiteboard Canvas
+                    </h4>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                      Infinite vector canvas powered by Excalidraw. Drag & drop note cards, images, sticky notes, and connect ideas visually.
+                    </p>
+                    <ul className="text-xs text-slate-600 dark:text-slate-400 space-y-1 list-disc list-inside mt-1">
+                      <li>Saved natively as <code className="text-purple-500 bg-purple-500/10 px-1 py-0.5 rounded font-mono text-[10.5px]">.excalidraw</code> files in your vault.</li>
+                      <li>Double-click any node to open its full markdown note.</li>
+                      <li>Embed drawings directly inside markdown documents.</li>
+                    </ul>
+                  </div>
+
+                  {/* 3. Knowledge Graph */}
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-card border border-slate-200 dark:border-card-border/80 flex flex-col gap-2 shadow-2xs">
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      <Waypoints className="h-4 w-4 text-sky-500" />
+                      3. Interactive Knowledge Graph
+                    </h4>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                      2D force-directed physics graph visualizing all bidirectional links, tags, and daily logs across your vault.
+                    </p>
+                    <ul className="text-xs text-slate-600 dark:text-slate-400 space-y-1 list-disc list-inside mt-1">
+                      <li>Nodes size dynamically based on link count (hubs).</li>
+                      <li>Filter nodes by tag (<code className="text-sky-500 bg-sky-500/10 px-1 py-0.5 rounded font-mono text-[10.5px]">#study</code>, <code className="text-sky-500 bg-sky-500/10 px-1 py-0.5 rounded font-mono text-[10.5px]">#project</code>).</li>
+                      <li>Click any node to navigate instantly to that note.</li>
+                    </ul>
+                  </div>
+
+                  {/* 4. AI Copilot & AGENTS.md Directive */}
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-card border border-slate-200 dark:border-card-border/80 flex flex-col gap-2 shadow-2xs">
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      <Wand2 className="h-4 w-4 text-amber-500" />
+                      4. AI Copilot & System Directives
+                    </h4>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                      Dual-engine AI supporting 100% offline local models (Qwen 2.5 Coder 3B) via GGUF, as well as OpenAI, Gemini & Anthropic APIs.
+                    </p>
+                    <ul className="text-xs text-slate-600 dark:text-slate-400 space-y-1 list-disc list-inside mt-1">
+                      <li>Controlled by <strong className="text-slate-800 dark:text-slate-200">AGENTS.md</strong> system rules stored in your vault root.</li>
+                      <li>AI Smart Actions: Format, Continue Writing, Rewrite, Suggest Links.</li>
+                      <li>RAG vector search across all notes in your vault.</li>
+                    </ul>
+                  </div>
+
+                  {/* 5. Flashcard Review Deck */}
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-card border border-slate-200 dark:border-card-border/80 flex flex-col gap-2 shadow-2xs">
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      <GraduationCap className="h-4 w-4 text-amber-500" />
+                      5. Spaced-Repetition Flashcards
+                    </h4>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                      Automatically scans notes for flashcards formatted with <code className="text-amber-500 bg-amber-500/10 px-1 py-0.5 rounded font-mono text-[10.5px]">Q: ... / A: ...</code> syntax.
+                    </p>
+                    <ul className="text-xs text-slate-600 dark:text-slate-400 space-y-1 list-disc list-inside mt-1">
+                      <li>Uses the SuperMemo SM-2 spaced repetition algorithm.</li>
+                      <li>Tracks memory retention heatmaps & daily study streaks.</li>
+                    </ul>
+                  </div>
+
+                  {/* 6. Tasks & Kanban Board */}
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-card border border-slate-200 dark:border-card-border/80 flex flex-col gap-2 shadow-2xs">
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      <CheckSquare className="h-4 w-4 text-emerald-500" />
+                      6. Task Manager & Kanban Board
+                    </h4>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                      Extracts <code className="text-emerald-500 bg-emerald-500/10 px-1 py-0.5 rounded font-mono text-[10.5px]">- [ ] Task name</code> checkboxes from all notes into a central workspace.
+                    </p>
+                    <ul className="text-xs text-slate-600 dark:text-slate-400 space-y-1 list-disc list-inside mt-1">
+                      <li>Kanban Board with drag & drop columns (To Do, Doing, Done).</li>
+                      <li>Filter by priority (<span className="text-rose-500 font-bold">High</span>, <span className="text-amber-500 font-bold">Medium</span>, <span className="text-slate-400 font-bold">Low</span>).</li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Keyboard Shortcuts Reference Box */}
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-card border border-slate-200 dark:border-card-border/80 flex flex-col gap-3 shadow-2xs">
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-indigo-500" />
+                    Essential Keyboard Shortcuts
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs font-mono">
+                    <div className="p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                      <span className="text-slate-500 font-sans text-[11px]">New Note</span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border text-[10px] text-indigo-500 font-bold">Ctrl/Cmd + N</kbd>
+                    </div>
+                    <div className="p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                      <span className="text-slate-500 font-sans text-[11px]">Daily Note</span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border text-[10px] text-indigo-500 font-bold">Ctrl/Cmd + Shift + D</kbd>
+                    </div>
+                    <div className="p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                      <span className="text-slate-500 font-sans text-[11px]">Command Palette</span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border text-[10px] text-indigo-500 font-bold">Ctrl/Cmd + K</kbd>
+                    </div>
+                    <div className="p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                      <span className="text-slate-500 font-sans text-[11px]">Toggle AI Chat</span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border text-[10px] text-indigo-500 font-bold">Ctrl/Cmd + Shift + C</kbd>
+                    </div>
+                    <div className="p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                      <span className="text-slate-500 font-sans text-[11px]">Toggle Sidebar</span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border text-[10px] text-indigo-500 font-bold">Ctrl/Cmd + \</kbd>
+                    </div>
+                    <div className="p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                      <span className="text-slate-500 font-sans text-[11px]">Switch Views</span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border text-[10px] text-indigo-500 font-bold">Ctrl/Cmd + 1..7</kbd>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 7. ABOUT KOGNOTE & KOGNITEC */}
             {activeTab === "about" && (
               <div className="flex flex-col gap-6 animate-fade-in">
                 {/* Brand Header Banner */}

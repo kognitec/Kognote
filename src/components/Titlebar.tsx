@@ -12,7 +12,7 @@ import { useTheme } from "../contexts/ThemeContext";
 import logoImg from "../assets/logo.png";
 
 interface TitlebarProps {
-  onOpenSettings: () => void;
+  onOpenSettings: (tab?: "vault" | "timezone" | "ai" | "sysinfo" | "agents" | "docs" | "about") => void;
 }
 
 export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
@@ -364,11 +364,11 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
               id: "help",
               label: "Help",
               items: [
-                { label: "KogNote Documentation", action: () => window.open("https://kognitec.com", "_blank") },
-                { label: "System Preferences / Settings", action: onOpenSettings },
-                { label: "AI Operating Rules (AGENTS.md)", action: onOpenSettings },
+                { label: "KogNote Documentation", action: () => onOpenSettings("docs") },
+                { label: "System Preferences / Settings", action: () => onOpenSettings("vault") },
+                { label: "AI Operating Rules (AGENTS.md)", action: () => onOpenSettings("agents") },
                 { separator: true },
-                { label: "About KogNote BETA", action: () => window.dispatchEvent(new CustomEvent("kognote-toast", { detail: { message: "KogNote BETA v1.0.0 — Spatial Knowledge & AI Workspace", type: "info" } })) },
+                { label: "About KogNote BETA", action: () => onOpenSettings("about") },
               ]
             }
           ].map((menu) => (
@@ -536,7 +536,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
         </button>
 
         <button
-          onClick={onOpenSettings}
+          onClick={() => onOpenSettings("vault")}
           className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-white/10 hover:text-slate-200 transition-colors border border-transparent cursor-pointer hover-rotate-continuous"
           title="Settings"
         >

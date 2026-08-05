@@ -101,6 +101,7 @@ export const Layout: React.FC = () => {
   const { triggerSync, registerSyncHandler, unregisterSyncHandler } = useSync();
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"vault" | "timezone" | "ai" | "sysinfo" | "agents" | "docs" | "about">("vault");
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatDetached, setIsChatDetached] = useState(false);
   const [isSidebarVisible, setIsSidebarVisible] = useState(true);
@@ -277,7 +278,13 @@ export const Layout: React.FC = () => {
       const view = (e as CustomEvent).detail;
       setActiveView(view);
     };
-    const handleOpenSettings = () => {
+    const handleOpenSettings = (e?: Event) => {
+      const tab = (e as CustomEvent)?.detail;
+      if (tab && typeof tab === "string") {
+        setSettingsTab(tab as any);
+      } else {
+        setSettingsTab("vault");
+      }
       setIsSettingsOpen(true);
     };
     const handleOpenChat = () => {
@@ -505,9 +512,11 @@ export const Layout: React.FC = () => {
 
   return (
     <div className="flex h-screen w-screen flex-col bg-background select-none root-layout-bg relative">
-      {/* Titlebar */}
       <Titlebar
-        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenSettings={(tab) => {
+          if (tab) setSettingsTab(tab);
+          setIsSettingsOpen(true);
+        }}
       />
 
       {/* Main Area */}
@@ -689,7 +698,7 @@ export const Layout: React.FC = () => {
       )}
 
       {/* Settings Dialog Overlay */}
-      <Settings isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      <Settings isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} initialTab={settingsTab} />
 
       {/* Spotlight Command Palette */}
       <CommandPalette />
