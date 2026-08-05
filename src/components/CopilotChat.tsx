@@ -1598,7 +1598,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
             <button
               type="button"
               onClick={() => setModelMenuOpen(!modelMenuOpen)}
-              className="flex items-center gap-1 text-[9px] font-extrabold text-indigo-500 dark:text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-full uppercase tracking-wider hover:bg-indigo-500/20 transition-colors cursor-pointer max-w-[130px] sm:max-w-[150px]"
+              className="flex items-center gap-1 text-[9px] font-extrabold text-indigo-500 dark:text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-full uppercase tracking-wider hover:bg-indigo-500/20 transition-colors cursor-pointer max-w-32.5 sm:max-w-37.5"
               title="Click to switch AI Model / Provider"
             >
               <span className="truncate">
@@ -2268,7 +2268,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
             onKeyDown={handleKeyDown}
             rows={1}
             placeholder="Ask KogNote... (or type / for skills, @ for notes, # for tags)"
-            className="w-full bg-transparent border-none p-1 text-xs text-foreground placeholder:text-slate-400 focus:outline-none focus:ring-0 resize-none min-h-[32px] max-h-28 leading-relaxed"
+            className="w-full bg-transparent border-none p-1 text-xs text-foreground placeholder:text-slate-400 focus:outline-none focus:ring-0 resize-none min-h-8 max-h-28 leading-relaxed"
           />
 
           {/* 2. Bottom Section - Inner Tool Utility Bar */}

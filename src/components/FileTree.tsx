@@ -1609,7 +1609,7 @@ const TreeItem: React.FC<TreeItemProps> = ({ item, depth, isOpen, onToggleFolder
             }
           }}
           style={{ paddingLeft: `${depth * 7 + 4}px` }}
-          className={`group flex items-center justify-between py-[2px] px-1.5 rounded-md mx-0.5 my-[1px] cursor-pointer transition-all duration-150 text-[11px] ${isDragOverFolder
+          className={`group flex items-center justify-between py-0.5 px-1.5 rounded-md mx-0.5 my-px cursor-pointer transition-all duration-150 text-[11px] ${isDragOverFolder
               ? "bg-indigo-600/30 border border-indigo-500 text-white shadow-xs"
               : isActive
                 ? item.name.endsWith(".excalidraw")
