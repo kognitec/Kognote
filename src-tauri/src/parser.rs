@@ -411,9 +411,11 @@ pub fn parse_markdown(content: &str) -> ParsedMetadata {
             }
         }
 
-    let raw_snippet = clean_snippet_lines.join(" ");
-    let snippet = if raw_snippet.len() > 100 {
-        format!("{}...", &raw_snippet[..100])
+    let raw_snippet = clean_snippet_lines.join("\n");
+    let snippet_chars: Vec<char> = raw_snippet.chars().collect();
+    let snippet = if snippet_chars.len() > 2000 {
+        let truncated: String = snippet_chars[..2000].iter().collect();
+        format!("{}...", truncated)
     } else {
         raw_snippet
     };

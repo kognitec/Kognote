@@ -936,31 +936,35 @@ export const BoardView: React.FC = () => {
         const snippet = getCleanNoteSnippet(card);
         const totalTasks = card.todoTasks + card.completedTasks;
 
-        const popoverWidth = 268;  // Compact, slim vertical width (w-67 / 268px)
-        const popoverHeight = 300; // Estimated height for boundary check
+        const popoverWidth = 280;  // Slimmer compact width (w-70 / 280px)
+        const popoverHeight = 320; // Max estimated height for boundary checks
 
-        // Smart Adjacent Alignment: Position directly to the RIGHT of the hovered card
-        let left = rect.right + 10;
-        let top = rect.top;
+        // Position directly below the hovered board card, aligned with its left margin
+        let left = rect.left;
+        let top = rect.bottom + 4;
 
-        // If card is near right screen edge (e.g. rightmost column), align to the LEFT of the card
+        // Horizontal boundary checks
         if (left + popoverWidth > window.innerWidth - 12) {
-          left = rect.left - popoverWidth - 10;
-          if (left < 12) left = 12;
+          left = window.innerWidth - popoverWidth - 12;
         }
+        if (left < 12) left = 12;
 
-        // Vertical boundary check to prevent cut-off at bottom or top of window
-        if (top + popoverHeight > window.innerHeight - 12) {
-          top = window.innerHeight - popoverHeight - 12;
+        // Vertical boundary check: position ABOVE card if tight near bottom of screen
+        if (rect.bottom + 4 + popoverHeight > window.innerHeight - 12) {
+          const topAbove = rect.top - popoverHeight - 4;
+          if (topAbove >= 12) {
+            top = topAbove;
+          } else {
+            top = Math.max(12, window.innerHeight - popoverHeight - 12);
+          }
         }
-        if (top < 12) top = 12;
 
         return (
           <div
             style={{ left: `${left}px`, top: `${top}px` }}
             onMouseEnter={() => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); }}
             onMouseLeave={handleCardMouseLeave}
-            className="fixed z-50 w-67 p-3 rounded-xl bg-white/95 dark:bg-[#121420]/95 backdrop-blur-md border border-slate-300 dark:border-slate-800 shadow-2xl flex flex-col gap-2 text-xs text-slate-900 dark:text-slate-100 animate-fade-in pointer-events-auto max-h-80 select-none"
+            className="fixed z-50 w-70 p-3 rounded-xl bg-white/95 dark:bg-[#121420]/95 backdrop-blur-md border border-slate-300 dark:border-slate-800 shadow-2xl flex flex-col gap-2 text-xs text-slate-900 dark:text-slate-100 animate-fade-in pointer-events-auto max-h-88 select-none"
           >
             {/* Header: Note Name + Type Badge */}
             <div className="flex items-center justify-between gap-1.5 border-b border-slate-200 dark:border-slate-800/80 pb-1.5 shrink-0">
@@ -977,8 +981,8 @@ export const BoardView: React.FC = () => {
               </span>
             </div>
 
-            {/* Note Body Content - Fits height dynamically, max-h-56 scrollable text */}
-            <div className="overflow-y-auto custom-scrollbar pr-1 max-h-56 text-[10px] text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-wrap break-words">
+            {/* Note Body Content - Expanded text display, up to 2500 chars with max-h-64 scrollable height */}
+            <div className="overflow-y-auto custom-scrollbar pr-1 max-h-64 text-[10px] text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-wrap break-words">
               {snippet ? (
                 snippet
               ) : (
