@@ -476,7 +476,7 @@ export const CommandPalette: React.FC = () => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-start justify-center bg-black/80 pt-[12vh] select-none animate-fade-in">
+    <div className="fixed inset-0 z-9999 flex items-start justify-center bg-black/80 pt-[12vh] select-none animate-fade-in">
       <div className="absolute inset-0" onClick={() => setIsOpen(false)} />
 
       {/* Palette Card */}
