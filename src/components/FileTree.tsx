@@ -945,7 +945,7 @@ export const FileTree: React.FC = () => {
                       onDragEnd={() => {
                         clearDragState();
                       }}
-                      className="flex items-center gap-1.5 w-full px-2 py-0.5 rounded-md text-[11.5px] text-slate-700 dark:text-slate-300 hover:bg-card-hover hover:text-foreground transition-colors text-left truncate cursor-pointer group"
+                      className="flex items-center gap-1.5 w-full px-2 py-[1px] rounded-md text-[11.5px] text-slate-700 dark:text-slate-300 hover:bg-card-hover hover:text-foreground transition-colors text-left truncate cursor-pointer group"
                     >
                       {getFileIcon(note, noteCache, { className: "h-3.5 w-3.5 shrink-0 text-amber-500" })}
                       <span className="truncate" title={note.name.replace(/\.md$/, "")}>{note.name.replace(/\.md$/, "")}</span>
@@ -1433,7 +1433,7 @@ const VirtualFileList: React.FC<{
   const rowVirtualizer = useVirtualizer({
     count: flatItems.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 30,
+    estimateSize: () => 24,
     overscan: 10,
   });
 
@@ -1676,7 +1676,7 @@ const TreeItem: React.FC<TreeItemProps> = ({ item, depth, isOpen, onToggleFolder
             }
           }}
           style={{ paddingLeft: `${depth * 7 + 4}px` }}
-          className={`group flex items-center justify-between py-0.5 px-1.5 rounded-md mx-0.5 my-px cursor-pointer transition-all duration-150 text-[11px] ${isDragOverFolder
+          className={`group flex items-center justify-between py-[1px] px-1.5 rounded-md mx-0.5 my-0 cursor-pointer transition-all duration-150 text-[11px] ${isDragOverFolder
               ? "bg-indigo-600/30 border border-indigo-500 text-white shadow-xs"
               : isActive
                 ? item.name.endsWith(".excalidraw")
