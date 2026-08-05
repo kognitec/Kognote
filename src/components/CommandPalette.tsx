@@ -77,7 +77,8 @@ export const CommandPalette: React.FC = () => {
 
       // AI & Formatting
       { id: "ai-ask", name: "✨ Ask Kognote AI...", desc: "Send direct query or instruction to AI Copilot assistant", shortcut: "/ask", category: "AI & Formatting", action: () => {
-        setQuery("ai:");
+        const typedArgs = query.replace(/^\/ask\s*/i, "").trim();
+        setQuery(typedArgs ? `ai: ${typedArgs}` : "ai:");
         setActiveMode("ai");
       }, type: "command" },
       { id: "ai-format", name: "AI Format & Polish Document", desc: "Polishes grammar, styling, and markdown structure using AI", shortcut: "/aiformat", category: "AI & Formatting", action: () => window.dispatchEvent(new CustomEvent("trigger-ai-format")), type: "command" },
@@ -187,8 +188,8 @@ export const CommandPalette: React.FC = () => {
     );
 
     // 2. AI Prompt Direct Mode
-    if (activeMode === "ai" || rawQuery.startsWith("ai:")) {
-      const aiPrompt = rawQuery.replace(/^ai:\s*/i, "").trim();
+    if (activeMode === "ai" || rawQuery.startsWith("ai:") || rawQuery.toLowerCase().startsWith("/ask ")) {
+      const aiPrompt = rawQuery.replace(/^(\/ask|ai:)\s*/i, "").trim();
       setResults([
         {
           id: "ask-ai-prompt",
