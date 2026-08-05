@@ -47,7 +47,6 @@ import {
 } from "lucide-react";
 import { message } from "@tauri-apps/plugin-dialog";
 import aiStaticIcon from "../assets/ai-static.png";
-import aiAnimatedGif from "../assets/ai-animated.gif";
 import { MarkdownRenderer } from "./chat/MarkdownRenderer";
 
 export interface ContextChip {
@@ -502,9 +501,8 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
           if (e.children) scan(e.children);
         } else {
           const isMd = e.name.toLowerCase().endsWith(".md");
-          const isCanvas = e.name.toLowerCase().endsWith(".excalidraw");
-          if (isMd || isCanvas) {
-            list.push({ name: e.name, path: e.path, isCanvas });
+          if (isMd) {
+            list.push({ name: e.name, path: e.path, isCanvas: false });
           }
         }
       });
@@ -1225,10 +1223,9 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         animationFrameId = null;
       };
 
-      const aiResponse = await aiService.generateTextStreaming(
+      const aiResponse = await aiService.generateStream(
         prompt,
-        systemPrompt,
-        (token) => {
+        (token: string) => {
           const { newCleanTokens, completedActions } = actionBuffer.append(token);
 
           if (newCleanTokens) {
@@ -1251,6 +1248,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
             }
           }
         },
+        systemPrompt,
         { ...mediaOptions, abortSignal: abortCtrl.signal }
       );
 
@@ -1648,9 +1646,9 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         <div data-tauri-drag-region className="flex items-center gap-1.5 min-w-0">
           <div className="w-5 h-5 rounded-full bg-black flex items-center justify-center p-0.5 shrink-0 shadow-xs ring-1 ring-white/10 pointer-events-none">
             <img 
-              src={loading ? aiAnimatedGif : aiStaticIcon} 
+              src={aiStaticIcon} 
               alt="KogNote AI" 
-              className="w-3.5 h-3.5 object-contain" 
+              className={`w-3.5 h-3.5 object-contain ${loading ? "animate-spin" : ""}`} 
             />
           </div>
           
@@ -1674,13 +1672,13 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
               <div className="absolute left-0 top-full mt-1 z-100 w-56 sm:w-60 max-h-64 overflow-y-auto custom-scrollbar bg-card border border-card-border rounded-xl p-1.5 shadow-2xl backdrop-blur-xl text-xs space-y-0.5">
                 <div className="px-2 py-0.5 text-[9px] font-bold text-slate-500 uppercase tracking-wider">Local AI Models (Offline)</div>
                 
-                {[
-                  { id: "qwen2.5-coder-1.5b", name: "Qwen 2.5 Coder (1.5B)", desc: "Ultra Fast CPU" },
-                  { id: "qwen2.5-coder-3b", name: "Qwen 2.5 Coder (3B)", desc: "Balanced Default" },
-                  { id: "qwen2.5-coder-7b", name: "Qwen 2.5 Coder (7B)", desc: "Apple Silicon & 16GB+" },
-                ].map((m) => {
-                  const status = localModelsList.find(item => item.id === m.id);
-                  const isDownloaded = status?.downloaded;
+                {(localModelsList.length > 0 ? localModelsList : [
+                  { id: "qwen2.5-coder-1.5b", display_name: "Qwen 2.5 Coder (1.5B)", ram_required: "1.8 GB RAM", downloaded: false },
+                  { id: "qwen2.5-coder-3b", display_name: "Qwen 2.5 Coder (3B)", ram_required: "2.7 GB RAM", downloaded: false },
+                  { id: "llama-3.2-3b-instruct", display_name: "Llama 3.2 (3B Instruct)", ram_required: "2.8 GB RAM", downloaded: false },
+                  { id: "qwen2.5-coder-7b", display_name: "Qwen 2.5 Coder (7B)", ram_required: "5.5 GB RAM", downloaded: false },
+                ]).map((m) => {
+                  const isDownloaded = m.downloaded;
                   const isSelected = aiProvider === "local" && aiLocalModel === m.id;
 
                   return (
@@ -1696,14 +1694,14 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                     >
                       <div className="flex flex-col min-w-0">
                         <span className="flex items-center gap-1 font-bold text-[11px] truncate">
-                          {m.name}
+                          {m.display_name || m.name || m.id}
                           {isDownloaded && (
                             <span className="text-[7.5px] text-emerald-500 dark:text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded font-extrabold shrink-0">
                               READY
                             </span>
                           )}
                         </span>
-                        <span className="text-[9px] text-slate-500 truncate">{m.desc}</span>
+                        <span className="text-[9px] text-slate-500 truncate">{m.ram_required || m.description || m.desc || "Local GGUF Model"}</span>
                       </div>
                       {isSelected && <Check className="h-3 w-3 text-indigo-500 dark:text-indigo-400 shrink-0 ml-1" />}
                     </button>

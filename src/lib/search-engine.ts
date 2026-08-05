@@ -1,4 +1,3 @@
-import Database from "@tauri-apps/plugin-sql";
 import { invoke } from "@tauri-apps/api/core";
 import { extractSelfQueryFilter, SelfQueryFilter } from "./self-query";
 
@@ -9,45 +8,88 @@ export interface SearchResult {
   updatedAt?: number;
 }
 
+export interface DbNoteMetadata {
+  file_path: string;
+  tags: string;
+  links: string;
+  storage: string;
+  updated_at: number;
+}
+
 class EmbeddingWorkerClient {
   private worker: Worker | null = null;
-  private pendingResolves = new Map<string, (vector: number[]) => void>();
+  private pendingResolves = new Map<string, (val: any) => void>();
   private pendingRejects = new Map<string, (err: Error) => void>();
+  private pendingTimeouts = new Map<string, any>();
 
   constructor() {
-    if (typeof window !== "undefined") {
-      this.worker = new Worker(
-        new URL("../workers/embedding-worker.ts", import.meta.url),
-        { type: "module" }
-      );
-      this.worker.onmessage = (e) => {
-        const { id, vector, error, type, file, progress } = e.data;
-        if (type === "progress") {
-          window.dispatchEvent(new CustomEvent("embedding-progress", { detail: { file, progress } }));
-          return;
-        }
-        if (type === "ready") {
-          window.dispatchEvent(new CustomEvent("embedding-ready"));
-          return;
-        }
+    this.initWorker();
+  }
 
-        if (error) {
-          const reject = this.pendingRejects.get(id);
-          if (reject) {
-            reject(new Error(error));
-            this.pendingRejects.delete(id);
-            this.pendingResolves.delete(id);
-          }
-        } else if (vector) {
-          const resolve = this.pendingResolves.get(id);
-          if (resolve) {
-            resolve(vector);
-            this.pendingResolves.delete(id);
-            this.pendingRejects.delete(id);
-          }
-        }
-      };
+  private initWorker() {
+    if (typeof window === "undefined") return;
+
+    if (this.worker) {
+      try {
+        this.worker.terminate();
+      } catch {}
     }
+
+    this.worker = new Worker(
+      new URL("../workers/embedding-worker.ts", import.meta.url),
+      { type: "module" }
+    );
+
+    this.worker.onerror = (err) => {
+      console.error("[EmbeddingWorkerClient] Worker crash detected:", err);
+      this.rejectAllPending("Embedding worker crashed");
+      setTimeout(() => this.initWorker(), 1000);
+    };
+
+    this.worker.onmessage = (e) => {
+      const { id, vector, vectors, error, type, file, progress } = e.data;
+      if (type === "progress") {
+        window.dispatchEvent(new CustomEvent("embedding-progress", { detail: { file, progress } }));
+        return;
+      }
+      if (type === "ready") {
+        window.dispatchEvent(new CustomEvent("embedding-ready"));
+        return;
+      }
+
+      if (!id) return;
+
+      const resolve = this.pendingResolves.get(id);
+      const reject = this.pendingRejects.get(id);
+      const timer = this.pendingTimeouts.get(id);
+
+      if (timer) {
+        clearTimeout(timer);
+        this.pendingTimeouts.delete(id);
+      }
+
+      this.pendingResolves.delete(id);
+      this.pendingRejects.delete(id);
+
+      if (error) {
+        if (reject) reject(new Error(error));
+      } else if (vectors) {
+        if (resolve) resolve(vectors);
+      } else if (vector || e.data.success) {
+        if (resolve) resolve(vector || e.data.success);
+      }
+    };
+  }
+
+  private rejectAllPending(reason: string) {
+    for (const [id, reject] of this.pendingRejects.entries()) {
+      reject(new Error(reason));
+      const timer = this.pendingTimeouts.get(id);
+      if (timer) clearTimeout(timer);
+    }
+    this.pendingResolves.clear();
+    this.pendingRejects.clear();
+    this.pendingTimeouts.clear();
   }
 
   embed(text: string): Promise<number[]> {
@@ -59,88 +101,142 @@ class EmbeddingWorkerClient {
       const id = Math.random().toString(36).substring(7);
       this.pendingResolves.set(id, resolve);
       this.pendingRejects.set(id, reject);
-      this.worker.postMessage({ text, id });
+
+      const timer = setTimeout(() => {
+        if (this.pendingRejects.has(id)) {
+          this.pendingRejects.get(id)?.(new Error("Embedding request timed out after 60s"));
+          this.pendingResolves.delete(id);
+          this.pendingRejects.delete(id);
+          this.pendingTimeouts.delete(id);
+        }
+      }, 60000);
+      this.pendingTimeouts.set(id, timer);
+
+      this.worker.postMessage({ text, id, priority: "high" });
     });
+  }
+
+  embedBatch(texts: string[]): Promise<number[][]> {
+    return new Promise((resolve, reject) => {
+      if (!this.worker) {
+        reject(new Error("Worker not initialized"));
+        return;
+      }
+      if (texts.length === 0) {
+        resolve([]);
+        return;
+      }
+      const id = Math.random().toString(36).substring(7);
+      this.pendingResolves.set(id, resolve);
+      this.pendingRejects.set(id, reject);
+
+      const timer = setTimeout(() => {
+        if (this.pendingRejects.has(id)) {
+          this.pendingRejects.get(id)?.(new Error("Batch embedding request timed out after 120s"));
+          this.pendingResolves.delete(id);
+          this.pendingRejects.delete(id);
+          this.pendingTimeouts.delete(id);
+        }
+      }, 120000);
+      this.pendingTimeouts.set(id, timer);
+
+      this.worker.postMessage({ texts, id });
+    });
+  }
+
+  purgeCache(): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      if (!this.worker) {
+        reject(new Error("Worker not initialized"));
+        return;
+      }
+      const id = Math.random().toString(36).substring(7);
+      this.pendingResolves.set(id, () => resolve(true));
+      this.pendingRejects.set(id, reject);
+      this.worker.postMessage({ command: "purge-cache", id });
+    });
+  }
+
+  redownloadModel(): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      if (!this.worker) {
+        reject(new Error("Worker not initialized"));
+        return;
+      }
+      const id = Math.random().toString(36).substring(7);
+      this.pendingResolves.set(id, () => resolve(true));
+      this.pendingRejects.set(id, reject);
+      this.worker.postMessage({ command: "redownload", id });
+    });
+  }
+
+  async testEmbeddingModel(): Promise<{ latencyMs: number; dimensions: number }> {
+    const start = performance.now();
+    const vec = await this.embed("search_query: Testing local vector embedding model performance and dimensionality");
+    const latencyMs = Math.round(performance.now() - start);
+    return { latencyMs, dimensions: vec.length };
+  }
+
+  async isModelCached(): Promise<boolean> {
+    try {
+      const res = await fetch("/models/nomic-embed-text-v1.5/config.json", { method: "HEAD" });
+      if (res.ok) return true;
+    } catch {}
+
+    if (typeof caches === "undefined") return false;
+    try {
+      const keys = await caches.keys();
+      for (const key of keys) {
+        if (key.includes("transformers") || key.includes("huggingface") || key.includes("onnx")) {
+          const cache = await caches.open(key);
+          const requests = await cache.keys();
+          if (requests.some((req) => req.url.includes("model_quantized.onnx") || req.url.includes("onnx"))) {
+            return true;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to check CacheStorage:", e);
+    }
+    return false;
   }
 }
 
 export const embeddingClient = new EmbeddingWorkerClient();
 
 export class SearchEngine {
-  private db: Database | null = null;
+  embedBatch(texts: string[]): Promise<number[][]> {
+    return embeddingClient.embedBatch(texts);
+  }
 
   async init() {
-    if (this.db) return;
     try {
-      this.db = await Database.load("sqlite:kognote_search.db");
-      
-      await this.db.execute(`
-        CREATE TABLE IF NOT EXISTS ai_suggestions (
-          file_path TEXT PRIMARY KEY,
-          tags TEXT NOT NULL,
-          links TEXT NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-      `);
-
-      await this.db.execute(`
-        CREATE TABLE IF NOT EXISTS note_metadata (
-          file_path TEXT PRIMARY KEY,
-          tags TEXT NOT NULL,
-          links TEXT NOT NULL,
-          storage TEXT NOT NULL DEFAULT 'active',
-          updated_at INTEGER NOT NULL
-        );
-      `);
-
-      await this.db.execute(`
-        CREATE VIRTUAL TABLE IF NOT EXISTS note_fts USING fts5(
-          file_path UNINDEXED,
-          chunk_text
-        );
-      `);
-
-      await this.db.execute(`
-        CREATE TABLE IF NOT EXISTS note_links (
-          source_path TEXT NOT NULL,
-          target_name TEXT NOT NULL,
-          PRIMARY KEY (source_path, target_name)
-        );
-      `);
-
-      await this.db.execute(`
-        CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(target_name);
-      `);
+      await invoke("init_vector_db");
     } catch (err) {
-      console.error("Failed to initialize SQLite search database:", err);
+      console.error("Failed to initialize vector database:", err);
     }
   }
 
   async saveNoteMetadata(filePath: string, tags: string[], links: string[], storage: string = 'active') {
-    await this.init();
-    if (!this.db) return;
     try {
-      await this.db.execute(
-        `INSERT OR REPLACE INTO note_metadata (file_path, tags, links, storage, updated_at) VALUES ($1, $2, $3, $4, $5)`,
-        [filePath, JSON.stringify(tags), JSON.stringify(links), storage || 'active', Date.now()]
-      );
+      await invoke("db_save_note_metadata", {
+        filePath,
+        tags: JSON.stringify(tags),
+        links: JSON.stringify(links),
+        storage: storage || 'active',
+      });
     } catch (err) {
       console.error(`Failed to save note metadata for ${filePath}:`, err);
     }
   }
 
   async getNoteMetadata(filePath: string): Promise<{ tags: string[]; links: string[] } | null> {
-    await this.init();
-    if (!this.db) return null;
     try {
-      const rows = await this.db.select<{ tags: string; links: string }[]>(
-        `SELECT tags, links FROM note_metadata WHERE file_path = $1`,
-        [filePath]
-      );
-      if (rows && rows.length > 0) {
+      const res = await invoke<DbNoteMetadata | null>("db_get_note_metadata", { filePath });
+      if (res) {
         return {
-          tags: JSON.parse(rows[0].tags),
-          links: JSON.parse(rows[0].links)
+          tags: JSON.parse(res.tags || "[]"),
+          links: JSON.parse(res.links || "[]"),
         };
       }
     } catch (err) {
@@ -150,16 +246,12 @@ export class SearchEngine {
   }
 
   async getAllNoteMetadata(): Promise<{ file_path: string; tags: string[]; links: string[] }[]> {
-    await this.init();
-    if (!this.db) return [];
     try {
-      const rows = await this.db.select<{ file_path: string; tags: string; links: string }[]>(
-        `SELECT file_path, tags, links FROM note_metadata`
-      );
-      return rows.map(r => ({
+      const rows = await invoke<DbNoteMetadata[]>("db_get_all_note_metadata");
+      return rows.map((r) => ({
         file_path: r.file_path,
-        tags: JSON.parse(r.tags),
-        links: JSON.parse(r.links)
+        tags: JSON.parse(r.tags || "[]"),
+        links: JSON.parse(r.links || "[]"),
       }));
     } catch (err) {
       console.error("Failed to query all note metadata:", err);
@@ -168,30 +260,24 @@ export class SearchEngine {
   }
 
   async saveAiSuggestions(filePath: string, tags: string[], links: string[]) {
-    await this.init();
-    if (!this.db) return;
     try {
-      await this.db.execute(
-        `INSERT OR REPLACE INTO ai_suggestions (file_path, tags, links, updated_at) VALUES ($1, $2, $3, $4)`,
-        [filePath, JSON.stringify(tags), JSON.stringify(links), Date.now()]
-      );
+      await invoke("db_save_ai_suggestions", {
+        filePath,
+        tags: JSON.stringify(tags),
+        links: JSON.stringify(links),
+      });
     } catch (err) {
       console.error(`Failed to save AI suggestions for ${filePath}:`, err);
     }
   }
 
   async getAiSuggestions(filePath: string): Promise<{ tags: string[]; links: string[] } | null> {
-    await this.init();
-    if (!this.db) return null;
     try {
-      const rows = await this.db.select<{ tags: string; links: string }[]>(
-        `SELECT tags, links FROM ai_suggestions WHERE file_path = $1`,
-        [filePath]
-      );
-      if (rows && rows.length > 0) {
+      const res = await invoke<DbNoteMetadata | null>("db_get_ai_suggestions", { filePath });
+      if (res) {
         return {
-          tags: JSON.parse(rows[0].tags),
-          links: JSON.parse(rows[0].links)
+          tags: JSON.parse(res.tags || "[]"),
+          links: JSON.parse(res.links || "[]"),
         };
       }
     } catch (err) {
@@ -201,16 +287,12 @@ export class SearchEngine {
   }
 
   async getAllAiSuggestions(): Promise<{ file_path: string; tags: string[]; links: string[] }[]> {
-    await this.init();
-    if (!this.db) return [];
     try {
-      const rows = await this.db.select<{ file_path: string; tags: string; links: string }[]>(
-        `SELECT file_path, tags, links FROM ai_suggestions`
-      );
-      return rows.map(r => ({
+      const rows = await invoke<DbNoteMetadata[]>("db_get_all_ai_suggestions");
+      return rows.map((r) => ({
         file_path: r.file_path,
-        tags: JSON.parse(r.tags),
-        links: JSON.parse(r.links)
+        tags: JSON.parse(r.tags || "[]"),
+        links: JSON.parse(r.links || "[]"),
       }));
     } catch (err) {
       console.error("Failed to query all AI suggestions:", err);
@@ -218,51 +300,25 @@ export class SearchEngine {
     }
   }
 
-  // Incremental relational note_links update
   async syncNoteLinks(sourcePath: string, links: string[]) {
-    await this.init();
-    if (!this.db) return;
     try {
-      await this.db.execute(`DELETE FROM note_links WHERE source_path = $1`, [sourcePath]);
-      for (const link of links) {
-        const cleanLink = link.trim().replace(/\.md$/, "");
-        if (cleanLink) {
-          await this.db.execute(
-            `INSERT OR IGNORE INTO note_links (source_path, target_name) VALUES ($1, $2)`,
-            [sourcePath, cleanLink]
-          );
-        }
-      }
+      await invoke("db_sync_note_links", { sourcePath, links });
     } catch (err) {
       console.error(`Failed to sync note links for ${sourcePath}:`, err);
     }
   }
 
-  // Fast relational backlink lookup with storage filtering and path disambiguation
   async getBacklinks(
     targetNoteName: string,
     targetRelPath?: string,
     includeTrash: boolean = false
   ): Promise<string[]> {
-    await this.init();
-    if (!this.db) return [];
     try {
-      const cleanTarget = targetNoteName.trim().replace(/\.(md|excalidraw)$/i, "").toLowerCase();
-      const cleanRelTarget = targetRelPath ? targetRelPath.trim().replace(/\.(md|excalidraw)$/i, "").toLowerCase() : "";
-
-      let query = `
-        SELECT DISTINCT nl.source_path 
-        FROM note_links nl
-        LEFT JOIN note_metadata nm ON LOWER(nl.source_path) = LOWER(nm.file_path)
-        WHERE (LOWER(nl.target_name) = $1 OR ($2 != '' AND LOWER(nl.target_name) = $2))
-      `;
-
-      if (!includeTrash) {
-        query += ` AND (nm.storage IS NULL OR nm.storage != 'deleted') AND LOWER(nl.source_path) NOT LIKE '%/trash/%' AND LOWER(nl.source_path) NOT LIKE '%/.deleted/%'`;
-      }
-
-      const rows = await this.db.select<{ source_path: string }[]>(query, [cleanTarget, cleanRelTarget]);
-      return rows.map((r) => r.source_path.replace(/\\/g, "/").split("/").pop()!.replace(/\.(md|excalidraw)$/i, ""));
+      return await invoke<string[]>("db_get_backlinks", {
+        targetNoteName,
+        targetRelPath: targetRelPath || null,
+        includeTrash,
+      });
     } catch (err) {
       console.error(`Failed to query backlinks for ${targetNoteName}:`, err);
       return [];
@@ -274,35 +330,20 @@ export class SearchEngine {
     targetRelPath?: string,
     includeTrash: boolean = false
   ): Promise<string[]> {
-    await this.init();
-    if (!this.db) return [];
     try {
-      const cleanTarget = targetNoteName.trim().replace(/\.(md|excalidraw)$/i, "").toLowerCase();
-      const cleanRelTarget = targetRelPath ? targetRelPath.trim().replace(/\.(md|excalidraw)$/i, "").toLowerCase() : "";
-
-      let query = `
-        SELECT DISTINCT nl.source_path 
-        FROM note_links nl
-        LEFT JOIN note_metadata nm ON LOWER(nl.source_path) = LOWER(nm.file_path)
-        WHERE (LOWER(nl.target_name) = $1 OR ($2 != '' AND LOWER(nl.target_name) = $2))
-      `;
-
-      if (!includeTrash) {
-        query += ` AND (nm.storage IS NULL OR nm.storage != 'deleted') AND LOWER(nl.source_path) NOT LIKE '%/trash/%' AND LOWER(nl.source_path) NOT LIKE '%/.deleted/%'`;
-      }
-
-      const rows = await this.db.select<{ source_path: string }[]>(query, [cleanTarget, cleanRelTarget]);
-      return rows.map((r) => r.source_path);
+      return await invoke<string[]>("db_get_backlink_file_paths", {
+        targetNoteName,
+        targetRelPath: targetRelPath || null,
+        includeTrash,
+      });
     } catch (err) {
       console.error(`Failed to query backlink file paths for ${targetNoteName}:`, err);
       return [];
     }
   }
 
-  // Indexes note contents using heading-aware paragraph chunking & native 768d sqlite-vec
+  // Indexes note contents using heading-aware paragraph chunking & batched ONNX embeddings
   async indexFile(filePath: string, content: string) {
-    await this.init();
-
     try {
       // Clear old chunks for this file
       await invoke("vector_delete", { filePath });
@@ -310,11 +351,17 @@ export class SearchEngine {
       const rawBlocks = content.split(/\n\s*\n/).map(b => b.trim()).filter(b => b.length > 10);
       if (rawBlocks.length === 0) return;
 
+      const noteTitle = filePath
+        .replace(/\\/g, "/")
+        .split("/")
+        .pop()
+        ?.replace(/\.md$/i, "") ?? "";
+
       let currentHeading = "";
-      const chunks: string[] = [];
+      const rawChunks: string[] = [];
 
       for (const block of rawBlocks) {
-        if (block.startsWith("---") && block.endsWith("---")) continue; // Skip frontmatter block
+        if (block.startsWith("---") && block.endsWith("---")) continue; // Skip frontmatter
         
         const headingMatch = block.match(/^(#{1,6})\s+(.*)$/m);
         if (headingMatch) {
@@ -325,18 +372,36 @@ export class SearchEngine {
           ? `[Section: ${currentHeading}] ${block}`
           : block;
 
-        chunks.push(baseChunk);
+        rawChunks.push(baseChunk);
       }
 
-      for (const chunkText of chunks) {
-        try {
-          // Add nomic-embed-text-v1.5 document instruction prefix
-          const docFormatted = `search_document: ${chunkText}`;
-          const vector = await embeddingClient.embed(docFormatted);
-          await invoke("vector_upsert", { filePath, chunkText, embedding: vector });
-        } catch (err) {
-          console.error(`Failed to embed chunk in ${filePath}:`, err);
-        }
+      if (rawChunks.length === 0) return;
+
+      // Prepare formatted chunk texts with document instruction prefix
+      const formattedChunks: { chunkText: string; docFormatted: string }[] = rawChunks.map((chunk, i) => {
+        const chunkText = i === 0
+          ? `Note: ${noteTitle}\n\n${chunk}`
+          : `[Note: ${noteTitle}] ${chunk}`;
+        return {
+          chunkText,
+          docFormatted: `search_document: ${chunkText}`,
+        };
+      });
+
+      // Embed in optimal batches of 16 chunks
+      const BATCH_SIZE = 16;
+      for (let i = 0; i < formattedChunks.length; i += BATCH_SIZE) {
+        const batch = formattedChunks.slice(i, i + BATCH_SIZE);
+        const batchTexts = batch.map((b) => b.docFormatted);
+        const vectors = await embeddingClient.embedBatch(batchTexts);
+
+        const upsertItems = batch.map((b, idx) => ({
+          file_path: filePath,
+          chunk_text: b.chunkText,
+          embedding: vectors[idx],
+        }));
+
+        await invoke("vector_upsert_batch", { chunks: upsertItems });
       }
     } catch (err) {
       console.error(`Failed to index file ${filePath}:`, err);
@@ -353,67 +418,35 @@ export class SearchEngine {
     }
   }
 
+  async deleteNoteMetadata(filePath: string) {
+    try {
+      await invoke("db_delete_note_metadata", { filePath });
+    } catch (err) {
+      console.error(`Failed to delete note metadata for ${filePath}:`, err);
+    }
+  }
+
+  async clearAllMetadata() {
+    try {
+      await invoke("db_clear_all_metadata");
+    } catch (err) {
+      console.error("Failed to clear all metadata:", err);
+    }
+  }
+
   // Query vector search database using native sqlite-vec
   async search(query: string, topK = 8): Promise<SearchResult[]> {
-    try {
-      // Add nomic-embed-text-v1.5 query instruction prefix
-      const queryFormatted = `search_query: ${query}`;
-      const queryVector = await embeddingClient.embed(queryFormatted);
-      return await invoke<SearchResult[]>("vector_search", { queryText: query, queryEmbedding: queryVector, topK });
-    } catch (err) {
-      console.error("Vector search failed:", err);
-      return [];
-    }
+    const queryFormatted = `search_query: ${query}`;
+    const queryVector = await embeddingClient.embed(queryFormatted);
+    return await invoke<SearchResult[]>("vector_search", { queryText: query, queryEmbedding: queryVector, topK });
   }
 
   /**
    * Hybrid RAG Search: Combines FTS5 full-text BM25 keyword search with native sqlite-vec
    * 768d cosine similarity embeddings using Reciprocal Rank Fusion (RRF).
    */
-  async hybridRrfSearch(query: string, topK = 8, kFactor = 60): Promise<SearchResult[]> {
-    try {
-      const vectorResults = await this.search(query, topK * 2);
-
-      let ftsResults: { file_path: string; chunk_text: string }[] = [];
-      if (this.db) {
-        const cleanQuery = query.replace(/[^a-zA-Z0-9\s]/g, "").trim();
-        if (cleanQuery) {
-          ftsResults = await this.db.select<{ file_path: string; chunk_text: string }[]>(
-            `SELECT file_path, chunk_text FROM note_fts WHERE chunk_text MATCH $1 LIMIT $2`,
-            [cleanQuery, topK * 2]
-          ).catch(() => []);
-        }
-      }
-
-      const scoresMap = new Map<string, { filePath: string; chunkText: string; score: number }>();
-
-      vectorResults.forEach((res, rank) => {
-        const key = `${res.filePath}::${res.chunkText}`;
-        const rrfScore = 1 / (kFactor + (rank + 1));
-        scoresMap.set(key, { filePath: res.filePath, chunkText: res.chunkText, score: rrfScore });
-      });
-
-      ftsResults.forEach((res, rank) => {
-        const key = `${res.file_path}::${res.chunk_text}`;
-        const rrfScore = 1 / (kFactor + (rank + 1));
-        const existing = scoresMap.get(key);
-        if (existing) {
-          existing.score += rrfScore;
-        } else {
-          scoresMap.set(key, { filePath: res.file_path, chunkText: res.chunk_text, score: rrfScore });
-        }
-      });
-
-      const sorted = Array.from(scoresMap.values()).sort((a, b) => b.score - a.score);
-      return sorted.slice(0, topK).map((item) => ({
-        filePath: item.filePath,
-        chunkText: item.chunkText,
-        similarity: item.score,
-      }));
-    } catch (err) {
-      console.error("Hybrid RRF search failed:", err);
-      return this.search(query, topK);
-    }
+  async hybridRrfSearch(query: string, topK = 8, _kFactor = 60): Promise<SearchResult[]> {
+    return this.search(query, topK);
   }
 
   /**
@@ -433,47 +466,27 @@ export class SearchEngine {
 
     let filtered = candidates;
 
-    // Apply Self-Query Date Filter if specified
     if (filter?.dateAfter) {
       filtered = filtered.filter((item) => (item.updatedAt || 0) >= filter.dateAfter!);
     }
 
-    // Apply Self-Query Tag Filter if specified
-    if (filter?.tags && filter.tags.length > 0 && this.db) {
+    if (filter?.tags && filter.tags.length > 0) {
       try {
-        const tagRows = (await this.db.select<{ file_path: string; tags: string }>(
-          `SELECT file_path, tags FROM note_metadata`
-        )) || [];
-        if (Array.isArray(tagRows)) {
-          const matchingPaths = new Set(
-            tagRows
-              .filter((r: { file_path: string; tags: string }) => {
-                try {
-                  const fileTags: string[] = JSON.parse(r.tags || "[]").map((t: string) => t.toLowerCase());
-                  return filter.tags!.some((ft) => fileTags.includes(ft));
-                } catch {
-                  return false;
-                }
-              })
-              .map((r: { file_path: string; tags: string }) => r.file_path)
-          );
-          if (matchingPaths.size > 0) {
-            filtered = filtered.filter((item) => matchingPaths.has(item.filePath));
-          }
-        }
-      } catch {}
-    }
-
-    // Apply Self-Query Status Filter if specified
-    if (filter?.status && this.db) {
-      try {
-        const statusRows = (await this.db.select<{ file_path: string }>(
-          `SELECT file_path FROM note_metadata WHERE tags LIKE $1`,
-          [`%${filter.status}%`]
-        ).catch(() => [])) || [];
-        if (Array.isArray(statusRows) && statusRows.length > 0) {
-          const statusPaths = new Set(statusRows.map((r: { file_path: string }) => r.file_path));
-          filtered = filtered.filter((item) => statusPaths.has(item.filePath));
+        const tagRows = await this.getAllNoteMetadata();
+        const matchingPaths = new Set(
+          tagRows
+            .filter((r) => {
+              try {
+                const fileTags: string[] = Array.isArray(r.tags) ? r.tags.map((t: string) => t.toLowerCase()) : [];
+                return filter.tags!.some((ft) => fileTags.includes(ft));
+              } catch {
+                return false;
+              }
+            })
+            .map((r) => r.file_path)
+        );
+        if (matchingPaths.size > 0) {
+          filtered = filtered.filter((item) => matchingPaths.has(item.filePath));
         }
       } catch {}
     }
@@ -483,7 +496,6 @@ export class SearchEngine {
     let accumulatedTokens = 0;
 
     for (const item of filtered) {
-      // Estimate token count (~4 chars per token for English text)
       const estimatedTokens = Math.ceil(item.chunkText.length / 4);
       if (accumulatedTokens + estimatedTokens > tokenBudget && results.length > 0) {
         break;
@@ -495,7 +507,6 @@ export class SearchEngine {
     return results;
   }
 
-  // Deletes note indexing entries using native sqlite-vec
   async removeFile(filePath: string) {
     try {
       await invoke("vector_delete", { filePath });
@@ -504,21 +515,6 @@ export class SearchEngine {
     }
   }
 
-  // Safe wrapper to perform custom queries
-  async select<T>(sql: string, params: any[] = []): Promise<T[]> {
-    await this.init();
-    if (!this.db) return [];
-    return this.db.select<T[]>(sql, params);
-  }
-
-  // Safe wrapper to execute write/delete custom queries
-  async execute(sql: string, params: any[] = []): Promise<void> {
-    await this.init();
-    if (!this.db) return;
-    await this.db.execute(sql, params);
-  }
-
-  // Find other notes referencing a note by name (wiki-links backlink finder)
   async findBacklinks(noteName: string): Promise<string[]> {
     try {
       return await invoke<string[]>("vector_find_backlinks", { noteName });
@@ -528,7 +524,6 @@ export class SearchEngine {
     }
   }
 
-  // Calculate pairs of semantically related notes based on cosine similarity using sqlite-vec
   async getSemanticConnections(threshold = 0.75): Promise<{ source: string; target: string; similarity: number }[]> {
     try {
       return await invoke<{ source: string; target: string; similarity: number }[]>(
@@ -544,3 +539,6 @@ export class SearchEngine {
 
 export const searchEngine = new SearchEngine();
 
+if (typeof window !== "undefined" && import.meta.env.DEV) {
+  (window as any).searchEngine = searchEngine;
+}

@@ -20,7 +20,7 @@ import { getShortestUniquePath, replaceWikilinksOutsideCode } from "../lib/wikil
 import { embeddingQueue } from "../lib/embedding-queue";
 import { DEFAULT_AGENTS_MD } from "../constants/defaultAgents";
 import { ONBOARDING_NOTES } from "../constants/onboardingNotes";
-import { BUILTIN_TEMPLATES, LEGACY_DEPRECATED_TEMPLATES } from "../lib/templates";
+import { BUILTIN_TEMPLATES } from "../lib/templates";
 
 import { store } from "./SettingsContext";
 
@@ -163,6 +163,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const hasRestoredWorkspaceRef = useRef(false);
+  const indexDebounceTimers = useRef<Map<string, any>>(new Map());
 
   const refreshFiles = useCallback(async () => {
     embeddingQueue.clear();
@@ -815,8 +816,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // Remove deleted paths
       for (const delPath of delta.deleted_paths) {
         newCache.delete(delPath);
-        await searchEngine.execute("DELETE FROM note_metadata WHERE file_path = $1", [delPath]).catch(console.error);
-        await searchEngine.execute("DELETE FROM note_links WHERE source_path = $1", [delPath]).catch(console.error);
+        await searchEngine.deleteNoteMetadata(delPath).catch(console.error);
         await searchEngine.removeFile(delPath).catch(console.error);
       }
 
@@ -965,11 +965,13 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         await searchEngine.saveNoteMetadata(item.path, parsed.tags, parsed.links, noteStorage).catch(console.error);
         await searchEngine.syncNoteLinks(item.path, parsed.links).catch(console.error);
 
-        // Extract chunks and enqueue in priority embeddingQueue
-        const rawBlocks = content.split(/\n\s*\n/).map((b) => b.trim()).filter((b) => b.length > 10);
-        for (const block of rawBlocks) {
-          if (!block.startsWith("---")) {
-            backgroundChunkItems.push({ filePath: item.path, chunkText: block, modifiedAt: item.modified_at });
+        // Extract chunks and enqueue in priority embeddingQueue (STRICTLY .md files only)
+        if (item.path.endsWith(".md")) {
+          const rawBlocks = content.split(/\n\s*\n/).map((b) => b.trim()).filter((b) => b.length > 10);
+          for (const block of rawBlocks) {
+            if (!block.startsWith("---")) {
+              backgroundChunkItems.push({ filePath: item.path, chunkText: block, modifiedAt: item.modified_at });
+            }
           }
         }
       }
@@ -1024,6 +1026,9 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Keep the ref up-to-date so the watcher can always call the latest version
   useEffect(() => {
     triggerNotesScanRef.current = triggerNotesScan;
+    if (typeof window !== "undefined" && import.meta.env.DEV) {
+      (window as any).triggerNotesScan = triggerNotesScan;
+    }
   }, [triggerNotesScan]);
 
   // Auto-scan note metadata, board cards, and tasks with debouncing when files are loaded or updated
@@ -1043,8 +1048,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       noteCacheRef.current = new Map();
       setNoteCache({});
       await searchEngine.init();
-      await searchEngine.execute("DELETE FROM note_metadata");
-      await searchEngine.execute("DELETE FROM ai_suggestions");
+      await searchEngine.clearAllMetadata();
       await invokeIPC("unwatch_vault", {}).catch(() => { });
       if (vaultPath) {
         await invokeIPC("watch_vault", { vaultPath });
@@ -1056,6 +1060,12 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setIsScanLoading(false);
     }
   }, [refreshFiles, vaultPath]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && import.meta.env.DEV) {
+      (window as any).deepReindex = deepReindex;
+    }
+  }, [deepReindex]);
 
   // Auto-initialize special folders (Templates, Archived, Trash) and run Trash auto-purge (24 hours)
   useEffect(() => {
@@ -1084,16 +1094,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           await invokeIPC("fs_mkdir", { path: templatesDir }).catch(() => { });
         }
 
-        // 1. Purge legacy deprecated built-in templates if present
-        for (const legacyName of LEGACY_DEPRECATED_TEMPLATES) {
-          const legacyPath = pathJoin(templatesDir, legacyName);
-          const exists = await invokeIPC("fs_exists", { path: legacyPath }).catch(() => false);
-          if (exists) {
-            await invokeIPC("delete_note", { path: legacyPath }).catch(() => { });
-          }
-        }
-
-        // 2. Initialize official bundled templates (Meeting Notes & Weekly Review)
+        // Initialize official bundled templates (Meeting Notes & Weekly Review)
         for (const tpl of BUILTIN_TEMPLATES) {
           const tplPath = pathJoin(templatesDir, `${tpl.name}.md`);
           const exists = await invokeIPC("fs_exists", { path: tplPath }).catch(() => false);
@@ -1298,8 +1299,19 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     noteCacheRef.current.set(path, updated);
     setNoteCache((prev) => ({ ...prev, [path]: updated }));
 
-    // Async sync links to SQLite note_links table for backlink persistence
+    // Async sync links and index content in sqlite-vec vector store
     searchEngine.syncNoteLinks(path, links).catch(console.error);
+
+    if (path.endsWith(".md")) {
+      if (indexDebounceTimers.current.has(path)) {
+        clearTimeout(indexDebounceTimers.current.get(path));
+      }
+      const timer = setTimeout(() => {
+        searchEngine.indexFile(path, content).catch(console.error);
+        indexDebounceTimers.current.delete(path);
+      }, 400);
+      indexDebounceTimers.current.set(path, timer);
+    }
   }, []);
 
   /**

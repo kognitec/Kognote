@@ -1013,8 +1013,7 @@ html.light .custom-milkdown-container .ProseMirror a:hover {
   opacity: 0.8 !important;
 }
 
-/* Invisible HTML comment block in preview mode */
-.ai-generated-comment-hidden,
+/* Invisible YAML frontmatter block in preview mode */
 .yaml-frontmatter-hidden {
   display: none !important;
 }

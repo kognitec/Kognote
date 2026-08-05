@@ -373,10 +373,8 @@ export async function updateTaskPriorityInNote(
       else if (newPriority === "medium") newToken = "!!";
       else if (newPriority === "low") newToken = "!";
 
-      // Remove existing legacy @task! or standalone exclamations !, !!, !!!
-      if (/@task(!*)/i.test(line)) {
-        line = line.replace(/@task(!*)/gi, newToken ? `${newToken}` : "").trim();
-      } else if (/(?:\b|\s|^)!{1,3}(?:\b|\s|$)/.test(line)) {
+      // Remove existing priority exclamations !, !!, !!! and apply new token
+      if (/(?:\b|\s|^)!{1,3}(?:\b|\s|$)/.test(line)) {
         line = line.replace(/(?:\b|\s|^)!{1,3}(?:\b|\s|$)/, newToken ? ` ${newToken} ` : " ").trim();
       } else if (newToken) {
         line = `${line.trimEnd()} ${newToken}`;

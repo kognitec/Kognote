@@ -70,39 +70,43 @@ pub fn init_db(app: &AppHandle, state: &DbState) -> Result<(), String> {
     )
     .map_err(|e| format!("Failed to create index on file_path: {e}"))?;
 
+    // Check if existing database contains legacy 384d vector table
+    let is_384d: bool = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='vec_embeddings'",
+            [],
+            |row| {
+                let sql: String = row.get(0)?;
+                Ok(sql.contains("384"))
+            },
+        )
+        .unwrap_or(false);
+
+    if is_384d {
+        eprintln!("[Vector DB] Detected legacy 384d vector table. Automatically migrating to 768d...");
+        let _ = conn.execute("DROP TABLE IF EXISTS vec_embeddings;", []);
+        let _ = conn.execute("DROP TABLE IF EXISTS embeddings_metadata;", []);
+        let _ = conn.execute("DROP TABLE IF EXISTS fts_chunks;", []);
+    }
+
     // 4. Create virtual table for sqlite-vec (768 dimensions for nomic-embed-text-v1.5)
-    let vec_create_res = conn.execute(
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS embeddings_metadata (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_path TEXT NOT NULL,
+            chunk_text TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );",
+        [],
+    ).map_err(|e| format!("Failed to create embeddings_metadata: {e}"))?;
+
+    conn.execute(
         "CREATE VIRTUAL TABLE IF NOT EXISTS vec_embeddings USING vec0(
             id INTEGER PRIMARY KEY,
             embedding float[768]
         );",
         [],
-    );
-
-    // Auto-migration: if existing database used 384d vectors, recreate vector tables for 768d
-    if vec_create_res.is_err() {
-        let _ = conn.execute("DROP TABLE IF EXISTS vec_embeddings;", []);
-        let _ = conn.execute("DROP TABLE IF EXISTS embeddings_metadata;", []);
-        let _ = conn.execute("DROP TABLE IF EXISTS fts_chunks;", []);
-
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS embeddings_metadata (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_path TEXT NOT NULL,
-                chunk_text TEXT NOT NULL,
-                updated_at INTEGER NOT NULL
-            );",
-            [],
-        ).map_err(|e| format!("Failed to recreate embeddings_metadata: {e}"))?;
-
-        conn.execute(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS vec_embeddings USING vec0(
-                id INTEGER PRIMARY KEY,
-                embedding float[768]
-            );",
-            [],
-        ).map_err(|e| format!("Failed to create 768d vec_embeddings: {e}"))?;
-    }
+    ).map_err(|e| format!("Failed to create 768d vec_embeddings: {e}"))?;
 
     // 5. Create note_versions table for delta diff versioning
     conn.execute(
@@ -251,20 +255,30 @@ pub fn init_db(app: &AppHandle, state: &DbState) -> Result<(), String> {
     )
     .map_err(|e| format!("Failed to create fsrs_states table: {e}"))?;
 
-    // 13. Create pending_ai_suggestions table for non-destructive AI suggestions
+    // 14. Create note_metadata table
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS pending_ai_suggestions (
-            id TEXT PRIMARY KEY,
-            note_path TEXT NOT NULL,
-            original_block_text TEXT NOT NULL,
-            suggested_task_text TEXT NOT NULL,
-            extracted_due_date TEXT,
-            created_at INTEGER NOT NULL,
-            status TEXT CHECK(status IN ('pending', 'accepted', 'dismissed')) DEFAULT 'pending'
+        "CREATE TABLE IF NOT EXISTS note_metadata (
+            file_path TEXT PRIMARY KEY,
+            tags TEXT NOT NULL,
+            links TEXT NOT NULL,
+            storage TEXT NOT NULL DEFAULT 'active',
+            updated_at INTEGER NOT NULL
         );",
         [],
     )
-    .map_err(|e| format!("Failed to create pending_ai_suggestions table: {e}"))?;
+    .map_err(|e| format!("Failed to create note_metadata table: {e}"))?;
+
+    // 15. Create ai_suggestions table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS ai_suggestions (
+            file_path TEXT PRIMARY KEY,
+            tags TEXT NOT NULL,
+            links TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );",
+        [],
+    )
+    .map_err(|e| format!("Failed to create ai_suggestions table: {e}"))?;
 
     let mut guard = state.conn.lock().map_err(|e| e.to_string())?;
     *guard = Some(conn);
@@ -359,6 +373,16 @@ where
     f(conn)
 }
 
+/// Helper function to perform tasks requiring mutable connection (e.g. transactions)
+pub fn with_conn_mut<F, T>(state: &DbState, f: F) -> Result<T, String>
+where
+    F: FnOnce(&mut Connection) -> Result<T, String>,
+{
+    let mut guard = state.conn.lock().map_err(|e| e.to_string())?;
+    let conn = guard.as_mut().ok_or("Database not initialized")?;
+    f(conn)
+}
+
 /// Helper to convert a float vector to raw bytes (native endianness)
 fn f32_slice_to_bytes(slice: &[f32]) -> &[u8] {
     unsafe {
@@ -381,6 +405,13 @@ pub async fn init_vector_db(
     init_db(&app, &state)
 }
 
+#[derive(serde::Deserialize)]
+pub struct ChunkEmbeddingInput {
+    pub file_path: String,
+    pub chunk_text: String,
+    pub embedding: Vec<f32>,
+}
+
 #[tauri::command]
 pub async fn vector_upsert(
     state: tauri::State<'_, DbState>,
@@ -392,38 +423,83 @@ pub async fn vector_upsert(
         return Err(format!("Embedding must be exactly 768 dimensions, got {}", embedding.len()));
     }
 
-    with_conn(&state, |conn| {
-        // Insert metadata
+    with_conn_mut(&state, |conn| {
+        let tx = conn.transaction().map_err(|e| format!("Failed to begin transaction: {e}"))?;
         let updated_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
 
-        conn.execute(
+        tx.execute(
             "INSERT INTO embeddings_metadata (file_path, chunk_text, updated_at) VALUES (?1, ?2, ?3)",
             params![file_path, chunk_text, updated_at],
         )
         .map_err(|e| format!("Upsert metadata error: {e}"))?;
 
-        let row_id = conn.last_insert_rowid();
-
-        // Convert f32 slice to bytes for blob injection
+        let row_id = tx.last_insert_rowid();
         let bytes = f32_slice_to_bytes(&embedding);
 
-        // Insert into the virtual table
-        conn.execute(
+        tx.execute(
             "INSERT INTO vec_embeddings (id, embedding) VALUES (?1, ?2)",
             params![row_id, bytes],
         )
         .map_err(|e| format!("Upsert virtual embedding error: {e}"))?;
 
-        // Insert into FTS5 table
-        conn.execute(
+        tx.execute(
             "INSERT INTO fts_chunks (rowid, file_path, chunk_text) VALUES (?1, ?2, ?3)",
             params![row_id, file_path, chunk_text],
         )
         .map_err(|e| format!("Upsert FTS index error: {e}"))?;
 
+        tx.commit().map_err(|e| format!("Failed to commit vector upsert: {e}"))?;
+        Ok(())
+    })
+}
+
+#[tauri::command]
+pub async fn vector_upsert_batch(
+    state: tauri::State<'_, DbState>,
+    chunks: Vec<ChunkEmbeddingInput>,
+) -> Result<(), String> {
+    if chunks.is_empty() {
+        return Ok(());
+    }
+
+    with_conn_mut(&state, |conn| {
+        let tx = conn.transaction().map_err(|e| format!("Failed to begin transaction: {e}"))?;
+        let updated_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+
+        for item in chunks {
+            if item.embedding.len() != 768 {
+                return Err(format!("Embedding must be 768 dimensions, got {}", item.embedding.len()));
+            }
+
+            tx.execute(
+                "INSERT INTO embeddings_metadata (file_path, chunk_text, updated_at) VALUES (?1, ?2, ?3)",
+                params![item.file_path, item.chunk_text, updated_at],
+            )
+            .map_err(|e| format!("Upsert metadata error: {e}"))?;
+
+            let row_id = tx.last_insert_rowid();
+            let bytes = f32_slice_to_bytes(&item.embedding);
+
+            tx.execute(
+                "INSERT INTO vec_embeddings (id, embedding) VALUES (?1, ?2)",
+                params![row_id, bytes],
+            )
+            .map_err(|e| format!("Upsert virtual embedding error: {e}"))?;
+
+            tx.execute(
+                "INSERT INTO fts_chunks (rowid, file_path, chunk_text) VALUES (?1, ?2, ?3)",
+                params![row_id, item.file_path, item.chunk_text],
+            )
+            .map_err(|e| format!("Upsert FTS index error: {e}"))?;
+        }
+
+        tx.commit().map_err(|e| format!("Failed to commit batch vector upsert: {e}"))?;
         Ok(())
     })
 }
@@ -433,31 +509,32 @@ pub async fn vector_delete(
     state: tauri::State<'_, DbState>,
     file_path: String,
 ) -> Result<(), String> {
-    with_conn(&state, |conn| {
-        // Find all metadata IDs matching the file path
-        let mut stmt = conn
-            .prepare("SELECT id FROM embeddings_metadata WHERE file_path = ?1")
-            .map_err(|e| e.to_string())?;
+    with_conn_mut(&state, |conn| {
+        let tx = conn.transaction().map_err(|e| format!("Failed to begin transaction: {e}"))?;
+        let ids: Vec<i64> = {
+            let mut stmt = tx
+                .prepare("SELECT id FROM embeddings_metadata WHERE file_path = ?1")
+                .map_err(|e| e.to_string())?;
 
-        let ids: Vec<i64> = stmt
-            .query_map([&file_path], |row| row.get(0))
-            .map_err(|e| e.to_string())?
-            .filter_map(|r| r.ok())
-            .collect();
+            let rows = stmt
+                .query_map([&file_path], |row| row.get(0))
+                .map_err(|e| e.to_string())?;
 
-        // Delete from all tables
+            rows.filter_map(|r| r.ok()).collect()
+        };
+
         for id in ids {
-            conn.execute("DELETE FROM vec_embeddings WHERE id = ?1", [id])
-                .map_err(|e| e.to_string())?;
-            conn.execute("DELETE FROM embeddings_metadata WHERE id = ?1", [id])
-                .map_err(|e| e.to_string())?;
-            conn.execute("DELETE FROM fts_chunks WHERE rowid = ?1", [id])
-                .map_err(|e| e.to_string())?;
+            tx.execute("DELETE FROM vec_embeddings WHERE id = ?1", [id]).map_err(|e| e.to_string())?;
+            tx.execute("DELETE FROM embeddings_metadata WHERE id = ?1", [id]).map_err(|e| e.to_string())?;
+            tx.execute("DELETE FROM fts_chunks WHERE rowid = ?1", [id]).map_err(|e| e.to_string())?;
         }
 
+        tx.commit().map_err(|e| format!("Failed to commit vector delete: {e}"))?;
         Ok(())
     })
 }
+
+
 
 #[derive(serde::Serialize)]
 pub struct VectorSearchResult {
@@ -470,14 +547,6 @@ pub struct VectorSearchResult {
     pub updated_at: i64,
 }
 
-#[derive(Clone)]
-struct HybridResult {
-    file_path: String,
-    chunk_text: String,
-    rrf_score: f64,
-    similarity: f64,
-    updated_at: i64,
-}
 
 #[tauri::command]
 pub async fn vector_search(
@@ -490,141 +559,43 @@ pub async fn vector_search(
         return Err(format!("Query embedding must be 768 dimensions, got {}", query_embedding.len()));
     }
 
+    // query_text is accepted for API compatibility but not used in pure-vector search
+    let _ = query_text;
+
     with_conn(&state, |conn| {
         let query_bytes = f32_slice_to_bytes(&query_embedding);
 
-        // 1. Get Vector Search results
-        let mut vector_stmt = conn
+        // Pure cosine-similarity vector search — no FTS5 keyword bias.
+        // Results are ordered by ascending cosine distance (= descending cosine similarity).
+        // A secondary sort by updated_at breaks ties toward the most recently modified notes.
+        let mut stmt = conn
             .prepare(
                 "SELECT 
-                    m.id,
-                    m.file_path, 
-                    m.chunk_text, 
-                    (1.0 - vec_distance_cosine(v.embedding, ?1)) as similarity,
+                    m.file_path,
+                    m.chunk_text,
+                    (1.0 - vec_distance_cosine(v.embedding, ?1)) AS similarity,
                     m.updated_at
                  FROM vec_embeddings v
                  JOIN embeddings_metadata m ON v.id = m.id
-                 ORDER BY vec_distance_cosine(v.embedding, ?1) ASC
-                 LIMIT 50",
+                 ORDER BY vec_distance_cosine(v.embedding, ?1) ASC,
+                          m.updated_at DESC
+                 LIMIT ?2",
             )
             .map_err(|e| format!("Failed to prepare vector search statement: {e}"))?;
 
-        let vector_rows = vector_stmt
-            .query_map(params![query_bytes], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, f64>(3)?,
-                    row.get::<_, i64>(4)?,
-                ))
+        let rows = stmt
+            .query_map(params![query_bytes, top_k], |row| {
+                Ok(VectorSearchResult {
+                    file_path: row.get(0)?,
+                    chunk_text: row.get(1)?,
+                    similarity: row.get(2)?,
+                    updated_at: row.get(3)?,
+                })
             })
             .map_err(|e| format!("Vector search query error: {e}"))?;
 
-        let mut results_map: std::collections::HashMap<i64, HybridResult> = std::collections::HashMap::new();
-
-        let mut rank = 1;
-        for row in vector_rows.flatten() {
-            let (id, file_path, chunk_text, similarity, updated_at) = row;
-            let score = 1.0 / (60.0 + rank as f64);
-            results_map.insert(
-                id,
-                HybridResult {
-                    file_path,
-                    chunk_text,
-                    rrf_score: score,
-                    similarity,
-                    updated_at,
-                },
-            );
-            rank += 1;
-        }
-
-        // 2. Get FTS5 search results
-        let clean_query = query_text
-            .chars()
-            .map(|c| if c.is_alphanumeric() || c.is_whitespace() { c } else { ' ' })
-            .collect::<String>();
-        let words: Vec<&str> = clean_query.split_whitespace().collect();
-        
-        if !words.is_empty() {
-            let fts_query = words.join(" OR ");
-            let fts_stmt = conn
-                .prepare(
-                    "SELECT 
-                        f.rowid,
-                        f.file_path, 
-                        f.chunk_text,
-                        COALESCE(m.updated_at, 0)
-                     FROM fts_chunks f
-                     LEFT JOIN embeddings_metadata m ON f.rowid = m.id
-                     WHERE f.chunk_text MATCH ?1
-                     LIMIT 50",
-                );
-            if let Ok(mut stmt) = fts_stmt {
-                if let Ok(fts_rows) = stmt.query_map([fts_query], |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, i64>(3)?,
-                    ))
-                }) {
-                    let mut fts_rank = 1;
-                    for row in fts_rows.flatten() {
-                        let (id, file_path, chunk_text, updated_at) = row;
-                        let score = 1.0 / (60.0 + fts_rank as f64);
-                        if let Some(res) = results_map.get_mut(&id) {
-                            res.rrf_score += score;
-                        } else {
-                            results_map.insert(
-                                id,
-                                HybridResult {
-                                    file_path,
-                                    chunk_text,
-                                    rrf_score: score,
-                                    similarity: 0.7,
-                                    updated_at,
-                                },
-                            );
-                        }
-                        fts_rank += 1;
-                    }
-                }
-            }
-        }
-
-        // 3. Time-Weighted RRF Recency Multiplier Boost
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as f64)
-            .unwrap_or(0.0);
-
-        for res in results_map.values_mut() {
-            if res.updated_at > 0 {
-                let age_days = ((now_ms - res.updated_at as f64) / (1000.0 * 60.0 * 60.0 * 24.0)).max(0.0);
-                let recency_boost = 1.0 + 0.25 * (-age_days / 30.0).exp();
-                res.rrf_score *= recency_boost;
-            }
-        }
-
-        // 4. Sort results by RRF score
-        let mut sorted_results: Vec<HybridResult> = results_map.into_values().collect();
-        sorted_results.sort_by(|a, b| b.rrf_score.partial_cmp(&a.rrf_score).unwrap_or(std::cmp::Ordering::Equal));
-
-        // 5. Map to VectorSearchResult
-        let final_results: Vec<VectorSearchResult> = sorted_results
-            .into_iter()
-            .take(top_k as usize)
-            .map(|r| VectorSearchResult {
-                file_path: r.file_path,
-                chunk_text: r.chunk_text,
-                similarity: r.similarity,
-                updated_at: r.updated_at,
-            })
-            .collect();
-
-        Ok(final_results)
+        let results: Vec<VectorSearchResult> = rows.flatten().collect();
+        Ok(results)
     })
 }
 
@@ -641,6 +612,7 @@ pub async fn vector_get_semantic_connections(
     threshold: f64,
 ) -> Result<Vec<VectorLinkResult>, String> {
     with_conn(&state, |conn| {
+        // Optimised: select max similarity grouped by file_path pair
         let mut stmt = conn
             .prepare(
                 "SELECT 
@@ -653,7 +625,8 @@ pub async fn vector_get_semantic_connections(
                  JOIN embeddings_metadata m2 ON v2.id = m2.id
                  WHERE m1.file_path < m2.file_path
                  GROUP BY m1.file_path, m2.file_path
-                 HAVING similarity >= ?1",
+                 HAVING similarity >= ?1
+                 LIMIT 200",
             )
             .map_err(|e| format!("Failed to prepare semantic connections query: {e}"))?;
 
@@ -698,6 +671,266 @@ pub async fn vector_find_backlinks(
 
         Ok(results)
     })
+}
+
+#[tauri::command]
+pub async fn db_delete_note_metadata(
+    state: tauri::State<'_, DbState>,
+    file_path: String,
+) -> Result<(), String> {
+    with_conn(&state, |conn| {
+        conn.execute("DELETE FROM note_metadata WHERE file_path = ?1", params![file_path]).ok();
+        conn.execute("DELETE FROM note_links WHERE source_path = ?1", params![file_path]).ok();
+        Ok(())
+    })
+}
+
+#[tauri::command]
+pub async fn db_clear_all_metadata(
+    state: tauri::State<'_, DbState>,
+) -> Result<(), String> {
+    with_conn_mut(&state, |conn| {
+        let _ = conn.execute("DELETE FROM note_metadata", []);
+        let _ = conn.execute("DELETE FROM ai_suggestions", []);
+        let _ = conn.execute("DELETE FROM vec_embeddings", []);
+        let _ = conn.execute("DELETE FROM embeddings_metadata", []);
+        let _ = conn.execute("DELETE FROM fts_chunks", []);
+        Ok(())
+    })
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DbNoteMetadata {
+    pub file_path: String,
+    pub tags: String,
+    pub links: String,
+    pub storage: String,
+    pub updated_at: i64,
+}
+
+#[tauri::command]
+pub async fn db_save_note_metadata(
+    state: tauri::State<'_, DbState>,
+    file_path: String,
+    tags: String,
+    links: String,
+    storage: Option<String>,
+) -> Result<(), String> {
+    with_conn(&state, |conn| {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        let storage_val = storage.unwrap_or_else(|| "active".to_string());
+        conn.execute(
+            "INSERT OR REPLACE INTO note_metadata (file_path, tags, links, storage, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![file_path, tags, links, storage_val, now],
+        )
+        .map_err(|e| format!("Failed to save note metadata: {e}"))?;
+        Ok(())
+    })
+}
+
+#[tauri::command]
+pub async fn db_get_note_metadata(
+    state: tauri::State<'_, DbState>,
+    file_path: String,
+) -> Result<Option<DbNoteMetadata>, String> {
+    with_conn(&state, |conn| {
+        let mut stmt = conn
+            .prepare("SELECT file_path, tags, links, storage, updated_at FROM note_metadata WHERE file_path = ?1")
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt
+            .query_map([&file_path], |row| {
+                Ok(DbNoteMetadata {
+                    file_path: row.get(0)?,
+                    tags: row.get(1)?,
+                    links: row.get(2)?,
+                    storage: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        if let Some(r) = rows.next() {
+            Ok(Some(r.map_err(|e| e.to_string())?))
+        } else {
+            Ok(None)
+        }
+    })
+}
+
+#[tauri::command]
+pub async fn db_get_all_note_metadata(
+    state: tauri::State<'_, DbState>,
+) -> Result<Vec<DbNoteMetadata>, String> {
+    with_conn(&state, |conn| {
+        let mut stmt = conn
+            .prepare("SELECT file_path, tags, links, storage, updated_at FROM note_metadata")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(DbNoteMetadata {
+                    file_path: row.get(0)?,
+                    tags: row.get(1)?,
+                    links: row.get(2)?,
+                    storage: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        let mut results = Vec::new();
+        for r in rows.flatten() {
+            results.push(r);
+        }
+        Ok(results)
+    })
+}
+
+#[tauri::command]
+pub async fn db_save_ai_suggestions(
+    state: tauri::State<'_, DbState>,
+    file_path: String,
+    tags: String,
+    links: String,
+) -> Result<(), String> {
+    with_conn(&state, |conn| {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        conn.execute(
+            "INSERT OR REPLACE INTO ai_suggestions (file_path, tags, links, updated_at) VALUES (?1, ?2, ?3, ?4)",
+            params![file_path, tags, links, now],
+        )
+        .map_err(|e| format!("Failed to save AI suggestions: {e}"))?;
+        Ok(())
+    })
+}
+
+#[tauri::command]
+pub async fn db_get_ai_suggestions(
+    state: tauri::State<'_, DbState>,
+    file_path: String,
+) -> Result<Option<DbNoteMetadata>, String> {
+    with_conn(&state, |conn| {
+        let mut stmt = conn
+            .prepare("SELECT file_path, tags, links, 'active', updated_at FROM ai_suggestions WHERE file_path = ?1")
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt
+            .query_map([&file_path], |row| {
+                Ok(DbNoteMetadata {
+                    file_path: row.get(0)?,
+                    tags: row.get(1)?,
+                    links: row.get(2)?,
+                    storage: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        if let Some(r) = rows.next() {
+            Ok(Some(r.map_err(|e| e.to_string())?))
+        } else {
+            Ok(None)
+        }
+    })
+}
+
+#[tauri::command]
+pub async fn db_get_all_ai_suggestions(
+    state: tauri::State<'_, DbState>,
+) -> Result<Vec<DbNoteMetadata>, String> {
+    with_conn(&state, |conn| {
+        let mut stmt = conn
+            .prepare("SELECT file_path, tags, links, 'active', updated_at FROM ai_suggestions")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(DbNoteMetadata {
+                    file_path: row.get(0)?,
+                    tags: row.get(1)?,
+                    links: row.get(2)?,
+                    storage: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        let mut results = Vec::new();
+        for r in rows.flatten() {
+            results.push(r);
+        }
+        Ok(results)
+    })
+}
+
+#[tauri::command]
+pub async fn db_sync_note_links(
+    state: tauri::State<'_, DbState>,
+    source_path: String,
+    links: Vec<String>,
+) -> Result<(), String> {
+    with_conn_mut(&state, |conn| {
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM note_links WHERE source_path = ?1", params![&source_path])
+            .map_err(|e| e.to_string())?;
+        for link in links {
+            let clean = link.trim().trim_end_matches(".md").to_string();
+            if !clean.is_empty() {
+                tx.execute(
+                    "INSERT OR IGNORE INTO note_links (source_path, target_name) VALUES (?1, ?2)",
+                    params![&source_path, &clean],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(())
+    })
+}
+
+#[tauri::command]
+pub async fn db_get_backlinks(
+    state: tauri::State<'_, DbState>,
+    target_note_name: String,
+    target_rel_path: Option<String>,
+    include_trash: Option<bool>,
+) -> Result<Vec<String>, String> {
+    with_conn(&state, |conn| {
+        let clean_target = target_note_name.trim().trim_end_matches(".md").trim_end_matches(".excalidraw").to_lowercase();
+        let clean_rel = target_rel_path.unwrap_or_default().trim().trim_end_matches(".md").trim_end_matches(".excalidraw").to_lowercase();
+        let inc_trash = include_trash.unwrap_or(false);
+
+        let mut query = String::from(
+            "SELECT DISTINCT nl.source_path 
+             FROM note_links nl
+             LEFT JOIN note_metadata nm ON LOWER(nl.source_path) = LOWER(nm.file_path)
+             WHERE (LOWER(nl.target_name) = ?1 OR (?2 != '' AND LOWER(nl.target_name) = ?2))"
+        );
+
+        if !inc_trash {
+            query.push_str(" AND (nm.storage IS NULL OR nm.storage != 'deleted') AND LOWER(nl.source_path) NOT LIKE '%/trash/%' AND LOWER(nl.source_path) NOT LIKE '%/.deleted/%'");
+        }
+
+        let mut stmt = conn.prepare(&query).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![clean_target, clean_rel], |row| row.get::<_, String>(0))
+            .map_err(|e| e.to_string())?;
+
+        let mut results = Vec::new();
+        for r in rows.flatten() {
+            results.push(r);
+        }
+        Ok(results)
+    })
+}
+
+#[tauri::command]
+pub async fn db_get_backlink_file_paths(
+    state: tauri::State<'_, DbState>,
+    target_note_name: String,
+    target_rel_path: Option<String>,
+    include_trash: Option<bool>,
+) -> Result<Vec<String>, String> {
+    db_get_backlinks(state, target_note_name, target_rel_path, include_trash).await
 }
 
 pub fn insert_note_version(

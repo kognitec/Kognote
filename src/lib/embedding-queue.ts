@@ -1,9 +1,11 @@
 import { searchEngine } from "./search-engine";
+import { invoke } from "@tauri-apps/api/core";
 
 export interface TextChunkItem {
   filePath: string;
   chunkText: string;
   modifiedAt: number;
+  retryCount?: number;
 }
 
 class PriorityEmbeddingQueue {
@@ -26,7 +28,13 @@ class PriorityEmbeddingQueue {
 
   /** Priority 1: Enqueue active note chunks to embed immediately */
   public enqueueActiveNote(chunks: TextChunkItem[]) {
-    this.activeNoteQueue.unshift(...chunks);
+    for (const chunk of chunks) {
+      const key = `${chunk.filePath}:${chunk.chunkText.slice(0, 50)}`;
+      if (!this.queuedSet.has(key)) {
+        this.queuedSet.add(key);
+        this.activeNoteQueue.unshift(chunk);
+      }
+    }
     this.processQueue();
   }
 
@@ -64,32 +72,58 @@ class PriorityEmbeddingQueue {
       // Process active notes immediately
       while (this.activeNoteQueue.length > 0) {
         const item = this.activeNoteQueue.shift()!;
-        if (item && item.chunkText.trim()) {
-          await searchEngine.indexFileChunk(item.filePath, item.chunkText).catch(console.warn);
-        }
-        await new Promise((res) => setTimeout(res, 2));
-      }
-
-      // Process background queue in small idle batches of 5 items
-      let batchCount = 0;
-      const BATCH_SIZE = 5;
-
-      while (this.backgroundQueue.length > 0 && batchCount < BATCH_SIZE) {
-        const item = this.backgroundQueue.shift()!;
         const key = `${item.filePath}:${item.chunkText.slice(0, 50)}`;
         this.queuedSet.delete(key);
 
         if (item && item.chunkText.trim()) {
           await searchEngine.indexFileChunk(item.filePath, item.chunkText).catch(console.warn);
         }
-        batchCount++;
-        await new Promise((res) => setTimeout(res, 10));
+        await new Promise((res) => setTimeout(res, 2));
+      }
+
+      // Process background queue in fast 16-chunk batches
+      while (this.backgroundQueue.length > 0 && !this.isPaused) {
+        const batch = this.backgroundQueue.splice(0, 16);
+        const fileGroupMap = new Map<string, string[]>();
+
+        for (const item of batch) {
+          const key = `${item.filePath}:${item.chunkText.slice(0, 50)}`;
+          this.queuedSet.delete(key);
+          if (item && item.chunkText.trim()) {
+            if (!fileGroupMap.has(item.filePath)) fileGroupMap.set(item.filePath, []);
+            fileGroupMap.get(item.filePath)!.push(item.chunkText);
+          }
+        }
+
+        for (const [filePath, chunkTexts] of fileGroupMap.entries()) {
+          const formatted = chunkTexts.map((txt) => `search_document: ${txt}`);
+          try {
+            const vectors = await searchEngine.embedBatch(formatted);
+            const upsertItems = chunkTexts.map((txt, idx) => ({
+              file_path: filePath,
+              chunk_text: txt,
+              embedding: vectors[idx],
+            }));
+            await invoke("vector_upsert_batch", { chunks: upsertItems });
+          } catch (e) {
+            console.warn(`[Embedding Queue] Batch failed for ${filePath}, retrying if under limit...`, e);
+            for (const item of batch) {
+              const currentRetries = item.retryCount || 0;
+              if (currentRetries < 2) {
+                this.backgroundQueue.push({ ...item, retryCount: currentRetries + 1 });
+              } else {
+                console.error(`[Embedding Queue] Exceeded max retries for chunk in ${filePath}. Skipping chunk.`);
+              }
+            }
+            await new Promise((res) => setTimeout(res, 2000));
+          }
+        }
+        await new Promise((res) => setTimeout(res, 5));
       }
     } finally {
       this.isProcessing = false;
-      // If items remain in background queue, schedule next idle batch
       if (this.backgroundQueue.length > 0 || this.activeNoteQueue.length > 0) {
-        setTimeout(() => this.scheduleIdleProcessing(), 300);
+        setTimeout(() => this.scheduleIdleProcessing(), 100);
       }
     }
   }

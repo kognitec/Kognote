@@ -63,7 +63,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (settings.provider !== "local") {
         isAiConnected = Boolean(settings.apiKey && settings.apiKey.trim().length > 0);
       } else {
-        isAiConnected = await aiService.checkConnection();
+        isAiConnected = (await aiService.checkConnection()).ok;
       }
     } catch (e) {
       console.warn("AI connection check failed, assuming off:", e);

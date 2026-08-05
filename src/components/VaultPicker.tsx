@@ -37,7 +37,7 @@ export const VaultPicker: React.FC = () => {
           <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
           <span>Local-First Knowledge Workspace</span>
           <span className="h-1 w-1 rounded-full bg-indigo-400/60" />
-          <span className="text-slate-400 font-mono text-[11px]">v0.1.4</span>
+          <span className="text-slate-400 font-mono text-[11px]">v0.1.5</span>
         </div>
 
         {/* Logo Container */}

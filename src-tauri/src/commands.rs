@@ -840,7 +840,7 @@ pub fn scan_vault_delta(
                     stack.push(path);
                 } else if path.is_file() {
                     let path_str = path.to_string_lossy().to_string();
-                    let is_md = name.ends_with(".md") || name.ends_with(".excalidraw");
+                    let is_md = name.ends_with(".md");
                     if is_md {
                         total_files += 1;
                         disk_paths.insert(path_str.clone());

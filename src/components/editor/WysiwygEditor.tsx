@@ -24,43 +24,6 @@ import { FloatingAiCoords } from "./FloatingAiToolbar";
 // ProseMirror Plugins for Tags, Wikilinks, Comments & Smart Queries
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildAiCommentHiderDecorations(doc: any): DecorationSet {
-  const decorations: Decoration[] = [];
-  doc.descendants((node: any, pos: number) => {
-    if (node.isBlock && node.type.name !== "doc") {
-      const text = node.textContent || "";
-      if (
-        text.includes("ai-metadata") ||
-        text.includes("AI Tags:") ||
-        text.includes("AI Backlinks:") ||
-        text.includes("</div>")
-      ) {
-        decorations.push(
-          Decoration.node(pos, pos + node.nodeSize, {
-            class: "ai-generated-comment-hidden"
-          })
-        );
-      }
-    }
-  });
-  return DecorationSet.create(doc, decorations);
-}
-
-const aiCommentHiderPlugin = new Plugin({
-  state: {
-    init(_config, instance) {
-      return buildAiCommentHiderDecorations(instance.doc);
-    },
-    apply(tr, oldState) {
-      if (!tr.docChanged) return oldState;
-      return buildAiCommentHiderDecorations(tr.doc);
-    }
-  },
-  props: {
-    decorations(state) { return this.getState(state); }
-  }
-});
-
 function buildHighlightDecorations(doc: any): DecorationSet {
   const decorations: Decoration[] = [];
   doc.descendants((node: any, pos: number) => {
@@ -681,7 +644,7 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
     });
 
     crepe.editor.config((ctx) => {
-      ctx.update(prosePluginsCtx, (prev) => [...prev, highlightPlugin, aiCommentHiderPlugin, queryWidgetPlugin, yamlFrontmatterPlugin, datePillPlugin, imageResolverPlugin]);
+      ctx.update(prosePluginsCtx, (prev) => [...prev, highlightPlugin, queryWidgetPlugin, yamlFrontmatterPlugin, datePillPlugin, imageResolverPlugin]);
     });
     crepe.editor.use(diagram);
 

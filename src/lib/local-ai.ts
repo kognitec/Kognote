@@ -18,6 +18,7 @@ export interface AISettings {
   apiUrl: string;
   apiKey: string;
   apiModel: string;
+  inactivityTimeoutSeconds?: number;
 }
 
 export interface SystemHardwareInfo {
@@ -117,7 +118,23 @@ class AIService {
     apiUrl: "https://api.openai.com/v1",
     apiKey: "",
     apiModel: "gpt-4o-mini",
+    inactivityTimeoutSeconds: 300,
   };
+
+  /** Auto-detect system hardware on first launch to select optimal default timeout */
+  async autoDetectDefaultTimeout(): Promise<number> {
+    try {
+      const info = await this.getSystemInfo();
+      // Low memory systems (<12 GB RAM) use aggressive 15s unload; 12GB+ systems use 300s (5m)
+      const defaultTimeout = info.total_ram_gb < 12 ? 15 : 300;
+      if (this.settings.inactivityTimeoutSeconds === undefined) {
+        this.settings.inactivityTimeoutSeconds = defaultTimeout;
+      }
+      return defaultTimeout;
+    } catch {
+      return 300;
+    }
+  }
 
   /** Update configuration. Call whenever settings change. */
   updateSettings(newSettings: Partial<AISettings>) {
@@ -214,55 +231,88 @@ class AIService {
 
   /**
    * For local: checks if the current model is downloaded AND loaded.
-   * For API: pings the endpoint with the stored API key.
+   * For API: pings the endpoint with the stored or override API key and returns detailed diagnostic status.
    */
-  async checkConnection(): Promise<boolean> {
-    if (this.settings.provider === "local") {
+  async checkConnection(
+    overrideProvider?: string,
+    overrideApiKey?: string,
+    overrideApiUrl?: string,
+    overrideApiModel?: string
+  ): Promise<{ ok: boolean; message: string }> {
+    const provider = overrideProvider || this.settings.provider;
+    const rawKey = overrideApiKey !== undefined ? overrideApiKey : this.settings.apiKey;
+    const apiKey = (rawKey || "").trim();
+    const apiUrl = (overrideApiUrl || this.settings.apiUrl || "https://api.openai.com/v1").trim();
+    const apiModel = overrideApiModel || this.settings.apiModel;
+
+    if (provider === "local") {
       try {
         const current = await this.currentModel();
-        return current === this.settings.localModel;
-      } catch {
-        return false;
+        if (current === this.settings.localModel) {
+          return { ok: true, message: `Local model active (${current})` };
+        }
+        return { ok: false, message: "Local AI server ready (click Boot Model to load)" };
+      } catch (err: any) {
+        return { ok: false, message: err?.message || "Local server connection failed" };
       }
-    } else if (this.settings.provider === "anthropic") {
-      if (!this.settings.apiKey) return false;
+    }
+
+    if (!apiKey) {
+      return { ok: false, message: "API key is empty. Please enter your API key." };
+    }
+
+    if (provider === "anthropic") {
       try {
         const res = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            "x-api-key": this.settings.apiKey,
+            "x-api-key": apiKey,
             "anthropic-version": "2023-06-01",
             "anthropic-dangerous-direct-browser-access": "true",
           },
           body: JSON.stringify({
-            model: this.settings.apiModel || "claude-3-5-sonnet-latest",
+            model: apiModel || "claude-3-5-sonnet-latest",
             max_tokens: 1,
-            messages: [{ role: "user", content: "Hello" }],
+            messages: [{ role: "user", content: "Hi" }],
           }),
         });
-        return res.ok;
-      } catch {
-        return false;
+        if (res.ok) {
+          return { ok: true, message: `Connected successfully to Anthropic (${apiModel || "Claude 3.5"})` };
+        }
+        const errJson = await res.json().catch(() => ({}));
+        return { ok: false, message: errJson?.error?.message || `Anthropic returned HTTP ${res.status}` };
+      } catch (err: any) {
+        return { ok: false, message: err?.message || "Network error connecting to Anthropic" };
       }
-    } else if (this.settings.provider === "gemini") {
-      if (!this.settings.apiKey) return false;
+    }
+
+    if (provider === "gemini") {
       try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${this.settings.apiKey}`);
-        return res.ok;
-      } catch {
-        return false;
+        const cleanModel = (apiModel || "gemini-1.5-flash").replace(/^models\//i, "");
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+        if (res.ok) {
+          return { ok: true, message: `Connected successfully to Google Gemini (${cleanModel})` };
+        }
+        const errJson = await res.json().catch(() => ({}));
+        return { ok: false, message: errJson?.error?.message || `Google Gemini returned HTTP ${res.status}` };
+      } catch (err: any) {
+        return { ok: false, message: err?.message || "Network error connecting to Google Gemini" };
       }
-    } else {
-      if (!this.settings.apiKey) return false;
-      try {
-        const res = await fetch(`${this.settings.apiUrl || "https://api.openai.com/v1"}/models`, {
-          headers: { Authorization: `Bearer ${this.settings.apiKey}` },
-        });
-        return res.ok;
-      } catch {
-        return false;
+    }
+
+    // OpenAI / Custom API / OpenRouter / Groq
+    try {
+      const res = await fetch(`${apiUrl}/models`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (res.ok) {
+        return { ok: true, message: `Connected successfully (${apiModel || "OpenAI-compatible"})` };
       }
+      const errJson = await res.json().catch(() => ({}));
+      return { ok: false, message: errJson?.error?.message || `API endpoint returned HTTP ${res.status}` };
+    } catch (err: any) {
+      return { ok: false, message: err?.message || "Network error connecting to API endpoint" };
     }
   }
 
@@ -279,22 +329,26 @@ class AIService {
    * Convenience shim for the old Settings panel download button.
    * Downloads, then loads the model into the server.
    */
-  async pullModel(
-    modelId: string,
-    onProgress: (percent: number) => void
-  ): Promise<void> {
-    await this.downloadModel(modelId, (evt) => onProgress(evt.percent));
+  async installModel(modelId: string, onProgress?: (percent: number) => void): Promise<boolean> {
+    const ok = await this.downloadModel(modelId, (p) => {
+      onProgress?.(p.percent);
+    });
+    if (!ok) return false;
     await this.loadModel(modelId);
+    return true;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
   // Core text generation
   // ─────────────────────────────────────────────────────────────────────────
 
-  async generateTextStreaming(
+  /**
+   * Streams generation from the active provider.
+   */
+  async generateStream(
     prompt: string,
-    systemPrompt: string | undefined,
     onToken: (token: string) => void,
+    systemPrompt?: string,
     options?: { imageBase64?: string; imageMimeType?: string; temperature?: number; tools?: any; abortSignal?: AbortSignal }
   ): Promise<string> {
     if (this.inactivityTimeout) {
@@ -302,10 +356,12 @@ class AIService {
       this.inactivityTimeout = null;
     }
 
+    const cleanApiKey = (this.settings.apiKey || "").trim();
+
     if (this.settings.provider === "gemini") {
-      if (!this.settings.apiKey) throw new Error("Gemini API key is missing. Configure it in Settings.");
+      if (!cleanApiKey) throw new Error("Gemini API key is missing. Configure it in Settings.");
       const model = (this.settings.apiModel || "gemini-1.5-flash").replace(/^models\//i, "");
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${this.settings.apiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${cleanApiKey}`;
       const parts: any[] = [{ text: prompt }];
       if (options?.imageBase64) {
         parts.unshift({ inlineData: { mimeType: options.imageMimeType || "image/jpeg", data: options.imageBase64 } });
@@ -319,7 +375,7 @@ class AIService {
     }
 
     if (this.settings.provider === "anthropic") {
-      if (!this.settings.apiKey) throw new Error("Anthropic API key is missing. Configure it in Settings.");
+      if (!cleanApiKey) throw new Error("Anthropic API key is missing. Configure it in Settings.");
       let userContent: any = prompt;
       if (options?.imageBase64) {
         userContent = [
@@ -339,7 +395,7 @@ class AIService {
         "https://api.anthropic.com/v1/messages",
         {
           "content-type": "application/json",
-          "x-api-key": this.settings.apiKey,
+          "x-api-key": cleanApiKey,
           "anthropic-version": "2023-06-01",
           "anthropic-dangerous-direct-browser-access": "true",
         },
@@ -351,7 +407,7 @@ class AIService {
     }
 
     if (this.settings.provider !== "local") {
-      if (!this.settings.apiKey) throw new Error("API key is missing. Configure it in Settings.");
+      if (!cleanApiKey) throw new Error("API key is missing. Configure it in Settings.");
       const messages: { role: string; content: any }[] = [];
       if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
       let userContent: any = prompt;
@@ -368,7 +424,7 @@ class AIService {
         url,
         {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${this.settings.apiKey}`,
+          Authorization: `Bearer ${cleanApiKey}`,
         },
         {
           model: this.settings.apiModel || "gpt-4o-mini",
@@ -442,18 +498,20 @@ class AIService {
 
       if (this.settings.provider === "local") {
         if (this.inactivityTimeout) clearTimeout(this.inactivityTimeout);
+        const timeoutMs = (this.settings.inactivityTimeoutSeconds ?? 300) * 1000;
         this.inactivityTimeout = setTimeout(() => {
           this.unloadModel().catch(console.error);
-        }, 15000);
+        }, timeoutMs);
       }
 
       return accumulated;
     } catch (err: any) {
       if (this.settings.provider === "local") {
         if (this.inactivityTimeout) clearTimeout(this.inactivityTimeout);
+        const timeoutMs = (this.settings.inactivityTimeoutSeconds ?? 300) * 1000;
         this.inactivityTimeout = setTimeout(() => {
           this.unloadModel().catch(console.error);
-        }, 15000);
+        }, timeoutMs);
       }
       throw err;
     }

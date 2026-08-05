@@ -14,6 +14,7 @@ import {
   Tag,
   ArrowRight,
   Filter,
+  AlertTriangle,
 } from "lucide-react";
 import { getFileIcon } from "../lib/file-icons";
 
@@ -207,13 +208,14 @@ export const CommandPalette: React.FC = () => {
     if (!rawQuery) {
       const recentItems: any[] = [];
       recentPaths.forEach((path) => {
-        const file = flatFiles.find((f) => f.path === path);
+        const normP = path.replace(/\\/g, "/");
+        const file = flatFiles.find((f) => f.path === path || f.path.replace(/\\/g, "/") === normP);
         if (file) recentItems.push({ ...file, type: "recent" });
       });
 
       if (recentItems.length < 4) {
         flatFiles.slice(0, 4 - recentItems.length).forEach((f) => {
-          if (!recentItems.some((r) => r.path === f.path)) {
+          if (!recentItems.some((r) => r.path === f.path || r.path.replace(/\\/g, "/") === f.path.replace(/\\/g, "/"))) {
             recentItems.push({ ...f, type: "file" });
           }
         });
@@ -235,29 +237,43 @@ export const CommandPalette: React.FC = () => {
     if (activeMode === "tags" || rawQuery.startsWith("#")) {
       const tagQuery = cleanQuery;
       const tagsSet = new Set<string>();
-      Object.values(noteCache || {}).forEach((note: any) => {
-        if (note?.meta?.tags && Array.isArray(note.meta.tags)) {
-          note.meta.tags.forEach((t: string) => tagsSet.add(t.toLowerCase()));
-        }
-        if (note?.content) {
-          const matches = note.content.match(/(?:^|\s|\\)#([a-zA-Z0-9_\-\/]+)/g) || [];
-          matches.forEach((m: string) => {
-            const clean = m.trim().replace(/^#/, "").toLowerCase();
-            if (clean && clean !== "flashcard" && isNaN(Number(clean))) tagsSet.add(clean);
-          });
-        }
+
+      // Read from Rust SQLite metadata table for full vault tags
+      searchEngine.getAllNoteMetadata().then((rows) => {
+        rows.forEach((r) => {
+          if (Array.isArray(r.tags)) {
+            r.tags.forEach((t) => tagsSet.add(t.toLowerCase()));
+          }
+        });
+
+        // Also check active noteCache for unsaved inline #tags
+        Object.values(noteCache || {}).forEach((note: any) => {
+          if (note?.meta?.tags && Array.isArray(note.meta.tags)) {
+            note.meta.tags.forEach((t: string) => tagsSet.add(t.toLowerCase()));
+          }
+          if (note?.content) {
+            const matches = note.content.match(/(?:^|\s|\\)#([a-zA-Z0-9_\-\/]+)/g) || [];
+            matches.forEach((m: string) => {
+              const clean = m.trim().replace(/^#/, "").toLowerCase();
+              if (clean && clean !== "flashcard" && isNaN(Number(clean))) tagsSet.add(clean);
+            });
+          }
+        });
+
+        const matchingTags = Array.from(tagsSet)
+          .filter((t) => t.includes(tagQuery))
+          .map((tag) => ({
+            name: `#${tag}`,
+            tag,
+            type: "tag",
+            count: Object.values(noteCache || {}).filter((n: any) => n?.content?.toLowerCase().includes(`#${tag}`)).length,
+          }));
+        setResults(matchingTags);
+        setSelectedIndex(0);
+      }).catch(() => {
+        setResults([]);
       });
 
-      const matchingTags = Array.from(tagsSet)
-        .filter((t) => t.includes(tagQuery))
-        .map((tag) => ({
-          name: `#${tag}`,
-          tag,
-          type: "tag",
-          count: Object.values(noteCache || {}).filter((n: any) => n?.content?.toLowerCase().includes(`#${tag}`)).length,
-        }));
-      setResults(matchingTags);
-      setSelectedIndex(0);
       return;
     }
 
@@ -275,18 +291,72 @@ export const CommandPalette: React.FC = () => {
           const mapped = rawResults.map((r: SearchResult) => {
             const parts = r.filePath.replace(/\\/g, "/").split("/");
             const name = parts[parts.length - 1];
+
+            // Strip internal chunk metadata prefix to reveal actual note content
+            let cleanSnippet = r.chunkText;
+            if (cleanSnippet.startsWith("Note: ")) {
+              const doubleNewlineIdx = cleanSnippet.indexOf("\n\n");
+              if (doubleNewlineIdx !== -1) {
+                cleanSnippet = cleanSnippet.substring(doubleNewlineIdx + 2).trim();
+              }
+            } else if (cleanSnippet.startsWith("[Note: ")) {
+              const closeBracketIdx = cleanSnippet.indexOf("] ");
+              if (closeBracketIdx !== -1) {
+                cleanSnippet = cleanSnippet.substring(closeBracketIdx + 2).trim();
+              }
+            }
+
             return {
               name,
               path: r.filePath,
               is_dir: false,
-              chunkText: r.chunkText,
+              snippet: cleanSnippet || r.chunkText,
               similarity: r.similarity,
               type: "semantic",
             };
           });
-          setResults(mapped);
-        } catch (e) {
+
+          if (mapped.length > 0) {
+            setResults(mapped);
+          } else {
+            // Instant fallback to text matches if vector embeddings are warming up
+            const fallbackMatches: any[] = [];
+            flatFiles.forEach((file) => {
+              const fileNameLower = file.name.toLowerCase();
+              const normPath = file.path.replace(/\\/g, "/");
+              const cached = noteCache[file.path] || noteCache[normPath];
+              const content = cached?.content?.toLowerCase() || "";
+              if (fileNameLower.includes(cleanQuery) || content.includes(cleanQuery)) {
+                const idx = content.indexOf(cleanQuery);
+                const start = Math.max(0, idx - 40);
+                const end = Math.min(content.length, idx + cleanQuery.length + 50);
+                const rawText = cached?.content || "";
+                const snippet = idx !== -1
+                  ? (start > 0 ? "..." : "") + rawText.slice(start, end).replace(/\n/g, " ") + (end < content.length ? "..." : "")
+                  : file.path;
+
+                fallbackMatches.push({
+                  name: file.name,
+                  path: file.path,
+                  is_dir: false,
+                  snippet,
+                  similarity: 0.85,
+                  type: "semantic",
+                });
+              }
+            });
+            setResults(fallbackMatches.slice(0, 8));
+          }
+        } catch (e: any) {
           console.error("Semantic search failed:", e);
+          setResults([
+            {
+              id: "ai-not-ready",
+              name: "AI Embedding Model Not Ready",
+              desc: e?.message || "The AI embedding model is currently downloading or initializing. Please check your internet connection or wait a moment for initialization.",
+              type: "not-ready",
+            },
+          ]);
         } finally {
           setIsSearching(false);
           setSelectedIndex(0);
@@ -371,7 +441,7 @@ export const CommandPalette: React.FC = () => {
 
   const highlightMatch = useCallback((text: string, searchStr: string) => {
     if (!searchStr || !text) return text;
-    const cleanQ = searchStr.trim().replace(/^[\/\?\#]/, "").toLowerCase();
+    const cleanQ = searchStr.trim().replace(/^(\/|\?|\#|ai:)\s*/i, "").toLowerCase();
     if (!cleanQ) return text;
     const lower = text.toLowerCase();
     const idx = lower.indexOf(cleanQ);
@@ -396,7 +466,9 @@ export const CommandPalette: React.FC = () => {
         e.preventDefault();
         const modes: SearchMode[] = ["all", "files", "commands", "semantic", "tags"];
         setActiveMode((prev) => {
-          const nextIdx = (modes.indexOf(prev) + 1) % modes.length;
+          const step = e.shiftKey ? -1 : 1;
+          const currentIdx = modes.indexOf(prev);
+          const nextIdx = (currentIdx + step + modes.length) % modes.length;
           const nextMode = modes[nextIdx];
           if (nextMode === "commands" && !query.startsWith("/")) setQuery("/");
           else if (nextMode === "semantic" && !query.startsWith("?")) setQuery("?");
@@ -432,6 +504,8 @@ export const CommandPalette: React.FC = () => {
       item.action();
     } else if (item.type === "ask-ai") {
       window.dispatchEvent(new CustomEvent("open-ai-chat-with-prompt", { detail: item.promptText || "" }));
+    } else if (item.type === "not-ready") {
+      window.dispatchEvent(new CustomEvent("trigger-open-settings"));
     } else if (item.type === "create-note") {
       try {
         const title = item.queryTitle;
@@ -588,6 +662,8 @@ export const CommandPalette: React.FC = () => {
                         <Terminal className="h-4 w-4 text-amber-400 shrink-0" />
                       ) : item.type === "create-note" ? (
                         <FilePlus className="h-4 w-4 text-indigo-400 shrink-0" />
+                      ) : item.type === "not-ready" ? (
+                        <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
                       ) : item.type === "tag" ? (
                         <Tag className="h-4 w-4 text-emerald-400 shrink-0" />
                       ) : item.type === "recent" ? (
@@ -614,6 +690,10 @@ export const CommandPalette: React.FC = () => {
                     ) : item.type === "semantic" ? (
                       <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20 shrink-0">
                         {(item.similarity * 100).toFixed(0)}% AI match
+                      </span>
+                    ) : item.type === "not-ready" ? (
+                      <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-500/20 shrink-0">
+                        Model Not Ready
                       </span>
                     ) : item.type === "create-note" ? (
                       <span className="text-[9.5px] font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-500/30 px-2 py-0.5 rounded-md shrink-0 flex items-center gap-1">
@@ -644,7 +724,7 @@ export const CommandPalette: React.FC = () => {
                   )}
 
                   {item.snippet && (
-                    <p className="text-[11px] text-slate-300 leading-relaxed pl-6 border-l-2 border-indigo-500/50 italic bg-indigo-500/5 py-1 px-2 rounded-r mt-0.5">
+                    <p className="text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed pl-6 border-l-2 border-indigo-500/50 italic bg-indigo-500/5 py-1 px-2 rounded-r mt-0.5">
                       "{highlightMatch(item.snippet, query)}"
                     </p>
                   )}

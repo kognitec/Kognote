@@ -2,12 +2,14 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useSettings } from "../contexts/SettingsContext";
 import { useSync } from "../contexts/SyncContext";
 import { invokeIPC } from "../lib/ipc";
+import { embeddingClient } from "../lib/search-engine";
 import {
   FolderOpen, X,
   Download, Trash2, Loader2,
   FileCode, Lock, Brain, Archive,
   Info, ExternalLink, ShieldCheck, Cpu, Sparkles, Clock,
-  BookOpen, Layers, Edit, Waypoints, GraduationCap, CheckSquare, Wand2
+  BookOpen, Layers, Edit, Waypoints, GraduationCap, CheckSquare, Wand2,
+  Eye, EyeOff, Key, CheckCircle2, XCircle, Zap
 } from "lucide-react";
 import { aiService, type ModelStatus, type DownloadProgressEvent, type SystemHardwareInfo } from "../lib/local-ai";
 import { DEFAULT_AGENTS_MD } from "../constants/defaultAgents";
@@ -38,10 +40,18 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
     setAiLocalModel,
     aiApiUrl,
     setAiApiUrl,
-    aiApiKey,
-    setAiApiKey,
+    openaiApiKey,
+    setOpenaiApiKey,
+    anthropicApiKey,
+    setAnthropicApiKey,
+    geminiApiKey,
+    setGeminiApiKey,
+    customApiKey,
+    setCustomApiKey,
     aiApiModel,
     setAiApiModel,
+    aiInactivityTimeoutSeconds,
+    setAiInactivityTimeoutSeconds,
     userTimezone,
     setUserTimezone,
     includeArchivedInScans,
@@ -63,10 +73,33 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
 
   // API connection test state
   const [apiStatus, setApiStatus] = useState<"idle" | "checking" | "ok" | "error">("idle");
-  const [apiErrorMsg, setApiErrorMsg] = useState("");
+  const [apiStatusMsg, setApiStatusMsg] = useState("");
+
+  // Show/hide API key toggles per provider
+  const [showAnthropicKey, setShowAnthropicKey] = useState(false);
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [showOpenAIKey, setShowOpenAIKey] = useState(false);
+  const [showCustomKey, setShowCustomKey] = useState(false);
 
   // AGENTS.md rules state (Read-Only)
   const [agentsContent, setAgentsContent] = useState("");
+
+  // Vectorization Model State (nomic-embed-text-v1.5)
+  const [vecModelStatus, setVecModelStatus] = useState<"idle" | "testing">("idle");
+  const [vecModelTestResult, setVecModelTestResult] = useState<string | null>(null);
+
+  const handleTestVecModel = async () => {
+    setVecModelStatus("testing");
+    setVecModelTestResult("Testing embedding inference latency...");
+    try {
+      const res = await embeddingClient.testEmbeddingModel();
+      setVecModelTestResult(`✅ Test Passed! Generated ${res.dimensions}-dim vector in ${res.latencyMs}ms latency.`);
+      setVecModelStatus("idle");
+    } catch (err: any) {
+      setVecModelTestResult(`⚠️ Test Failed: ${err?.message || "Model not initialized or network error"}`);
+      setVecModelStatus("idle");
+    }
+  };
 
   const separator = vaultPath?.includes("\\") ? "\\" : "/";
   const agentsPath = vaultPath ? `${vaultPath}${separator}AGENTS.md` : "";
@@ -178,18 +211,18 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
 
   const checkApiStatus = async () => {
     setApiStatus("checking");
-    setApiErrorMsg("");
+    setApiStatusMsg("");
     try {
-      const ok = await aiService.checkConnection();
-      if (ok) {
+      const result = await aiService.checkConnection();
+      if (result.ok) {
         setApiStatus("ok");
       } else {
         setApiStatus("error");
-        setApiErrorMsg("Unable to connect or invalid credentials.");
       }
+      setApiStatusMsg(result.message);
     } catch (err: any) {
       setApiStatus("error");
-      setApiErrorMsg(err?.message || String(err));
+      setApiStatusMsg(err?.message || String(err));
     }
   };
 
@@ -436,6 +469,64 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                   </p>
                 </div>
 
+                {/* Local Vectorization & Embedding Model Card */}
+                <div className="flex flex-col gap-3 p-4 rounded-xl bg-indigo-50/60 dark:bg-card border border-indigo-200 dark:border-indigo-500/30 text-xs shadow-2xs">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                        <span className="font-bold text-sm text-slate-900 dark:text-slate-100">
+                          Vector & Semantic Embedding Engine
+                        </span>
+                        <span className="text-[9.5px] font-mono font-bold bg-indigo-100 dark:bg-indigo-500/20 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 px-2 py-0.5 rounded-md">
+                          nomic-ai/nomic-embed-text-v1.5
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                        Powers instant <strong>AI Semantic Search in Command Palette</strong> (<kbd className="bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded text-[10px]">Ctrl+K → ?</kbd>), <strong>Vault RAG Context</strong> for AI Copilot Chat, and <strong>Semantic Backlink Connections</strong> in Graph View. Generates 768-dimensional normalized vectors via ONNX WebAssembly.
+                      </p>
+                    </div>
+
+                    {/* Status Pill */}
+                    <div className="shrink-0 pt-0.5">
+                      {vecModelStatus === "testing" ? (
+                        <span className="text-[10px] font-bold text-indigo-800 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-500/20 border border-indigo-300 dark:border-indigo-500/30 px-2.5 py-1 rounded-full flex items-center gap-1">
+                          <Loader2 className="h-3 w-3 animate-spin" /> Running Test...
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-extrabold text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-500/15 border border-emerald-300 dark:border-emerald-500/30 px-2.5 py-1 rounded-full flex items-center gap-1">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                          Bundled & Ready
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Test / Action Result Feedback Message */}
+                  {vecModelTestResult && (
+                    <div className="p-2.5 rounded-lg bg-white/90 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 font-mono text-[11px] text-slate-800 dark:text-slate-200 flex items-center justify-between">
+                      <span>{vecModelTestResult}</span>
+                      <button onClick={() => setVecModelTestResult(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Action Buttons Toolbar */}
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-indigo-200/60 dark:border-indigo-500/20">
+                    <button
+                      type="button"
+                      onClick={handleTestVecModel}
+                      disabled={vecModelStatus === "testing"}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition cursor-pointer shadow-2xs disabled:opacity-50"
+                      title="Run test vector embedding to verify latency and dimensionality"
+                    >
+                      <Zap className="h-3.5 w-3.5" />
+                      <span>Test Model</span>
+                    </button>
+                  </div>
+                </div>
+
                 {/* Provider Selector */}
                 <div className="flex flex-col gap-2">
                   <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Select Engine Provider</span>
@@ -502,6 +593,34 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                         )}
                       </div>
                     )}
+
+                    {/* Local Model RAM Management & Auto-Unload Timeout */}
+                    <div className="flex flex-col gap-3 p-4 rounded-xl bg-slate-50 dark:bg-card border border-slate-200 dark:border-slate-800 shadow-2xs">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                          <Clock className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                          Local Model Auto-Unload Timeout
+                        </span>
+                        <p className="text-[11.5px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                          Controls how long the local LLM stays loaded in system RAM after your last prompt. Longer timeouts make follow-up answers instant (0ms boot delay); shorter timeouts free RAM quickly for other desktop apps.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-3 pt-1">
+                        <select
+                          value={aiInactivityTimeoutSeconds || 300}
+                          onChange={(e) => setAiInactivityTimeoutSeconds(Number(e.target.value))}
+                          className="w-full sm:w-auto rounded-xl bg-white dark:bg-[#161825] border border-slate-300 dark:border-slate-800 px-3.5 py-2 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500 font-semibold cursor-pointer shadow-2xs"
+                        >
+                          <option value={15}>15 Seconds (Aggressive — Free RAM quickly for 8GB Laptops)</option>
+                          <option value={30}>30 Seconds</option>
+                          <option value={60}>1 Minute</option>
+                          <option value={120}>2 Minutes</option>
+                          <option value={300}>5 Minutes (Recommended — Instant Back-and-Forth Chat)</option>
+                          <option value={600}>10 Minutes</option>
+                        </select>
+                      </div>
+                    </div>
 
                     <div className="flex flex-col gap-3">
                       <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Available Local Models</span>
@@ -628,89 +747,227 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                 {aiProvider === "anthropic" && (
                   <div className="flex flex-col gap-4 bg-slate-50 dark:bg-card p-4 rounded-xl border border-slate-200 dark:border-slate-800 text-xs shadow-2xs">
                     <div className="flex flex-col gap-1.5">
-                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Anthropic API Key</span>
-                      <input
-                        type="password"
-                        value={aiApiKey}
-                        onChange={(e) => setAiApiKey(e.target.value)}
-                        placeholder="sk-ant-..."
-                        className="w-full rounded-xl bg-white dark:bg-[#161825] px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500"
-                      />
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5"><Key className="h-3 w-3" /> Anthropic API Key</span>
+                        <a
+                          onClick={() => handleOpenWebsite("https://console.anthropic.com/settings/keys")}
+                          className="text-[10.5px] text-indigo-500 hover:text-indigo-400 cursor-pointer font-semibold flex items-center gap-0.5 transition-colors"
+                        >
+                          Get Anthropic Key <ExternalLink className="h-2.5 w-2.5" />
+                        </a>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type={showAnthropicKey ? "text" : "password"}
+                          value={anthropicApiKey}
+                          onChange={(e) => setAnthropicApiKey(e.target.value.trim())}
+                          placeholder="sk-ant-api03-..."
+                          className="w-full rounded-xl bg-white dark:bg-[#161825] pl-3.5 pr-10 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowAnthropicKey(!showAnthropicKey)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+                        >
+                          {showAnthropicKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-500">Stored securely in your OS keychain. Never sent to Kognote servers.</p>
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Model Select</span>
+                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Model</span>
                       <select
                         value={aiApiModel}
                         onChange={(e) => setAiApiModel(e.target.value)}
                         className="w-full rounded-xl bg-white dark:bg-[#161825] px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500 cursor-pointer"
                       >
                         <option value="claude-3-5-sonnet-latest">Claude 3.5 Sonnet (claude-3-5-sonnet-latest)</option>
-                        <option value="claude-3-5-haiku-latest">Claude 3.5 Haiku (claude-3-5-haiku-latest)</option>
+                        <option value="claude-3-5-haiku-latest">Claude 3.5 Haiku (claude-3-3-haiku-latest)</option>
                         <option value="claude-3-opus-latest">Claude 3 Opus (claude-3-opus-latest)</option>
                       </select>
                     </div>
-                    <div className="flex items-center justify-between text-xs pt-1">
-                      <span className="text-slate-600 dark:text-slate-400">
-                        Status:{" "}
-                        {apiStatus === "checking" && <span className="text-amber-600 dark:text-amber-400 font-semibold">Testing key...</span>}
-                        {apiStatus === "ok" && <span className="text-emerald-600 dark:text-emerald-400 font-semibold">✓ Connected</span>}
-                        {apiStatus === "error" && <span className="text-rose-600 dark:text-red-400 font-semibold">Verification failed</span>}
-                      </span>
-                      <button
-                        onClick={checkApiStatus}
-                        className="rounded-xl bg-slate-200 dark:bg-card-border border border-slate-300 dark:border-slate-800 px-3.5 py-1.5 font-semibold text-xs text-slate-800 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-xs"
-                      >
-                        Test Connection
-                      </button>
+                    <div className="flex flex-col gap-2 pt-1">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {apiStatus === "idle" && <span className="text-slate-500 dark:text-slate-500">Not tested</span>}
+                          {apiStatus === "checking" && <><Loader2 className="h-3 w-3 animate-spin text-amber-500" /><span className="text-amber-600 dark:text-amber-400 font-semibold">Testing...</span></>}
+                          {apiStatus === "ok" && <><CheckCircle2 className="h-3 w-3 text-emerald-500" /><span className="text-emerald-600 dark:text-emerald-400 font-semibold">Connected</span></>}
+                          {apiStatus === "error" && <><XCircle className="h-3 w-3 text-rose-500" /><span className="text-rose-600 dark:text-red-400 font-semibold">Failed</span></>}
+                        </div>
+                        <button
+                          onClick={checkApiStatus}
+                          disabled={apiStatus === "checking"}
+                          className="rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed border border-indigo-500/50 px-3.5 py-1.5 font-semibold text-xs text-white transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
+                        >
+                          <Zap className="h-3 w-3" /> Test Connection
+                        </button>
+                      </div>
+                      {apiStatusMsg && (
+                        <p className={`text-[10.5px] font-mono leading-relaxed ${apiStatus === "ok" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-red-400"}`}>
+                          {apiStatusMsg}
+                        </p>
+                      )}
                     </div>
-                    {apiErrorMsg && <span className="text-[10.5px] text-rose-600 dark:text-red-400 font-mono">⚠️ {apiErrorMsg}</span>}
                   </div>
                 )}
 
                 {aiProvider === "gemini" && (
                   <div className="flex flex-col gap-4 bg-slate-50 dark:bg-card p-4 rounded-xl border border-slate-200 dark:border-slate-800 text-xs shadow-2xs">
                     <div className="flex flex-col gap-1.5">
-                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Google AI Studio API Key</span>
-                      <input
-                        type="password"
-                        value={aiApiKey}
-                        onChange={(e) => setAiApiKey(e.target.value)}
-                        placeholder="AIzaSy..."
-                        className="w-full rounded-xl bg-white dark:bg-[#161825] px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500"
-                      />
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5"><Key className="h-3 w-3" /> Google AI Studio API Key</span>
+                        <a
+                          onClick={() => handleOpenWebsite("https://aistudio.google.com/app/apikey")}
+                          className="text-[10.5px] text-indigo-500 hover:text-indigo-400 cursor-pointer font-semibold flex items-center gap-0.5 transition-colors"
+                        >
+                          Get Gemini Key <ExternalLink className="h-2.5 w-2.5" />
+                        </a>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type={showGeminiKey ? "text" : "password"}
+                          value={geminiApiKey}
+                          onChange={(e) => setGeminiApiKey(e.target.value.trim())}
+                          placeholder="AIzaSy..."
+                          className="w-full rounded-xl bg-white dark:bg-[#161825] pl-3.5 pr-10 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowGeminiKey(!showGeminiKey)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+                        >
+                          {showGeminiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-500">Stored securely in your OS keychain. Never sent to Kognote servers.</p>
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Model Select</span>
+                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Model</span>
                       <select
                         value={aiApiModel}
                         onChange={(e) => setAiApiModel(e.target.value)}
                         className="w-full rounded-xl bg-white dark:bg-[#161825] px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500 cursor-pointer"
                       >
+                        <option value="gemini-2.0-flash">Gemini 2.0 Flash (Recommended)</option>
                         <option value="gemini-1.5-flash">Gemini 1.5 Flash (gemini-1.5-flash)</option>
                         <option value="gemini-1.5-pro">Gemini 1.5 Pro (gemini-1.5-pro)</option>
-                        <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash (gemini-2.0-flash-exp)</option>
+                        <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Exp (gemini-2.0-flash-exp)</option>
                       </select>
                     </div>
-                    <div className="flex items-center justify-between text-xs pt-1">
-                      <span className="text-slate-600 dark:text-slate-400">
-                        Status:{" "}
-                        {apiStatus === "checking" && <span className="text-amber-600 dark:text-amber-400 font-semibold">Testing key...</span>}
-                        {apiStatus === "ok" && <span className="text-emerald-600 dark:text-emerald-400 font-semibold">✓ Connected</span>}
-                        {apiStatus === "error" && <span className="text-rose-600 dark:text-red-400 font-semibold">Verification failed</span>}
-                      </span>
-                      <button
-                        onClick={checkApiStatus}
-                        className="rounded-xl bg-slate-200 dark:bg-card-border border border-slate-300 dark:border-slate-800 px-3.5 py-1.5 font-semibold text-xs text-slate-800 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-xs"
-                      >
-                        Test Connection
-                      </button>
+                    <div className="flex flex-col gap-2 pt-1">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {apiStatus === "idle" && <span className="text-slate-500 dark:text-slate-500">Not tested</span>}
+                          {apiStatus === "checking" && <><Loader2 className="h-3 w-3 animate-spin text-amber-500" /><span className="text-amber-600 dark:text-amber-400 font-semibold">Testing...</span></>}
+                          {apiStatus === "ok" && <><CheckCircle2 className="h-3 w-3 text-emerald-500" /><span className="text-emerald-600 dark:text-emerald-400 font-semibold">Connected</span></>}
+                          {apiStatus === "error" && <><XCircle className="h-3 w-3 text-rose-500" /><span className="text-rose-600 dark:text-red-400 font-semibold">Failed</span></>}
+                        </div>
+                        <button
+                          onClick={checkApiStatus}
+                          disabled={apiStatus === "checking"}
+                          className="rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed border border-indigo-500/50 px-3.5 py-1.5 font-semibold text-xs text-white transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
+                        >
+                          <Zap className="h-3 w-3" /> Test Connection
+                        </button>
+                      </div>
+                      {apiStatusMsg && (
+                        <p className={`text-[10.5px] font-mono leading-relaxed ${apiStatus === "ok" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-red-400"}`}>
+                          {apiStatusMsg}
+                        </p>
+                      )}
                     </div>
-                    {apiErrorMsg && <span className="text-[10.5px] text-rose-600 dark:text-red-400 font-mono">⚠️ {apiErrorMsg}</span>}
                   </div>
                 )}
 
-                {(aiProvider === "openai" || aiProvider === "api") && (
+                {aiProvider === "openai" && (
                   <div className="flex flex-col gap-4 bg-slate-50 dark:bg-card p-4 rounded-xl border border-slate-200 dark:border-slate-800 text-xs shadow-2xs">
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5"><Key className="h-3 w-3" /> OpenAI API Key</span>
+                        <a
+                          onClick={() => handleOpenWebsite("https://platform.openai.com/api-keys")}
+                          className="text-[10.5px] text-indigo-500 hover:text-indigo-400 cursor-pointer font-semibold flex items-center gap-0.5 transition-colors"
+                        >
+                          Get OpenAI Key <ExternalLink className="h-2.5 w-2.5" />
+                        </a>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type={showOpenAIKey ? "text" : "password"}
+                          value={openaiApiKey}
+                          onChange={(e) => setOpenaiApiKey(e.target.value.trim())}
+                          placeholder="sk-proj-..."
+                          className="w-full rounded-xl bg-white dark:bg-[#161825] pl-3.5 pr-10 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowOpenAIKey(!showOpenAIKey)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+                        >
+                          {showOpenAIKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-500">Stored securely in your OS keychain. Never sent to Kognote servers.</p>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Model</span>
+                      <select
+                        value={aiApiModel}
+                        onChange={(e) => setAiApiModel(e.target.value)}
+                        className="w-full rounded-xl bg-white dark:bg-[#161825] px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                      >
+                        <option value="gpt-4o">GPT-4o (gpt-4o)</option>
+                        <option value="gpt-4o-mini">GPT-4o Mini (gpt-4o-mini)</option>
+                        <option value="gpt-4-turbo">GPT-4 Turbo (gpt-4-turbo)</option>
+                        <option value="o1-mini">o1 Mini (o1-mini)</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-2 pt-1">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {apiStatus === "idle" && <span className="text-slate-500 dark:text-slate-500">Not tested</span>}
+                          {apiStatus === "checking" && <><Loader2 className="h-3 w-3 animate-spin text-amber-500" /><span className="text-amber-600 dark:text-amber-400 font-semibold">Testing...</span></>}
+                          {apiStatus === "ok" && <><CheckCircle2 className="h-3 w-3 text-emerald-500" /><span className="text-emerald-600 dark:text-emerald-400 font-semibold">Connected</span></>}
+                          {apiStatus === "error" && <><XCircle className="h-3 w-3 text-rose-500" /><span className="text-rose-600 dark:text-red-400 font-semibold">Failed</span></>}
+                        </div>
+                        <button
+                          onClick={checkApiStatus}
+                          disabled={apiStatus === "checking"}
+                          className="rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed border border-indigo-500/50 px-3.5 py-1.5 font-semibold text-xs text-white transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
+                        >
+                          <Zap className="h-3 w-3" /> Test Connection
+                        </button>
+                      </div>
+                      {apiStatusMsg && (
+                        <p className={`text-[10.5px] font-mono leading-relaxed ${apiStatus === "ok" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-red-400"}`}>
+                          {apiStatusMsg}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {aiProvider === "api" && (
+                  <div className="flex flex-col gap-4 bg-slate-50 dark:bg-card p-4 rounded-xl border border-slate-200 dark:border-slate-800 text-xs shadow-2xs">
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Quick Fill</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          { label: "OpenAI", url: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+                          { label: "Groq", url: "https://api.groq.com/openai/v1", model: "llama-3.1-70b-versatile" },
+                          { label: "OpenRouter", url: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini" },
+                          { label: "Ollama", url: "http://localhost:11434/v1", model: "llama3.2" },
+                        ].map(({ label, url, model }) => (
+                          <button
+                            key={label}
+                            onClick={() => { setAiApiUrl(url); setAiApiModel(model); }}
+                            className="rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-[10.5px] font-semibold text-slate-700 dark:text-slate-300 cursor-pointer transition-colors"
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <div className="flex flex-col gap-1.5">
                       <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Base URL Endpoint</span>
                       <input
@@ -722,14 +979,31 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">API Key</span>
-                      <input
-                        type="password"
-                        value={aiApiKey}
-                        onChange={(e) => setAiApiKey(e.target.value)}
-                        placeholder="sk-..."
-                        className="w-full rounded-xl bg-white dark:bg-[#161825] px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500"
-                      />
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5"><Key className="h-3 w-3" /> API Key</span>
+                        <div className="flex items-center gap-2">
+                          <a onClick={() => handleOpenWebsite("https://console.groq.com/keys")} className="text-[10px] text-indigo-500 hover:text-indigo-400 cursor-pointer font-semibold flex items-center gap-0.5">Get Groq Key <ExternalLink className="h-2 w-2" /></a>
+                          <span className="text-slate-400">·</span>
+                          <a onClick={() => handleOpenWebsite("https://openrouter.ai/settings/keys")} className="text-[10px] text-indigo-500 hover:text-indigo-400 cursor-pointer font-semibold flex items-center gap-0.5">OpenRouter <ExternalLink className="h-2 w-2" /></a>
+                        </div>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type={showCustomKey ? "text" : "password"}
+                          value={customApiKey}
+                          onChange={(e) => setCustomApiKey(e.target.value.trim())}
+                          placeholder="Your API key..."
+                          className="w-full rounded-xl bg-white dark:bg-[#161825] pl-3.5 pr-10 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowCustomKey(!showCustomKey)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+                        >
+                          {showCustomKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-500">Stored securely in your OS keychain. Never sent to Kognote servers.</p>
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Model Name</span>
@@ -741,21 +1015,28 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                         className="w-full rounded-xl bg-white dark:bg-[#161825] px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500"
                       />
                     </div>
-                    <div className="flex items-center justify-between text-xs pt-1">
-                      <span className="text-slate-600 dark:text-slate-400">
-                        Status:{" "}
-                        {apiStatus === "checking" && <span className="text-amber-600 dark:text-amber-400 font-semibold">Testing...</span>}
-                        {apiStatus === "ok" && <span className="text-emerald-600 dark:text-emerald-400 font-semibold">✓ Connected</span>}
-                        {apiStatus === "error" && <span className="text-rose-600 dark:text-red-400 font-semibold">Auth failed</span>}
-                      </span>
-                      <button
-                        onClick={checkApiStatus}
-                        className="rounded-xl bg-slate-200 dark:bg-card-border border border-slate-300 dark:border-slate-800 px-3.5 py-1.5 font-semibold text-xs text-slate-800 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-xs"
-                      >
-                        Test Connection
-                      </button>
+                    <div className="flex flex-col gap-2 pt-1">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {apiStatus === "idle" && <span className="text-slate-500 dark:text-slate-500">Not tested</span>}
+                          {apiStatus === "checking" && <><Loader2 className="h-3 w-3 animate-spin text-amber-500" /><span className="text-amber-600 dark:text-amber-400 font-semibold">Testing...</span></>}
+                          {apiStatus === "ok" && <><CheckCircle2 className="h-3 w-3 text-emerald-500" /><span className="text-emerald-600 dark:text-emerald-400 font-semibold">Connected</span></>}
+                          {apiStatus === "error" && <><XCircle className="h-3 w-3 text-rose-500" /><span className="text-rose-600 dark:text-red-400 font-semibold">Failed</span></>}
+                        </div>
+                        <button
+                          onClick={checkApiStatus}
+                          disabled={apiStatus === "checking"}
+                          className="rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed border border-indigo-500/50 px-3.5 py-1.5 font-semibold text-xs text-white transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
+                        >
+                          <Zap className="h-3 w-3" /> Test Connection
+                        </button>
+                      </div>
+                      {apiStatusMsg && (
+                        <p className={`text-[10.5px] font-mono leading-relaxed ${apiStatus === "ok" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-red-400"}`}>
+                          {apiStatusMsg}
+                        </p>
+                      )}
                     </div>
-                    {apiErrorMsg && <span className="text-[10.5px] text-rose-600 dark:text-red-400 font-mono">⚠️ {apiErrorMsg}</span>}
                   </div>
                 )}
               </div>
@@ -1219,7 +1500,7 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                       <div className="flex items-center gap-2">
                         <h3 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">KogNote</h3>
                         <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-500/10 border border-indigo-300 dark:border-indigo-500/20 px-2 py-0.5 rounded-full">
-                          v0.1.4
+                          v0.1.5
                         </span>
                       </div>
                       <p className="text-xs text-slate-600 dark:text-slate-400">

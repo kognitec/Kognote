@@ -565,10 +565,9 @@ export const Editor: React.FC = () => {
       }
 
       let accumulated = "";
-      const finalResult = await aiService.generateTextStreaming(
+      const finalResult = await aiService.generateStream(
         prompt,
-        systemPrompt,
-        (token) => {
+        (token: string) => {
           accumulated += token;
           setFloatingResult({
             originalText: currentSel.text,
@@ -577,6 +576,7 @@ export const Editor: React.FC = () => {
             coords,
           });
         },
+        systemPrompt,
         { abortSignal: abortCtrl.signal }
       );
 
@@ -1070,7 +1070,7 @@ export const Editor: React.FC = () => {
       <div className="flex-1 flex flex-col h-full overflow-hidden border-r border-card-border">
 
         {/* Editor Info Bar & Mode Switcher Header */}
-        <div id="editor-info-bar" className="flex h-10 items-center justify-between border-b border-card-border bg-sidebar px-4 shrink-0 select-none relative z-10">
+        <div id="editor-info-bar" className="flex h-10 items-center justify-between border-b border-card-border bg-sidebar px-4 shrink-0 select-none relative z-30">
           {/* Left: Outline Toggle & Note Title */}
           <div className="flex items-center gap-2">
             <button

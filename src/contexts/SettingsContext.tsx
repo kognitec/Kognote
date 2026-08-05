@@ -12,7 +12,12 @@ interface SettingsContextType {
   aiLocalModel: string;
   aiApiUrl: string;
   aiApiKey: string;
+  openaiApiKey: string;
+  anthropicApiKey: string;
+  geminiApiKey: string;
+  customApiKey: string;
   aiApiModel: string;
+  aiInactivityTimeoutSeconds: number;
   userTimezone: string;
   includeArchivedInScans: boolean;
   includeTrashInScans: boolean;
@@ -21,7 +26,12 @@ interface SettingsContextType {
   setAiLocalModel: (model: string) => Promise<void>;
   setAiApiUrl: (url: string) => Promise<void>;
   setAiApiKey: (key: string) => Promise<void>;
+  setOpenaiApiKey: (key: string) => Promise<void>;
+  setAnthropicApiKey: (key: string) => Promise<void>;
+  setGeminiApiKey: (key: string) => Promise<void>;
+  setCustomApiKey: (key: string) => Promise<void>;
   setAiApiModel: (model: string) => Promise<void>;
+  setAiInactivityTimeoutSeconds: (sec: number) => Promise<void>;
   setUserTimezone: (tz: string) => Promise<void>;
   setIncludeArchivedInScans: (enabled: boolean) => Promise<void>;
   setIncludeTrashInScans: (enabled: boolean) => Promise<void>;
@@ -35,13 +45,27 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [aiProvider, _setAiProviderState] = useState<"local" | "anthropic" | "gemini" | "openai" | "api">("local");
   const [aiLocalModel, _setAiLocalModelState] = useState<string>("qwen2.5-coder-3b");
   const [aiApiUrl, _setAiApiUrlState] = useState<string>("https://api.openai.com/v1");
-  const [aiApiKey, _setAiApiKeyState] = useState<string>("");
+  const [openaiApiKey, _setOpenaiApiKeyState] = useState<string>("");
+  const [anthropicApiKey, _setAnthropicApiKeyState] = useState<string>("");
+  const [geminiApiKey, _setGeminiApiKeyState] = useState<string>("");
+  const [customApiKey, _setCustomApiKeyState] = useState<string>("");
   const [aiApiModel, _setAiApiModelState] = useState<string>("gpt-4o-mini");
+  const [aiInactivityTimeoutSeconds, _setAiInactivityTimeoutSecondsState] = useState<number>(300);
   const [userTimezone, _setUserTimezoneState] = useState<string>("auto");
   const [includeArchivedInScans, _setIncludeArchivedInScansState] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Theme is dynamically managed by ThemeContext
+  // Compute active API key based on selected provider
+  const aiApiKey =
+    aiProvider === "anthropic"
+      ? anthropicApiKey
+      : aiProvider === "gemini"
+      ? geminiApiKey
+      : aiProvider === "openai"
+      ? openaiApiKey
+      : aiProvider === "api"
+      ? customApiKey
+      : "";
 
   // Load settings on startup
   useEffect(() => {
@@ -53,6 +77,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           savedAiLocalModel,
           savedAiApiUrl,
           savedAiApiModel,
+          savedInactivityTimeout,
           savedTimezone,
           savedIncludeArchived,
         ] = await Promise.all([
@@ -61,19 +86,25 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           store.get<string>("aiLocalModel"),
           store.get<string>("aiApiUrl"),
           store.get<string>("aiApiModel"),
+          store.get<number>("aiInactivityTimeoutSeconds"),
           store.get<string>("userTimezone"),
           store.get<boolean>("includeArchivedInScans"),
         ]);
 
         if (savedVault) _setVaultPathState(savedVault);
         if (savedAiProvider) _setAiProviderState(savedAiProvider);
-        if (savedAiLocalModel) {
-          const legacyNames = ["llama3.2", "qwen3:8b", "qwen2.5:3b"];
-          const validModel = legacyNames.includes(savedAiLocalModel) ? "qwen2.5-coder-3b" : savedAiLocalModel;
-          _setAiLocalModelState(validModel);
-        }
+        if (savedAiLocalModel) _setAiLocalModelState(savedAiLocalModel);
         if (savedAiApiUrl) _setAiApiUrlState(savedAiApiUrl);
         if (savedAiApiModel) _setAiApiModelState(savedAiApiModel);
+
+        if (savedInactivityTimeout !== null && savedInactivityTimeout !== undefined) {
+          _setAiInactivityTimeoutSecondsState(savedInactivityTimeout);
+        } else {
+          // Auto-detect based on hardware RAM (15s for <12GB RAM, 300s for 12GB+ RAM)
+          const autoTimeout = await aiService.autoDetectDefaultTimeout();
+          _setAiInactivityTimeoutSecondsState(autoTimeout);
+        }
+
         if (savedTimezone) _setUserTimezoneState(savedTimezone);
 
         if (savedIncludeArchived !== null && savedIncludeArchived !== undefined) {
@@ -82,16 +113,25 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       } catch (err) {
         console.error("Failed to load settings from store:", err);
       } finally {
-        // Unblock main UI immediately so splash screen vanishes instantly
         setLoading(false);
       }
 
-      // Load encrypted Stronghold secret asynchronously in background without blocking UI startup
-      getSecret("aiApiKey").then((secureApiKey) => {
-        if (secureApiKey) _setAiApiKeyState(secureApiKey);
-      }).catch((err) => {
+      // Load encrypted Stronghold secrets asynchronously
+      try {
+        const [oKey, aKey, gKey, cKey] = await Promise.all([
+          getSecret("openaiApiKey").catch(() => null),
+          getSecret("anthropicApiKey").catch(() => null),
+          getSecret("geminiApiKey").catch(() => null),
+          getSecret("customApiKey").catch(() => null),
+        ]);
+
+        if (oKey) _setOpenaiApiKeyState(oKey);
+        if (aKey) _setAnthropicApiKeyState(aKey);
+        if (gKey) _setGeminiApiKeyState(gKey);
+        if (cKey) _setCustomApiKeyState(cKey);
+      } catch (err) {
         console.warn("Non-critical stronghold key load warning:", err);
-      });
+      }
     }
     loadSettings();
   }, []);
@@ -104,8 +144,9 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       apiUrl: aiApiUrl,
       apiKey: aiApiKey,
       apiModel: aiApiModel,
+      inactivityTimeoutSeconds: aiInactivityTimeoutSeconds,
     });
-  }, [aiProvider, aiLocalModel, aiApiUrl, aiApiKey, aiApiModel]);
+  }, [aiProvider, aiLocalModel, aiApiUrl, aiApiKey, aiApiModel, aiInactivityTimeoutSeconds]);
 
   const setVaultPath = async (path: string | null) => {
     _setVaultPathState(path);
@@ -135,18 +176,46 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     await store.save();
   };
 
+  const setOpenaiApiKey = async (val: string) => {
+    _setOpenaiApiKeyState(val);
+    if (val) await setSecret("openaiApiKey", val);
+    else await deleteSecret("openaiApiKey");
+  };
+
+  const setAnthropicApiKey = async (val: string) => {
+    _setAnthropicApiKeyState(val);
+    if (val) await setSecret("anthropicApiKey", val);
+    else await deleteSecret("anthropicApiKey");
+  };
+
+  const setGeminiApiKey = async (val: string) => {
+    _setGeminiApiKeyState(val);
+    if (val) await setSecret("geminiApiKey", val);
+    else await deleteSecret("geminiApiKey");
+  };
+
+  const setCustomApiKey = async (val: string) => {
+    _setCustomApiKeyState(val);
+    if (val) await setSecret("customApiKey", val);
+    else await deleteSecret("customApiKey");
+  };
+
   const setAiApiKey = async (val: string) => {
-    _setAiApiKeyState(val);
-    if (val) {
-      await setSecret("aiApiKey", val);
-    } else {
-      await deleteSecret("aiApiKey");
-    }
+    if (aiProvider === "anthropic") await setAnthropicApiKey(val);
+    else if (aiProvider === "gemini") await setGeminiApiKey(val);
+    else if (aiProvider === "openai") await setOpenaiApiKey(val);
+    else if (aiProvider === "api") await setCustomApiKey(val);
   };
 
   const setAiApiModel = async (val: string) => {
     _setAiApiModelState(val);
     await store.set("aiApiModel", val);
+    await store.save();
+  };
+
+  const setAiInactivityTimeoutSeconds = async (val: number) => {
+    _setAiInactivityTimeoutSecondsState(val);
+    await store.set("aiInactivityTimeoutSeconds", val);
     await store.save();
   };
 
@@ -178,7 +247,12 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         aiLocalModel,
         aiApiUrl,
         aiApiKey,
+        openaiApiKey,
+        anthropicApiKey,
+        geminiApiKey,
+        customApiKey,
         aiApiModel,
+        aiInactivityTimeoutSeconds,
         userTimezone,
         includeArchivedInScans,
         includeTrashInScans: false,
@@ -187,7 +261,12 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setAiLocalModel,
         setAiApiUrl,
         setAiApiKey,
+        setOpenaiApiKey,
+        setAnthropicApiKey,
+        setGeminiApiKey,
+        setCustomApiKey,
         setAiApiModel,
+        setAiInactivityTimeoutSeconds,
         setUserTimezone,
         setIncludeArchivedInScans,
         setIncludeTrashInScans,

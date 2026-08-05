@@ -181,10 +181,3 @@ updated: "2026-08-05T00:00:00"
 `,
   },
 ];
-
-/** Deprecated legacy templates that should be automatically purged from existing vaults */
-export const LEGACY_DEPRECATED_TEMPLATES = [
-  "Bug Report & Troubleshooting.md",
-  "Daily Reflection & Journal.md",
-  "Project Specification.md",
-];
