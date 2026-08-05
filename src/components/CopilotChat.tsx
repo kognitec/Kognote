@@ -1368,17 +1368,19 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
     const handleCopilotPrompt = (e: CustomEvent) => {
       const prompt = e.detail;
       if (typeof prompt === "string" && prompt.trim()) {
-        submitPrompt(prompt.trim(), activeFile);
+        createNewThread();
+        const cleanPrompt = prompt.trim();
+        setTimeout(() => {
+          submitPrompt(cleanPrompt, activeFile);
+        }, 50);
       }
     };
 
     window.addEventListener("submit-copilot-prompt", handleCopilotPrompt as EventListener);
-    window.addEventListener("open-ai-chat-with-prompt", handleCopilotPrompt as EventListener);
     return () => {
       window.removeEventListener("submit-copilot-prompt", handleCopilotPrompt as EventListener);
-      window.removeEventListener("open-ai-chat-with-prompt", handleCopilotPrompt as EventListener);
     };
-  }, [submitPrompt, activeFile]);
+  }, [submitPrompt, activeFile, createNewThread]);
 
   // Textarea auto-resize
   useEffect(() => {

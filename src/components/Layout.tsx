@@ -107,7 +107,9 @@ export const Layout: React.FC = () => {
   const [isTabsSquished, setIsTabsSquished] = useState(false);
 
   useEffect(() => {
-    const handleOpenAiPrompt = async () => {
+    const handleOpenAiPrompt = async (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const promptText = customEvent.detail;
       try {
         const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
         const existing = await WebviewWindow.getByLabel("ai-chat");
@@ -118,9 +120,15 @@ export const Layout: React.FC = () => {
       setIsChatDetached(false);
       setIsChatOpen(true);
       window.dispatchEvent(new CustomEvent("clear-floating-ai-selection"));
+
+      if (typeof promptText === "string" && promptText.trim()) {
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("submit-copilot-prompt", { detail: promptText.trim() }));
+        }, 120);
+      }
     };
 
-    window.addEventListener("open-ai-chat-with-prompt", handleOpenAiPrompt);
+    window.addEventListener("open-ai-chat-with-prompt", handleOpenAiPrompt as EventListener);
 
     let unlisten: (() => void) | undefined;
     import("@tauri-apps/api/event").then(({ listen }) => {
