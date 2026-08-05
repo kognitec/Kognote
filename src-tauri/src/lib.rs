@@ -228,6 +228,7 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle();
 
+            #[cfg(target_os = "macos")]
             if let Ok(menu) = build_app_menu(handle) {
                 let _ = app.set_menu(menu);
             }

@@ -19,8 +19,19 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
   const { activeView, setActiveView } = useVault();
   const { isSyncing, lastSyncAt, triggerSync } = useSync();
   const { theme, toggleTheme } = useTheme();
-  const appWindow = getCurrentWindow();
   const [isMaximized, setIsMaximized] = useState(false);
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const menuContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuContainerRef.current && !menuContainerRef.current.contains(event.target as Node)) {
+        setActiveMenu(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const [indicatorStyle, setIndicatorStyle] = useState({
     left: 0,
@@ -219,7 +230,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
       data-tauri-drag-region
       onMouseDown={handleStartDrag}
       onDoubleClick={handleDoubleClick}
-      className="flex h-11 w-full items-center justify-between border-b border-slate-200/80 dark:border-slate-800/80 bg-white/90 dark:bg-slate-950/70 backdrop-blur-xl px-3 text-foreground select-none relative z-40 transition-all duration-300"
+      className="flex h-11 w-full items-center justify-between border-b border-card-border bg-background/95 backdrop-blur-xl px-3 text-foreground select-none relative z-40 transition-colors duration-200"
     >
       {/* Left section: Logo & macOS window controls */}
       <div className="flex items-center gap-3 shrink-0" data-tauri-drag-region>
@@ -271,6 +282,106 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
           <span className="text-[8.5px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-indigo-500/10 dark:bg-indigo-400/15 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20 dark:border-indigo-400/30 shadow-2xs leading-none select-none transition-colors duration-200">
             BETA
           </span>
+        </div>
+
+        {/* Inline App Dropdown Menus (File, Edit, View, Window, Help) */}
+        <div ref={menuContainerRef} className="flex items-center gap-0.5 ml-1 sm:ml-2" data-tauri-drag-region={false}>
+          {[
+            {
+              id: "file",
+              label: "File",
+              items: [
+                { label: "New Note", shortcut: isMac ? "⌘N" : "Ctrl+N", action: () => window.dispatchEvent(new CustomEvent("new-note-action")) },
+                { label: "New Daily Log", shortcut: isMac ? "⇧⌘D" : "Ctrl+Shift+D", action: () => window.dispatchEvent(new CustomEvent("new-daily-action")) },
+                { label: "Open Vault...", shortcut: isMac ? "⌘O" : "Ctrl+O", action: () => window.dispatchEvent(new CustomEvent("open-vault-action")) },
+                { separator: true },
+                { label: "Save Note", shortcut: isMac ? "⌘S" : "Ctrl+S", action: () => window.dispatchEvent(new CustomEvent("save-note-action")) },
+                { label: "Close Note", shortcut: isMac ? "⌘W" : "Ctrl+W", action: () => window.dispatchEvent(new CustomEvent("close-note-action")) },
+                { separator: true },
+                { label: "Reveal in Finder / Explorer", shortcut: isMac ? "⇧⌘R" : "Ctrl+Shift+R", action: () => window.dispatchEvent(new CustomEvent("reveal-note-action")) },
+              ]
+            },
+            {
+              id: "edit",
+              label: "Edit",
+              items: [
+                { label: "Undo", shortcut: isMac ? "⌘Z" : "Ctrl+Z", action: () => document.execCommand("undo") },
+                { label: "Redo", shortcut: isMac ? "⇧⌘Z" : "Ctrl+Y", action: () => document.execCommand("redo") },
+                { separator: true },
+                { label: "Command Palette...", shortcut: isMac ? "⌘K" : "Ctrl+K", action: () => window.dispatchEvent(new CustomEvent("open-command-palette")) },
+              ]
+            },
+            {
+              id: "view",
+              label: "View",
+              items: [
+                { label: "Editor", shortcut: isMac ? "⌘1" : "Ctrl+1", action: () => setActiveView("editor") },
+                { label: "Canvas", shortcut: isMac ? "⌘2" : "Ctrl+2", action: () => setActiveView("canvas") },
+                { label: "Knowledge Graph", shortcut: isMac ? "⌘3" : "Ctrl+3", action: () => setActiveView("graph") },
+                { label: "Review Deck", shortcut: isMac ? "⌘4" : "Ctrl+4", action: () => setActiveView("flashcards") },
+                { label: "Calendar", shortcut: isMac ? "⌘5" : "Ctrl+5", action: () => setActiveView("calendar") },
+                { label: "Task Manager", shortcut: isMac ? "⌘6" : "Ctrl+6", action: () => setActiveView("tasks") },
+                { label: "Kanban Board", shortcut: isMac ? "⌘7" : "Ctrl+7", action: () => setActiveView("board") },
+                { separator: true },
+                { label: "Toggle KogNote AI Chat", shortcut: isMac ? "⇧⌘C" : "Ctrl+Shift+C", action: () => window.dispatchEvent(new CustomEvent("open-ai-chat-with-prompt", { detail: "" })) },
+              ]
+            },
+            {
+              id: "window",
+              label: "Window",
+              items: [
+                { label: "Minimize Window", shortcut: isMac ? "⌘M" : "Win+Down", action: handleMinimize },
+                { label: isMaximized ? "Restore Window" : "Maximize Window", action: handleMaximize },
+                { separator: true },
+                { label: "Close App", shortcut: isMac ? "⌘Q" : "Alt+F4", action: handleClose },
+              ]
+            },
+            {
+              id: "help",
+              label: "Help",
+              items: [
+                { label: "KogNote Documentation", action: () => window.open("https://kognitec.com", "_blank") },
+                { label: "System Preferences / Settings", action: onOpenSettings },
+              ]
+            }
+          ].map((menu) => (
+            <div key={menu.id} className="relative">
+              <button
+                type="button"
+                onClick={() => setActiveMenu(activeMenu === menu.id ? null : menu.id)}
+                onMouseEnter={() => { if (activeMenu) setActiveMenu(menu.id); }}
+                className={`px-2 py-0.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer select-none ${
+                  activeMenu === menu.id
+                    ? "bg-slate-200 dark:bg-slate-800 text-foreground font-bold"
+                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground"
+                }`}
+              >
+                {menu.label}
+              </button>
+
+              {activeMenu === menu.id && (
+                <div className="absolute left-0 top-full mt-1 z-50 min-w-52 py-1 rounded-xl bg-card border border-card-border shadow-2xl backdrop-blur-xl animate-fade-in text-xs">
+                  {menu.items.map((item: any, idx: number) => (
+                    item.separator ? (
+                      <div key={idx} className="my-1 border-t border-card-border" />
+                    ) : (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => { item.action?.(); setActiveMenu(null); }}
+                        className="w-full px-3 py-1.5 text-xs text-left text-foreground hover:bg-indigo-600 hover:text-white flex items-center justify-between transition-colors cursor-pointer group"
+                      >
+                        <span>{item.label}</span>
+                        {item.shortcut && (
+                          <span className="text-[10px] text-slate-400 group-hover:text-white/80 font-mono ml-3">{item.shortcut}</span>
+                        )}
+                      </button>
+                    )
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
 
