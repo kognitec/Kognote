@@ -761,7 +761,7 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
 
                 {sysInfo ? (
                   <div className="flex flex-col gap-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                       <div className="p-4 rounded-xl bg-slate-50 dark:bg-card border border-slate-200 dark:border-slate-800 flex flex-col gap-1 shadow-2xs">
                         <span className="text-[10px] font-bold text-slate-500 uppercase">Processor / CPU</span>
                         <span className="font-bold text-slate-900 dark:text-slate-100 text-sm truncate">{sysInfo.cpu_brand || "System CPU"}</span>
@@ -778,6 +778,27 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                         <span className="text-[10px] font-bold text-slate-500 uppercase">Graphics Accelerator</span>
                         <span className="font-bold text-emerald-700 dark:text-emerald-300 text-sm truncate">{sysInfo.gpu_name || "Integrated Graphics"}</span>
                         <span className="text-[11px] text-slate-600 dark:text-slate-400">GPU Offload Ready</span>
+                      </div>
+
+                      <div className="p-4 rounded-xl bg-slate-50 dark:bg-card border border-slate-200 dark:border-slate-800 flex flex-col gap-1 shadow-2xs">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">System Timezone & Location</span>
+                        <span className="font-bold text-sky-700 dark:text-sky-300 text-sm truncate">
+                          {Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"}
+                        </span>
+                        <span className="text-[11px] text-slate-600 dark:text-slate-400 font-mono">
+                          {(() => {
+                            try {
+                              const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                              const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "shortOffset" }).formatToParts(new Date());
+                              const tzPart = parts.find(p => p.type === "timeZoneName")?.value || "";
+                              let offset = tzPart.replace(/^GMT/, "UTC");
+                              if (offset === "UTC") offset = "UTC+00:00";
+                              return `${offset} • System Local`;
+                            } catch {
+                              return "Detected System Local";
+                            }
+                          })()}
+                        </span>
                       </div>
                     </div>
 
