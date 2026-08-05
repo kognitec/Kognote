@@ -1,6 +1,6 @@
 [package]
 name = "kognote"
-version = "0.1.2"
+version = "0.1.4"
 description = "Kognote — Your AI-powered personal knowledge base"
 authors = ["Kognitec"]
 edition = "2021"
