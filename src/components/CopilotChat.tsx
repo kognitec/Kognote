@@ -42,7 +42,8 @@ import {
   Trash2,
   Search,
   MessageSquare,
-  Square
+  Square,
+  Minus
 } from "lucide-react";
 import { message } from "@tauri-apps/plugin-dialog";
 import aiStaticIcon from "../assets/ai-static.png";
@@ -243,8 +244,64 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
   const [internalDetached, setInternalDetached] = useState(false);
   const isDetached = externalDetached !== undefined ? externalDetached : internalDetached;
   
+  const isStandalone = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "ai-chat";
+  const [isWindowMaximized, setIsWindowMaximized] = useState(false);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+      const appWin = getCurrentWindow();
+      appWin.isMaximized().then(setIsWindowMaximized).catch(() => {});
+      appWin.onResized(async () => {
+        const isMax = await appWin.isMaximized().catch(() => false);
+        setIsWindowMaximized(isMax);
+      }).then((un) => {
+        unlisten = un;
+      }).catch(() => {});
+    }).catch(() => {});
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  const handleMinimizeWindow = async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().minimize();
+    } catch (err) {
+      console.error("Failed to minimize window:", err);
+    }
+  };
+
+  const handleMaximizeWindow = async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const appWin = getCurrentWindow();
+      if (await appWin.isMaximized()) {
+        await appWin.unmaximize();
+        setIsWindowMaximized(false);
+      } else {
+        await appWin.maximize();
+        setIsWindowMaximized(true);
+      }
+    } catch (err) {
+      console.error("Failed to toggle maximize window:", err);
+    }
+  };
+
+  const handleCloseWindow = async () => {
+    if (isStandalone) {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        await getCurrentWindow().close();
+      } catch {}
+    } else if (onClose) {
+      onClose();
+    }
+  };
+
   const handleDetachClick = async () => {
-    const isStandalone = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "ai-chat";
     if (isStandalone) {
       try {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -1583,9 +1640,13 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       )}
 
       {/* ── A. LINEAR COMPACT HEADER BAR ────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-card-border/50 bg-background/50 backdrop-blur-md shrink-0 select-none z-20">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <div className="w-5 h-5 rounded-full bg-black flex items-center justify-center p-0.5 shrink-0 shadow-xs ring-1 ring-white/10">
+      <div 
+        data-tauri-drag-region
+        onDoubleClick={isStandalone ? handleMaximizeWindow : undefined}
+        className="flex items-center justify-between px-3 py-2 border-b border-card-border/50 bg-background/80 backdrop-blur-md shrink-0 select-none z-20"
+      >
+        <div data-tauri-drag-region className="flex items-center gap-1.5 min-w-0">
+          <div className="w-5 h-5 rounded-full bg-black flex items-center justify-center p-0.5 shrink-0 shadow-xs ring-1 ring-white/10 pointer-events-none">
             <img 
               src={loading ? aiAnimatedGif : aiStaticIcon} 
               alt="KogNote AI" 
@@ -1695,11 +1756,11 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
           </div>
         </div>
 
-        {/* Top-Right Window Controls (Undo action, Detach panel, clean chat, close button) */}
-        <div className="flex items-center gap-1.5">
+        {/* Top-Right Window & Action Controls */}
+        <div className="flex items-center gap-1">
           <button
             onClick={handleUndoAction}
-            className="p-1 text-slate-400 hover:text-indigo-300 hover:bg-[#1a1d2d] rounded-md transition-colors cursor-pointer"
+            className="p-1 text-slate-400 hover:text-indigo-400 dark:hover:text-indigo-300 hover:bg-card-hover rounded-md transition-colors cursor-pointer"
             title="Undo Last AI/User Note Action"
           >
             <Undo2 className="h-3.5 w-3.5" />
@@ -1708,7 +1769,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
           <button
             onClick={() => setIsHistoryDrawerOpen(!isHistoryDrawerOpen)}
             className={`p-1 rounded-md transition-colors cursor-pointer ${
-              isHistoryDrawerOpen ? "text-indigo-400 bg-indigo-500/20" : "text-slate-400 hover:text-slate-200 hover:bg-[#1a1d2d]"
+              isHistoryDrawerOpen ? "text-indigo-500 dark:text-indigo-400 bg-indigo-500/20" : "text-slate-400 hover:text-foreground hover:bg-card-hover"
             }`}
             title="Chat Threads History Drawer"
           >
@@ -1717,7 +1778,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
 
           <button
             onClick={handleNewChat}
-            className="p-1 text-slate-400 hover:text-slate-200 hover:bg-[#1a1d2d] rounded-md transition-colors cursor-pointer"
+            className="p-1 text-slate-400 hover:text-foreground hover:bg-card-hover rounded-md transition-colors cursor-pointer"
             title="Clean New Chat"
           >
             <SquarePen className="h-3.5 w-3.5" />
@@ -1729,22 +1790,60 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
             onClick={handleDetachClick}
             className={`p-1 rounded-md transition-all cursor-pointer ${
               isDetached 
-                ? "text-indigo-300 bg-indigo-500/20 border border-indigo-500/30 hover:bg-indigo-500/30" 
-                : "text-slate-400 hover:text-slate-200 hover:bg-[#1a1d2d]"
+                ? "text-indigo-500 dark:text-indigo-300 bg-indigo-500/20 border border-indigo-500/30 hover:bg-indigo-500/30" 
+                : "text-slate-400 hover:text-foreground hover:bg-card-hover"
             }`}
-            title={isDetached ? "Attach Panel to App Window" : "Detach Panel into Independent Floating Window"}
+            title={isStandalone || isDetached ? "Re-Attach Panel to Main Workspace Window" : "Detach Panel into Independent Window"}
           >
-            {isDetached ? <Pin className="h-3.5 w-3.5 text-indigo-400" /> : <ExternalLink className="h-3.5 w-3.5" />}
+            {isStandalone || isDetached ? <Pin className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" /> : <ExternalLink className="h-3.5 w-3.5" />}
           </button>
 
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="p-1 text-slate-400 hover:text-slate-200 hover:bg-[#1a1d2d] rounded-md transition-colors cursor-pointer"
-              title="Close Panel"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
+          {/* Standalone Window Control Buttons (Minimize, Maximize/Restore, Close) */}
+          {isStandalone ? (
+            <div className="flex items-center gap-0.5 border-l border-card-border/60 pl-1.5 ml-0.5">
+              <button
+                type="button"
+                onClick={handleMinimizeWindow}
+                className="flex h-6 w-7 items-center justify-center rounded-md text-slate-400 hover:text-foreground hover:bg-card-hover transition-colors cursor-pointer"
+                title="Minimize Window"
+              >
+                <Minus className="h-3 w-3 stroke-[1.5]" />
+              </button>
+              <button
+                type="button"
+                onClick={handleMaximizeWindow}
+                className="flex h-6 w-7 items-center justify-center rounded-md text-slate-400 hover:text-foreground hover:bg-card-hover transition-colors cursor-pointer"
+                title={isWindowMaximized ? "Restore Window" : "Maximize Window"}
+              >
+                {isWindowMaximized ? (
+                  <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
+                    <rect x="3.5" y="1.5" width="7" height="7" rx="0.5" />
+                    <path d="M1.5 3.5v7h7" />
+                  </svg>
+                ) : (
+                  <Square className="h-3 w-3 stroke-[1.5]" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={handleCloseWindow}
+                className="flex h-6 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-[#e81123] hover:text-white transition-colors cursor-pointer"
+                title="Close Window"
+              >
+                <X className="h-3.5 w-3.5 stroke-[1.5]" />
+              </button>
+            </div>
+          ) : (
+            onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-1 text-slate-400 hover:text-foreground hover:bg-card-hover rounded-md transition-colors cursor-pointer"
+                title="Close Panel"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )
           )}
         </div>
       </div>

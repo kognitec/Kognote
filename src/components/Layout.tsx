@@ -163,7 +163,8 @@ export const Layout: React.FC = () => {
         height: 620,
         resizable: true,
         alwaysOnTop: true,
-        decorations: true,
+        decorations: false,
+        shadow: true,
       });
       win.once("tauri://created", () => {
         setIsChatOpen(false);
