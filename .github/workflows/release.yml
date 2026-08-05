@@ -63,6 +63,8 @@ jobs:
       # ── 1. Checkout ────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       # ── 1.5 Install Linux system dependencies ─────────────────────────────
       - name: Install Linux system dependencies
