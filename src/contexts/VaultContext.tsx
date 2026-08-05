@@ -789,9 +789,11 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [includeArchivedInScans]);
 
   const scanTimerRef = useRef<number | null>(null);
+  const pendingScanResolversRef = useRef<Array<() => void>>([]);
 
   const triggerNotesScanInternal = useCallback(async () => {
     if (!vaultPath) return;
+    const targetVault = vaultPath;
     setIsScanLoading(true);
 
     try {
@@ -801,7 +803,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         knownMtimes[k] = v.modifiedAt || 0;
       });
 
-      const delta = await invokeIPC("scan_vault_delta", { vaultPath, knownMtimes }).catch((err) => {
+      const delta = await invokeIPC("scan_vault_delta", { vaultPath: targetVault, knownMtimes }).catch((err) => {
         console.error("Delta scan IPC failed:", err);
         return null;
       });
@@ -1006,9 +1008,15 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       window.clearTimeout(scanTimerRef.current);
     }
     return new Promise<void>((resolve) => {
+      pendingScanResolversRef.current.push(resolve);
       scanTimerRef.current = window.setTimeout(async () => {
-        await triggerNotesScanInternal();
-        resolve();
+        try {
+          await triggerNotesScanInternal();
+        } finally {
+          const resolvers = [...pendingScanResolversRef.current];
+          pendingScanResolversRef.current = [];
+          resolvers.forEach((res) => res());
+        }
       }, 300);
     });
   }, [triggerNotesScanInternal]);
