@@ -1492,16 +1492,16 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
   const activeScopeName = activeFile ? activeFile.name : "Vault All Notes";
 
   return (
-    <div className="flex flex-col w-full h-full text-slate-200 selection:bg-indigo-600/30 overflow-hidden relative transition-all duration-300 backdrop-blur-xl bg-sidebar/90 rounded-2xl">
+    <div className="flex flex-col w-full h-full text-foreground selection:bg-indigo-600/30 overflow-hidden relative transition-all duration-300 backdrop-blur-xl bg-sidebar/90 rounded-2xl">
       
       {/* ── CHAT THREAD HISTORY DRAWER OVERLAY ─────────────────────────────────── */}
       {isHistoryDrawerOpen && (
-        <div className="absolute inset-0 z-50 bg-background/95 backdrop-blur-md flex flex-col animate-fade-in p-4 overflow-hidden">
+        <div className="absolute inset-0 z-50 bg-card backdrop-blur-md flex flex-col animate-fade-in p-4 overflow-hidden text-foreground">
           <div className="flex items-center justify-between pb-3 border-b border-card-border/70 shrink-0">
             <div className="flex items-center gap-2">
               <History className="h-4 w-4 text-indigo-400" />
-              <span className="text-xs font-extrabold uppercase tracking-wider text-slate-200">Chat Threads History</span>
-              <span className="text-[10px] text-slate-500 font-bold">({threads.length})</span>
+              <span className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200">Chat Threads History</span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">({threads.length})</span>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -1515,7 +1515,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
               <button
                 type="button"
                 onClick={() => setIsHistoryDrawerOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-200 rounded-md cursor-pointer hover:bg-slate-800/60"
+                className="p-1 text-slate-500 hover:text-foreground rounded-md cursor-pointer hover:bg-card-hover"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1524,13 +1524,13 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
 
           {/* Search Threads Filter */}
           <div className="my-3 relative shrink-0">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
             <input
               type="text"
               placeholder="Search chat history..."
               value={threadSearchQuery}
               onChange={(e) => setThreadSearchQuery(e.target.value)}
-              className="w-full rounded-xl bg-[#121422] pl-8 pr-3 py-1.5 text-xs text-slate-200 border border-[#24283b] focus:outline-none focus:border-indigo-500/50 placeholder-slate-600"
+              className="w-full rounded-xl bg-sidebar pl-8 pr-3 py-1.5 text-xs text-foreground border border-card-border focus:outline-none focus:border-indigo-500/50 placeholder-slate-400 font-medium"
             />
           </div>
 
@@ -1553,22 +1553,22 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                       onClick={() => switchThread(t.id)}
                       className={`group p-3 rounded-xl border flex items-center justify-between gap-3 transition-all cursor-pointer ${
                         isActive
-                          ? "bg-indigo-600/15 border-indigo-500/40 text-slate-100 shadow-md"
-                          : "bg-[#10121d]/70 border-card-border/70 text-slate-300 hover:bg-[#161828] hover:border-slate-700/60"
+                          ? "bg-indigo-600/15 border-indigo-500/40 text-indigo-950 dark:text-indigo-100 font-bold shadow-md shadow-indigo-500/5"
+                          : "bg-sidebar/50 border-card-border text-foreground hover:bg-card-hover hover:border-indigo-500/30"
                       }`}
                     >
                       <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                        <MessageSquare className={`h-4 w-4 shrink-0 ${isActive ? "text-indigo-400" : "text-slate-500"}`} />
+                        <MessageSquare className={`h-4 w-4 shrink-0 ${isActive ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400"}`} />
                         <div className="flex flex-col min-w-0 flex-1">
-                          <span className="text-xs font-bold truncate">{t.title}</span>
-                          <span className="text-[9.5px] text-slate-500">{dateStr} · {t.messages.length} messages</span>
+                          <span className="text-xs font-bold truncate text-foreground">{t.title}</span>
+                          <span className="text-[9.5px] text-slate-500 dark:text-slate-400">{dateStr} · {t.messages.length} messages</span>
                         </div>
                       </div>
 
                       <button
                         type="button"
                         onClick={(e) => deleteThread(t.id, e)}
-                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-md transition-all cursor-pointer"
+                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 rounded-md transition-all cursor-pointer"
                         title="Delete Thread"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
