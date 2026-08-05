@@ -233,7 +233,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
       data-tauri-drag-region
       onMouseDown={handleStartDrag}
       onDoubleClick={handleDoubleClick}
-      className="flex h-11 w-full items-center justify-between border-b border-card-border bg-background/95 backdrop-blur-xl px-3 text-foreground select-none relative z-40 transition-colors duration-200"
+      className="flex h-11 w-full items-center justify-between border-b border-card-border bg-background/95 backdrop-blur-xl px-3 text-foreground select-none relative z-[100] transition-colors duration-200"
     >
       {/* Left section: Logo & macOS window controls */}
       <div className="flex items-center gap-2 shrink-0" data-tauri-drag-region>
@@ -395,7 +395,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
               </button>
 
               {activeMenu === menu.id && (
-                <div className="absolute left-0 top-full mt-1 z-50 min-w-52 py-1 rounded-xl bg-card border border-card-border shadow-2xl backdrop-blur-xl animate-fade-in text-xs">
+                <div className="absolute left-0 top-full mt-1 z-[200] min-w-52 py-1 rounded-xl bg-card border border-card-border shadow-2xl backdrop-blur-xl animate-fade-in text-xs">
                   {menu.items.map((item: any, idx: number) => (
                     item.separator ? (
                       <div key={idx} className="my-1 border-t border-card-border" />
@@ -414,7 +414,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
                         </button>
 
                         {activeSubmenu === item.label && (
-                          <div className="absolute left-full top-0 ml-1 min-w-48 py-1 rounded-xl bg-card border border-card-border shadow-2xl backdrop-blur-xl animate-fade-in text-xs z-50">
+                          <div className="absolute left-full top-0 ml-1 min-w-48 py-1 rounded-xl bg-card border border-card-border shadow-2xl backdrop-blur-xl animate-fade-in text-xs z-[200]">
                             {item.submenu.map((subItem: any, subIdx: number) => (
                               <button
                                 key={subIdx}
