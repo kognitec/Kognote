@@ -27,6 +27,7 @@ import {
   Image as ImageIcon,
   ExternalLink,
   ArrowUpDown,
+  Filter,
   Bookmark,
   RotateCcw,
 } from "lucide-react";
@@ -79,30 +80,36 @@ export const FileTree: React.FC = () => {
   } = useVault();
   const { registerSyncHandler, unregisterSyncHandler } = useSync();
   const [filter, setFilter] = useState("");
-  const [fileTypeFilter, setFileTypeFilter] = useState<"all" | "md" | "canvas" | "templates">("all");
+  const [fileTypeFilter, setFileTypeFilter] = useState<"all" | "md" | "canvas" | "templates" | "clippings">("all");
   const [isCreatingDir, setIsCreatingDir] = useState(false);
   const [newName, setNewName] = useState("");
 
-  // Sort State
+  // Sort & Filter Dropdown State
   const [sortOption, setSortOption] = useState<SortOption>(() => {
     return (localStorage.getItem("vault_sort_option") as SortOption) || "name_asc";
   });
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
   const sortDropdownRef = useRef<HTMLDivElement>(null);
 
+  const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
+  const filterDropdownRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
       if (sortDropdownRef.current && !sortDropdownRef.current.contains(e.target as Node)) {
         setIsSortDropdownOpen(false);
       }
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(e.target as Node)) {
+        setIsFilterDropdownOpen(false);
+      }
     };
-    if (isSortDropdownOpen) {
+    if (isSortDropdownOpen || isFilterDropdownOpen) {
       document.addEventListener("mousedown", handleOutsideClick);
     }
     return () => {
       document.removeEventListener("mousedown", handleOutsideClick);
     };
-  }, [isSortDropdownOpen]);
+  }, [isSortDropdownOpen, isFilterDropdownOpen]);
 
   const changeSortOption = (opt: SortOption) => {
     setSortOption(opt);
@@ -623,9 +630,32 @@ export const FileTree: React.FC = () => {
     });
   };
 
+  const getClippingFiles = (items: FileEntry[]): FileEntry[] => {
+    let list: FileEntry[] = [];
+    for (const item of items) {
+      if (item.is_dir) {
+        if (item.children) {
+          list = [...list, ...getClippingFiles(item.children)];
+        }
+      } else {
+        const norm = item.path.replace(/\\/g, "/").toLowerCase();
+        const cacheType = noteCache[item.path]?.meta?.type?.toLowerCase();
+        const isClipping = norm.includes("/clippings/") || norm.includes("/clipping/") || cacheType === "clipping" || cacheType === "clippings";
+        const matchesSearch = !filter || item.name.toLowerCase().includes(filter.toLowerCase());
+        if (isClipping && matchesSearch && (item.name.endsWith(".md") || item.name.endsWith(".excalidraw"))) {
+          list.push(item);
+        }
+      }
+    }
+    return list;
+  };
+
   const filteredFiles = useMemo(() => {
     if (fileTypeFilter === "templates") {
       return sortTree(getTemplateFiles(files), sortOption, false);
+    }
+    if (fileTypeFilter === "clippings") {
+      return sortTree(getClippingFiles(files), sortOption, false);
     }
     return sortTree(filterTree(files), sortOption);
   }, [files, fileTypeFilter, filter, sortOption, noteCache]);
@@ -735,31 +765,6 @@ export const FileTree: React.FC = () => {
               )}
             </div>
 
-            {/* Quick Type Filter Chips */}
-            <div className="flex items-center gap-1 mb-1 text-[10px] font-medium overflow-x-auto">
-              {[
-                { id: "all", label: "All" },
-                { id: "md", label: "Notes" },
-                { id: "canvas", label: "Canvas" },
-                { id: "templates", label: "Templates" },
-              ].map((chip) => {
-                const isActive = fileTypeFilter === chip.id;
-                return (
-                  <button
-                    key={chip.id}
-                    onClick={() => setFileTypeFilter(chip.id as any)}
-                    className={`px-2 py-0.5 rounded-full transition-all cursor-pointer border text-[10px] ${
-                      isActive
-                        ? "bg-indigo-600 text-white border-indigo-500 font-bold shadow-2xs"
-                        : "bg-card text-slate-700 dark:text-slate-300 border-card-border hover:bg-card-hover"
-                    }`}
-                  >
-                    {chip.label}
-                  </button>
-                );
-              })}
-            </div>
-
             <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 tracking-wider">
               <span className="flex items-center gap-1.5">
                 VAULT NOTES
@@ -791,6 +796,52 @@ export const FileTree: React.FC = () => {
                 >
                   <FolderPlus className="h-3.5 w-3.5" />
                 </button>
+                <div className="relative" ref={filterDropdownRef}>
+                  <button
+                    onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)}
+                    className={`p-1 rounded-sm hover:bg-[#1a1d29] transition-colors cursor-pointer relative ${
+                      isFilterDropdownOpen || fileTypeFilter !== "all"
+                        ? "bg-[#1a1d29] text-indigo-400 font-bold"
+                        : "text-slate-500 hover:text-slate-300"
+                    }`}
+                    title="Filter View by File Type (Notes, Canvas, Templates, Clippings)"
+                  >
+                    <Filter className="h-3.5 w-3.5" />
+                    {fileTypeFilter !== "all" && (
+                      <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-indigo-500 ring-1 ring-background" />
+                    )}
+                  </button>
+                  {isFilterDropdownOpen && (
+                    <div className="absolute right-0 mt-1.5 w-52 bg-card border border-card-border rounded-md shadow-2xl py-1 z-50 text-[11px] font-normal normal-case animate-in fade-in zoom-in-95 duration-100">
+                      <div className="px-3 py-1 text-[9.5px] font-bold uppercase tracking-wider text-slate-400 border-b border-card-border/60 mb-0.5">
+                        Filter File Types
+                      </div>
+                      {[
+                        { value: "all", label: "All Files" },
+                        { value: "md", label: "Notes Only (.md)" },
+                        { value: "canvas", label: "Canvas Drawings (.excalidraw)" },
+                        { value: "templates", label: "Templates" },
+                        { value: "clippings", label: "Clippings" },
+                      ].map((opt) => (
+                        <button
+                          key={opt.value}
+                          onClick={() => {
+                            setFileTypeFilter(opt.value as any);
+                            setIsFilterDropdownOpen(false);
+                          }}
+                          className={`w-full text-left px-3 py-1.5 hover:bg-card-hover transition-colors flex items-center justify-between cursor-pointer ${
+                            fileTypeFilter === opt.value
+                              ? "text-indigo-600 dark:text-indigo-400 font-bold bg-indigo-500/10"
+                              : "text-slate-700 dark:text-slate-300 hover:text-foreground"
+                          }`}
+                        >
+                          <span>{opt.label}</span>
+                          {fileTypeFilter === opt.value && <Check className="h-3 w-3 text-indigo-500" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="relative" ref={sortDropdownRef}>
                   <button
                     onClick={() => setIsSortDropdownOpen(!isSortDropdownOpen)}
@@ -851,10 +902,10 @@ export const FileTree: React.FC = () => {
             <div className="px-3 py-1 border-b border-card-border bg-sidebar/40">
               <button
                 onClick={() => setIsStarredOpen((prev) => !prev)}
-                className="flex items-center justify-between w-full text-[10px] font-bold text-amber-600 dark:text-amber-500 tracking-wider uppercase py-0.5 cursor-pointer select-none group"
+                className="flex items-center justify-between w-full text-[10px] font-semibold text-amber-600/90 dark:text-amber-500/90 tracking-wider uppercase py-0.5 cursor-pointer select-none group"
               >
                 <div className="flex items-center gap-1.5">
-                  <Bookmark className="h-3 w-3 fill-amber-600 dark:fill-amber-500 text-amber-600 dark:text-amber-500 drop-shadow-[0_0_6px_rgba(217,119,6,0.4)]" />
+                  <Bookmark className="h-3 w-3 fill-amber-500 text-amber-500 shrink-0" />
                   <span>Bookmarks ({starredNotes.length})</span>
                 </div>
                 <ChevronRight
@@ -878,9 +929,9 @@ export const FileTree: React.FC = () => {
                       onDragEnd={() => {
                         clearDragState();
                       }}
-                      className="flex items-center gap-1.5 w-full px-2 py-0.5 rounded-md text-xs text-slate-700 dark:text-slate-300 hover:bg-card-hover hover:text-foreground transition-colors text-left truncate cursor-pointer group"
+                      className="flex items-center gap-1.5 w-full px-2 py-0.5 rounded-md text-[11.5px] text-slate-700 dark:text-slate-300 hover:bg-card-hover hover:text-foreground transition-colors text-left truncate cursor-pointer group"
                     >
-                      {getFileIcon(note, noteCache)}
+                      {getFileIcon(note, noteCache, { className: "h-3.5 w-3.5 shrink-0 text-amber-500" })}
                       <span className="truncate" title={note.name.replace(/\.md$/, "")}>{note.name.replace(/\.md$/, "")}</span>
                     </button>
                   ))}
