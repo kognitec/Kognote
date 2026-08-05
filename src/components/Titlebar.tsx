@@ -338,6 +338,9 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
           >
             Kognote
           </span>
+          <span className="text-[8.5px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-indigo-500/10 dark:bg-indigo-400/15 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20 dark:border-indigo-400/30 shadow-2xs leading-none select-none transition-colors duration-200">
+            BETA
+          </span>
         </div>
       </div>
 
