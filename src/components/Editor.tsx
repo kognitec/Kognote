@@ -1623,15 +1623,15 @@ export const Editor: React.FC = () => {
             {/* Task Completion */}
             {noteStats.totalChecklists > 0 ? (
               <div className="flex items-center gap-1.5" title="Completed/Total [Completed @task/Total @task] checklists">
-                <CheckSquare className="h-3 w-3 text-emerald-400 shrink-0" />
-                <span className="text-emerald-300 font-semibold">
+                <CheckSquare className="h-3 w-3 text-emerald-500 dark:text-emerald-400 shrink-0" />
+                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
                   {noteStats.completedTotalChecklists}/{noteStats.totalChecklists}
-                </span> tasks
-                <span className="text-slate-500">({noteStats.taskPercent}%)</span>
+                </span> <span className="text-slate-600 dark:text-slate-400">tasks</span>
+                <span className="text-slate-500 dark:text-slate-500">({noteStats.taskPercent}%)</span>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 text-slate-600 italic" title="No tasks in note">
-                <CheckSquare className="h-3 w-3 text-slate-600 shrink-0" />
+              <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-600 italic" title="No tasks in note">
+                <CheckSquare className="h-3 w-3 text-slate-400 dark:text-slate-600 shrink-0" />
                 <span>0 tasks</span>
               </div>
             )}
@@ -1641,11 +1641,11 @@ export const Editor: React.FC = () => {
               <div className="flex items-center gap-1.5" title="Flashcards in this note">
                 <GraduationCap className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400 shrink-0" />
                 <span className="text-amber-600 dark:text-amber-300 font-semibold">{noteStats.flashcardCount}</span>
-                <span className="text-slate-400">{noteStats.flashcardCount === 1 ? "flashcard" : "flashcards"}</span>
+                <span className="text-slate-600 dark:text-slate-400">{noteStats.flashcardCount === 1 ? "flashcard" : "flashcards"}</span>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 text-slate-600 italic" title="No flashcards in note">
-                <GraduationCap className="h-3.5 w-3.5 text-slate-600 shrink-0" />
+              <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-600 italic" title="No flashcards in note">
+                <GraduationCap className="h-3.5 w-3.5 text-slate-400 dark:text-slate-600 shrink-0" />
                 <span>0 flashcards</span>
               </div>
             )}
@@ -1653,12 +1653,13 @@ export const Editor: React.FC = () => {
             {/* Attachment Count */}
             {noteStats.attachmentCount > 0 ? (
               <div className="flex items-center gap-1.5" title="Embedded attachments & images">
-                <Paperclip className="h-3 w-3 text-amber-400/80 shrink-0" />
-                <span className="text-slate-400">{noteStats.attachmentCount} {noteStats.attachmentCount === 1 ? "attachment" : "attachments"}</span>
+                <Paperclip className="h-3 w-3 text-emerald-500 dark:text-emerald-400 shrink-0" />
+                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{noteStats.attachmentCount}</span>
+                <span className="text-slate-600 dark:text-slate-400">{noteStats.attachmentCount === 1 ? "attachment" : "attachments"}</span>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 text-slate-600 italic" title="No attachments in note">
-                <Paperclip className="h-3 w-3 text-slate-600 shrink-0" />
+              <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-600 italic" title="No attachments in note">
+                <Paperclip className="h-3 w-3 text-slate-400 dark:text-slate-600 shrink-0" />
                 <span>0 attachments</span>
               </div>
             )}
@@ -1666,13 +1667,13 @@ export const Editor: React.FC = () => {
             {/* Web Links Count */}
             {noteStats.webLinkCount > 0 ? (
               <div className="flex items-center gap-1.5" title="External web links in note">
-                <Globe className="h-3 w-3 text-cyan-400/80 shrink-0" />
-                <span className="text-slate-300 font-semibold">{noteStats.webLinkCount}</span>
-                <span className="text-slate-400">{noteStats.webLinkCount === 1 ? "web link" : "web links"}</span>
+                <Globe className="h-3 w-3 text-cyan-500 dark:text-cyan-400 shrink-0" />
+                <span className="text-cyan-600 dark:text-cyan-300 font-semibold">{noteStats.webLinkCount}</span>
+                <span className="text-slate-600 dark:text-slate-400">{noteStats.webLinkCount === 1 ? "web link" : "web links"}</span>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 text-slate-600 italic" title="No external web links in note">
-                <Globe className="h-3 w-3 text-slate-600 shrink-0" />
+              <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-600 italic" title="No external web links in note">
+                <Globe className="h-3 w-3 text-slate-400 dark:text-slate-600 shrink-0" />
                 <span>0 web links</span>
               </div>
             )}
