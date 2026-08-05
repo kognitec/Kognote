@@ -93,6 +93,14 @@ class PriorityEmbeddingQueue {
       }
     }
   }
+
+  /** Clear all pending queues when switching vaults */
+  public clear() {
+    this.activeNoteQueue = [];
+    this.backgroundQueue = [];
+    this.queuedSet.clear();
+    this.isProcessing = false;
+  }
 }
 
 export const embeddingQueue = new PriorityEmbeddingQueue();

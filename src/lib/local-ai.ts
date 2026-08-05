@@ -440,17 +440,21 @@ class AIService {
         unlistenDone();
       }
 
-      if (this.inactivityTimeout) clearTimeout(this.inactivityTimeout);
-      this.inactivityTimeout = setTimeout(() => {
-        this.unloadModel().catch(console.error);
-      }, 15000);
+      if (this.settings.provider === "local") {
+        if (this.inactivityTimeout) clearTimeout(this.inactivityTimeout);
+        this.inactivityTimeout = setTimeout(() => {
+          this.unloadModel().catch(console.error);
+        }, 15000);
+      }
 
       return accumulated;
     } catch (err: any) {
-      if (this.inactivityTimeout) clearTimeout(this.inactivityTimeout);
-      this.inactivityTimeout = setTimeout(() => {
-        this.unloadModel().catch(console.error);
-      }, 15000);
+      if (this.settings.provider === "local") {
+        if (this.inactivityTimeout) clearTimeout(this.inactivityTimeout);
+        this.inactivityTimeout = setTimeout(() => {
+          this.unloadModel().catch(console.error);
+        }, 15000);
+      }
       throw err;
     }
   }

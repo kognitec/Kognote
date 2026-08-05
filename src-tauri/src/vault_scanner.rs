@@ -88,20 +88,37 @@ pub fn scan_vault_tasks(vault_path: String) -> Result<VaultScanResult, String> {
             let mut tasks = Vec::new();
             let mut date_refs = Vec::new();
 
-            // Regex patterns using raw hashes
-            let checkbox_re = Regex::new(r#"^\s*[-*]\s*\[([ xX])\]\s+(.+)$"#).ok()?;
-            let tag_re = Regex::new(r#"(?:^|\s|\\)#([a-zA-Z0-9_\-/]+)"#).ok()?;
-            let date_mention_re = Regex::new(r#"@?(20\d{2}[-/]\d{2}[-/]\d{2})(?:T(\d{2}:\d{2}))?"#).ok()?;
-            let due_re = Regex::new(r#"(?m)^due:\s*["']?([^"\r\n]+)["']?"#).ok()?;
-            let date_sub_re = Regex::new(r#"^(20\d{2}[-/]\d{2}[-/]\d{2})"#).ok()?;
+use std::sync::OnceLock;
+
+static CHECKBOX_RE: OnceLock<Regex> = OnceLock::new();
+static TAG_RE: OnceLock<Regex> = OnceLock::new();
+static DATE_MENTION_RE: OnceLock<Regex> = OnceLock::new();
+static DUE_RE: OnceLock<Regex> = OnceLock::new();
+static DATE_SUB_RE: OnceLock<Regex> = OnceLock::new();
+
+fn get_checkbox_re() -> &'static Regex {
+    CHECKBOX_RE.get_or_init(|| Regex::new(r#"^\s*[-*]\s*\[([ xX])\]\s+(.+)$"#).unwrap())
+}
+fn get_tag_re() -> &'static Regex {
+    TAG_RE.get_or_init(|| Regex::new(r#"(?:^|\s|\\)#([a-zA-Z0-9_\-/]+)"#).unwrap())
+}
+fn get_date_mention_re() -> &'static Regex {
+    DATE_MENTION_RE.get_or_init(|| Regex::new(r#"@?(20\d{2}[-/]\d{2}[-/]\d{2})(?:T(\d{2}:\d{2}))?"#).unwrap())
+}
+fn get_due_re() -> &'static Regex {
+    DUE_RE.get_or_init(|| Regex::new(r#"(?m)^due:\s*["']?([^"\r\n]+)["']?"#).unwrap())
+}
+fn get_date_sub_re() -> &'static Regex {
+    DATE_SUB_RE.get_or_init(|| Regex::new(r#"^(20\d{2}[-/]\d{2}[-/]\d{2})"#).unwrap())
+}
 
             // Frontmatter due date extraction
             if text.starts_with("---") {
                 if let Some(end_fm) = text[3..].find("---") {
                     let fm_text = &text[3..3 + end_fm];
-                    if let Some(caps) = due_re.captures(fm_text) {
+                    if let Some(caps) = get_due_re().captures(fm_text) {
                         let raw_due = caps.get(1).map_or("", |m| m.as_str()).trim();
-                        if let Some(dcaps) = date_sub_re.captures(raw_due) {
+                        if let Some(dcaps) = get_date_sub_re().captures(raw_due) {
                             let std_date = dcaps.get(1).map_or("", |m| m.as_str()).replace('/', "-");
                             date_refs.push(ScannedDateReference {
                                 id: format!("{}:frontmatter:{}", path_str, std_date),
@@ -121,7 +138,7 @@ pub fn scan_vault_tasks(vault_path: String) -> Result<VaultScanResult, String> {
                     continue;
                 }
 
-                if let Some(caps) = checkbox_re.captures(line) {
+                if let Some(caps) = get_checkbox_re().captures(line) {
                     let mark = caps.get(1).map_or(" ", |m| m.as_str());
                     let completed = mark == "x" || mark == "X";
                     let mut content = caps.get(2).map_or("", |m| m.as_str()).to_string();
@@ -139,7 +156,7 @@ pub fn scan_vault_tasks(vault_path: String) -> Result<VaultScanResult, String> {
 
                     // Extract tags
                     let mut tags = Vec::new();
-                    for tcap in tag_re.captures_iter(&content) {
+                    for tcap in get_tag_re().captures_iter(&content) {
                         if let Some(tag_match) = tcap.get(1) {
                             tags.push(tag_match.as_str().to_string());
                         }
@@ -150,7 +167,7 @@ pub fn scan_vault_tasks(vault_path: String) -> Result<VaultScanResult, String> {
                     let mut due_time = None;
                     let mut raw_due_date = None;
 
-                    if let Some(dcaps) = date_mention_re.captures(&content) {
+                    if let Some(dcaps) = get_date_mention_re().captures(&content) {
                         if let Some(dm) = dcaps.get(1) {
                             let std_date = dm.as_str().replace('/', "-");
                             due_date = Some(std_date.clone());
@@ -161,7 +178,7 @@ pub fn scan_vault_tasks(vault_path: String) -> Result<VaultScanResult, String> {
                             }
 
                             // Clean date string out of task text
-                            content = date_mention_re.replace(&content, "").trim().to_string();
+                            content = get_date_mention_re().replace(&content, "").trim().to_string();
                         }
                     }
 

@@ -17,6 +17,17 @@ pub struct WatcherState {
     pub internal_writes: Arc<Mutex<HashMap<String, Instant>>>,
 }
 
+fn normalize_path_key(path: &str) -> String {
+    let stripped = if path.starts_with(r"\\?\") {
+        &path[4..]
+    } else if path.starts_with("//?/") {
+        &path[4..]
+    } else {
+        path
+    };
+    stripped.replace('\\', "/").to_lowercase()
+}
+
 impl WatcherState {
     pub fn new() -> Self {
         Self {
@@ -30,14 +41,14 @@ impl WatcherState {
         if let Ok(mut map) = self.internal_writes.lock() {
             let now = Instant::now();
             map.retain(|_, time| now.duration_since(*time).as_secs() < 5);
-            let clean_path = path.replace('\\', "/").to_lowercase();
+            let clean_path = normalize_path_key(path);
             map.insert(clean_path, now);
         }
     }
 
     pub fn is_recent_internal_write(&self, path: &str) -> bool {
         if let Ok(map) = self.internal_writes.lock() {
-            let clean_path = path.replace('\\', "/").to_lowercase();
+            let clean_path = normalize_path_key(path);
             if let Some(timestamp) = map.get(&clean_path) {
                 if timestamp.elapsed().as_millis() < 800 {
                     return true;

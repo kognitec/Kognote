@@ -73,25 +73,20 @@ const isProtectedFolder = (path: string): boolean => {
   return PROTECTED_FOLDERS.some((p) => p.toLowerCase() === name.toLowerCase());
 };
 
-export interface OpenFileOptions {
-  scrollToLine?: number;
-  highlightText?: string;
-}
-
-export interface VaultContextType {
+interface VaultContextType {
   files: FileEntry[];
   activeFile: FileEntry | null;
   openFiles: FileEntry[];
   setOpenFiles: React.Dispatch<React.SetStateAction<FileEntry[]>>;
   setActiveFile: (file: FileEntry | null) => void;
-  openFile: (file: FileEntry, options?: OpenFileOptions) => void;
+  openFile: (file: FileEntry) => void;
   closeFile: (path: string) => void;
   refreshFiles: () => Promise<void>;
   createFile: (parentDir: string | null, name: string) => Promise<string>;
   createDirectory: (parentDir: string | null, name: string) => Promise<string>;
   deleteFileOrDirectory: (path: string) => Promise<void>;
   renameFileOrDirectory: (oldPath: string, newPath: string) => Promise<void>;
-  openNoteByName: (name: string, options?: OpenFileOptions) => void;
+  openNoteByName: (name: string) => void;
   /** Opens (or creates) the daily note for the given YYYY-MM-DD date inside Daily Notes/ */
   openDailyNote: (dateStr: string) => void;
   /** Returns the FileEntry for a daily note date if it exists, else null */
@@ -170,6 +165,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const hasRestoredWorkspaceRef = useRef(false);
 
   const refreshFiles = useCallback(async () => {
+    embeddingQueue.clear();
     if (!vaultPath) {
       setFiles([]);
       setAttachmentsFolderPath(null);
@@ -237,7 +233,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, []);
 
-  const openFile = useCallback((file: FileEntry, options?: OpenFileOptions) => {
+  const openFile = useCallback((file: FileEntry) => {
     if (file.is_dir) return;
 
     const ext = file.name.toLowerCase().split('.').pop() || '';
@@ -259,20 +255,6 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setActiveView("canvas");
     } else {
       setActiveView("editor");
-    }
-
-    if (options && (options.scrollToLine !== undefined || options.highlightText)) {
-      setTimeout(() => {
-        window.dispatchEvent(
-          new CustomEvent("kognote-scroll-to-line", {
-            detail: {
-              filePath: file.path,
-              lineNumber: options.scrollToLine,
-              highlightText: options.highlightText,
-            },
-          })
-        );
-      }, 100);
     }
   }, [setActiveFile, setActiveView]);
 
@@ -629,7 +611,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const openNoteByName = useCallback(
-    (name: string, options?: OpenFileOptions) => {
+    (name: string) => {
       const cleanTarget = name.trim().replace(/\\/g, "/");
       const nameOnly = cleanTarget.split("/").pop() || cleanTarget;
       const hasSubpath = cleanTarget.includes("/");
@@ -697,7 +679,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             bestMatch = sameDirMatch;
           }
         }
-        openFile(bestMatch, options);
+        openFile(bestMatch);
       } else {
         // Create new note if not found
         const createAndOpen = async () => {
@@ -708,9 +690,9 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               name: targetName,
               path: newPath,
               is_dir: false,
-            }, options);
+            });
           } catch (err) {
-            console.error("Failed to create missing note from link:", name, err);
+            console.error("Failed to create linked note:", err);
           }
         };
         createAndOpen();
