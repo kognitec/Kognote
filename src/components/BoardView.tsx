@@ -180,7 +180,7 @@ export const BoardView: React.FC = () => {
       .replace(/\s+/g, " ")
       .trim();
 
-    return clean.slice(0, 200);
+    return clean.slice(0, 600);
   };
 
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
@@ -936,69 +936,86 @@ export const BoardView: React.FC = () => {
         const { card, rect } = hoveredCard;
         const snippet = getCleanNoteSnippet(card);
         const totalTasks = card.todoTasks + card.completedTasks;
-        const isRightSide = rect.left > window.innerWidth / 2;
-        const isBottomSide = rect.top > window.innerHeight / 2;
 
-        const popoverWidth = 320;
-        let left = isRightSide ? rect.left - popoverWidth + 20 : rect.left + rect.width - 20;
-        let top = isBottomSide ? rect.top - 180 : rect.top + rect.height + 8;
+        const popoverWidth = 264;  // Slimmer vertical card width (w-66 / 264px)
+        const popoverHeight = 320; // Estimated height for boundary check
 
-        left = Math.max(16, Math.min(left, window.innerWidth - popoverWidth - 16));
-        top = Math.max(16, Math.min(top, window.innerHeight - 200));
+        // Align top-right corner of popover near bottom-right corner of the hovered board card
+        let left = rect.right - popoverWidth;
+        let top = rect.bottom + 6;
+
+        // Horizontal boundary checks
+        if (left < 12) {
+          left = 12;
+        } else if (left + popoverWidth > window.innerWidth - 12) {
+          left = window.innerWidth - popoverWidth - 12;
+        }
+
+        // Vertical boundary checks to prevent cut-off
+        if (rect.bottom + popoverHeight > window.innerHeight - 12) {
+          const topAbove = rect.top - popoverHeight - 6;
+          if (topAbove >= 12) {
+            top = topAbove;
+          } else {
+            top = Math.max(12, window.innerHeight - popoverHeight - 12);
+          }
+        }
 
         return (
           <div
             style={{ left: `${left}px`, top: `${top}px` }}
             onMouseEnter={() => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); }}
             onMouseLeave={handleCardMouseLeave}
-            className="fixed z-50 w-80 p-4 rounded-2xl bg-white/95 dark:bg-[#121420]/95 backdrop-blur-md border border-slate-300 dark:border-slate-800 shadow-2xl flex flex-col gap-2.5 text-xs text-slate-900 dark:text-slate-100 animate-fade-in pointer-events-auto"
+            className="fixed z-50 w-66 p-3 rounded-xl bg-white/95 dark:bg-[#121420]/95 backdrop-blur-md border border-slate-300 dark:border-slate-800 shadow-2xl flex flex-col gap-2 text-xs text-slate-900 dark:text-slate-100 animate-fade-in pointer-events-auto max-h-85"
           >
             {/* Header: Note Name + Type Badge */}
-            <div className="flex items-start justify-between gap-2 border-b border-slate-200 dark:border-slate-800/80 pb-2">
-              <div className="flex flex-col gap-0.5 min-w-0">
-                <span className="font-extrabold text-xs text-slate-900 dark:text-slate-100 truncate">
+            <div className="flex items-start justify-between gap-1.5 border-b border-slate-200 dark:border-slate-800/80 pb-1.5 shrink-0">
+              <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                <span className="font-extrabold text-[11.5px] text-slate-900 dark:text-slate-100 truncate leading-snug">
                   {card.title}
                 </span>
-                <span className="text-[9.5px] text-slate-500 font-mono truncate">
+                <span className="text-[9px] text-slate-500 font-mono truncate">
                   {card.file.path.replace(/\\/g, "/").split("/").slice(-2).join("/")}
                 </span>
               </div>
-              <span className="px-2 py-0.5 rounded-full text-[8.5px] font-extrabold uppercase tracking-wider bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20 shrink-0">
+              <span className="px-1.5 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20 shrink-0">
                 {card.type || "Note"}
               </span>
             </div>
 
-            {/* Note Snippet */}
-            {snippet ? (
-              <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-4 font-sans select-none">
-                {snippet}...
-              </p>
-            ) : (
-              <span className="text-[10.5px] text-slate-400 italic">No body content</span>
-            )}
+            {/* Note Body Content - Vertical scrollable list with expanded text */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-0.5 max-h-48">
+              {snippet ? (
+                <p className="text-[10.5px] text-slate-600 dark:text-slate-300 leading-relaxed font-sans select-none whitespace-pre-wrap">
+                  {snippet}
+                </p>
+              ) : (
+                <span className="text-[10px] text-slate-400 italic">No body content</span>
+              )}
+            </div>
 
             {/* Footer Metadata */}
-            <div className="flex items-center justify-between border-t border-slate-200 dark:border-slate-800/80 pt-2 text-[9.5px] text-slate-500 font-medium">
+            <div className="flex items-center justify-between border-t border-slate-200 dark:border-slate-800/80 pt-1.5 text-[9px] text-slate-500 font-medium shrink-0">
               <div className="flex items-center gap-1 overflow-hidden">
                 {card.tags && card.tags.length > 0 ? (
-                  card.tags.slice(0, 3).map((t) => (
-                    <span key={t} className="text-[8.5px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20">
+                  card.tags.slice(0, 2).map((t) => (
+                    <span key={t} className="text-[8px] font-bold px-1 py-0.5 rounded bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20">
                       #{t}
                     </span>
                   ))
                 ) : (
-                  <span>No tags</span>
+                  <span className="text-[8.5px]">No tags</span>
                 )}
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
                 {totalTasks > 0 && (
-                  <span className="font-extrabold text-emerald-600 dark:text-emerald-400">
-                    ☑️ {card.completedTasks}/{totalTasks} tasks
+                  <span className="font-extrabold text-emerald-600 dark:text-emerald-400 text-[8.5px]">
+                    ☑️ {card.completedTasks}/{totalTasks}
                   </span>
                 )}
                 {card.priority !== "none" && (
-                  <span className="uppercase font-bold text-[8.5px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700">
+                  <span className="uppercase font-bold text-[8px] px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700">
                     {card.priority}
                   </span>
                 )}
