@@ -950,6 +950,125 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                   </div>
                 </div>
 
+                {/* How Notes Connect Across KogNote Sections (Interactive Connection Matrix) */}
+                <div className="p-4.5 rounded-xl bg-slate-50 dark:bg-card border border-indigo-500/20 flex flex-col gap-3 shadow-2xs">
+                  <h4 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Waypoints className="h-4 w-4 text-indigo-500" />
+                    How Notes Connect With Every KogNote Section
+                  </h4>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                    KogNote operates as an interconnected workspace. Plain Markdown files (<code className="text-indigo-500 font-mono">.md</code>) act as the single source of truth across all 7 views:
+                  </p>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs mt-1">
+                    <div className="p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col gap-1.5">
+                      <span className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                        <Waypoints className="h-3.5 w-3.5 text-sky-500" /> Note ➔ Knowledge Graph
+                      </span>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                        Every <code className="text-sky-500 font-mono">[[WikiLink]]</code> and <code className="text-sky-500 font-mono">#tag</code> generates a node and edge in the 2D physics graph. Hub notes grow larger based on incoming & outgoing link counts.
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col gap-1.5">
+                      <span className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                        <Layers className="h-3.5 w-3.5 text-purple-500" /> Note ➔ Whiteboard Canvas
+                      </span>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                        Drag any note onto the infinite Excalidraw canvas. Double-clicking a canvas note card opens the full note editor; drawings save as <code className="text-purple-500 font-mono">.excalidraw</code> files.
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col gap-1.5">
+                      <span className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                        <CheckSquare className="h-3.5 w-3.5 text-emerald-500" /> Note ➔ Tasks & Kanban
+                      </span>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                        Adding <code className="text-emerald-500 font-mono">- [ ] Task</code> inside any note extracts it into the central Tasks & Kanban views. Checking a task on Kanban updates the original file on disk.
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col gap-1.5">
+                      <span className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5 text-amber-500" /> Note ➔ Calendar & Timeline
+                      </span>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                        Adding <code className="text-amber-500 font-mono">due: @YYYY-MM-DD HH:mm</code> to frontmatter places the note on the Calendar Timeline. Creating a Daily Log (<kbd>Ctrl+Shift+D</kbd>) saves to <code className="text-amber-500 font-mono">Daily Notes/</code>.
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col gap-1.5">
+                      <span className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                        <GraduationCap className="h-3.5 w-3.5 text-indigo-500" /> Note ➔ Flashcard Review
+                      </span>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                        Writing <code className="text-indigo-500 font-mono">Q: Question / A: Answer</code> blocks in notes parses flashcard decks automatically. Reviews use SuperMemo SM-2 algorithm to schedule retention.
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col gap-1.5">
+                      <span className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                        <Brain className="h-3.5 w-3.5 text-rose-500" /> Note ➔ RAG AI Vector Search
+                      </span>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                        Notes are embedded offline in SQLite <code className="text-rose-500 font-mono">sqlite-vec</code>. The AI Copilot uses RAG vector retrieval to answer questions using your exact note context.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* What You Experience While Editing Notes */}
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-card border border-slate-200 dark:border-card-border/80 flex flex-col gap-3 shadow-2xs">
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <Edit className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                    What You Will Encounter While Editing Notes
+                  </h4>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                    <div className="p-3 rounded-lg bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 flex flex-col gap-1">
+                      <span className="font-bold text-indigo-600 dark:text-indigo-400">1. Instant WikiLink Resolution & Auto-Creation</span>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                        Type <code className="text-indigo-500 font-mono">[[Note Name]]</code> anywhere. If the note exists, clicking navigates to it. If it doesn't exist, clicking automatically creates a new note in your vault!
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 flex flex-col gap-1">
+                      <span className="font-bold text-purple-600 dark:text-purple-400">2. Aliases & Section Header Linking</span>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                        Use <code className="text-purple-500 font-mono">[[Note|Custom Text]]</code> for aliases or <code className="text-purple-500 font-mono">[[Note#Header]]</code> to jump directly to a specific section heading inside a target note.
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 flex flex-col gap-1">
+                      <span className="font-bold text-amber-600 dark:text-amber-400">3. Inline AI Action Floating Toolbar</span>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                        Highlighting any text snippet inside the editor reveals an AI action bar: <strong>Format</strong>, <strong>Continue Writing</strong>, <strong>Rewrite</strong>, and <strong>Suggest Links</strong>.
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 flex flex-col gap-1">
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400">4. YAML Frontmatter Metadata Block</span>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                        The top block <code className="text-emerald-500 font-mono">--- ... ---</code> contains tags, priorities, due dates, and aliases. It stays structured without cluttering your rich text content.
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 flex flex-col gap-1">
+                      <span className="font-bold text-sky-600 dark:text-sky-400">5. Seamless Attachment Drag & Drop</span>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                        Drag images, audio, video, or PDFs directly into the editor. Files automatically save to <code className="text-sky-500 font-mono">attachments/</code> and embed natively.
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 flex flex-col gap-1">
+                      <span className="font-bold text-rose-600 dark:text-rose-400">6. Trash Recovery & Archive Isolation</span>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                        Archived notes move to <code className="text-rose-500 font-mono">Archive/</code> to clean up active scans. Deleted files go to soft Trash and can be restored at any time.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Core Feature Sections Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* 1. Markdown Editor & Syntax */}
