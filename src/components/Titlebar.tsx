@@ -10,6 +10,7 @@ import { useSync } from "../contexts/SyncContext";
 import { useTheme } from "../contexts/ThemeContext";
 
 import logoImg from "../assets/logo.png";
+import { isMacPlatform } from "../lib/keyboard-utils";
 
 interface TitlebarProps {
   onOpenSettings: (tab?: "vault" | "timezone" | "ai" | "sysinfo" | "agents" | "docs" | "about") => void;
@@ -143,7 +144,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
   }, [activeView]);
 
   // Detect macOS client-side
-  const isMac = typeof window !== "undefined" && /Mac|iPhone|iPod|iPad/i.test(navigator.userAgent || navigator.platform || "");
+  const isMac = isMacPlatform();
 
   // Track window maximize / restore state
   useEffect(() => {
