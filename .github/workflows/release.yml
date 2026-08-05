@@ -71,7 +71,7 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev patchelf librsvg2-dev
+          sudo apt-get install -y unzip libwebkit2gtk-4.1-dev libappindicator3-dev patchelf librsvg2-dev
 
       # ── 2. Node.js ─────────────────────────────────────────────────────────
       - name: Setup Node.js
@@ -96,6 +96,9 @@ jobs:
       - name: Download llama-server for macOS & Linux
         if: matrix.platform == 'macos-latest' || matrix.platform == 'ubuntu-22.04'
         run: |
+          # Ensure bin directory exists
+          mkdir -p src-tauri/bin
+
           # Resolve the asset name using the pinned version
           ASSET="${{ matrix.llama_asset }}"
           ASSET="${ASSET/\{VERSION\}/$LLAMA_VERSION}"
@@ -106,15 +109,16 @@ jobs:
             -o llama-download.zip
 
           echo "==> Extracting..."
-          unzip -o llama-download.zip -d llama-extracted
+          mkdir -p llama-extracted
+          unzip -o llama-download.zip -d llama-extracted || tar -xzf llama-download.zip -C llama-extracted
 
           echo "==> Locating llama-server binary..."
-          BINARY=$(find llama-extracted -name "llama-server" -type f | head -1)
+          BINARY=$(find llama-extracted -iname "llama-server" -type f | head -1)
 
           if [ -z "$BINARY" ]; then
             echo "ERROR: llama-server binary not found in archive!"
             ls -la llama-extracted/ || true
-            find llama-extracted -type f | head -30
+            find llama-extracted -type f | head -50
             exit 1
           fi
 
@@ -122,7 +126,10 @@ jobs:
           cp "$BINARY" "src-tauri/bin/$BIN_NAME"
           chmod +x "src-tauri/bin/$BIN_NAME"
 
-          # Verify it is a valid Mach-O binary
+          # If shared libraries (.so) exist in the archive, copy them to bin directory for runtime dynamic linking
+          find llama-extracted -name "*.so*" -type f -exec cp {} src-tauri/bin/ \; || true
+
+          # Verify it is a valid binary
           file "src-tauri/bin/$BIN_NAME"
           SIZE=$(wc -c < "src-tauri/bin/$BIN_NAME")
           echo "==> $BIN_NAME installed successfully ($SIZE bytes)"

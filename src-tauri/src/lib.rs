@@ -357,7 +357,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| match event {
             tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
-                let state = app_handle.state::<Arc<LlmState>>();
+                let state = app_handle.state::<Arc<LlmState>>().inner().clone();
                 if let Ok(mut guard) = state.server_process.lock() {
                     if let Some(mut child) = guard.take() {
                         let _ = child.kill();
