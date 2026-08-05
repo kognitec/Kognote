@@ -53,31 +53,68 @@ export class FlashcardStore {
     }
   }
 
-  // Load study history log
+  // Load study history log from JSON file and SQLite database
   async loadHistory(): Promise<Record<string, number>> {
-    if (!this.vaultPath) return {};
-    const { progressFilePath } = this.getPaths();
+    const history: Record<string, number> = {};
 
-    try {
-      const fileExists = await exists(progressFilePath);
-      if (!fileExists) return {};
-
-      const jsonStr = await readTextFile(progressFilePath);
-      if (!jsonStr) return {};
-
-      const parsed = JSON.parse(jsonStr);
-      return parsed.history || {};
-    } catch (err) {
-      console.error("Failed to load flashcard history:", err);
-      return {};
+    // 1. Load from .kognote/flashcards.json
+    if (this.vaultPath) {
+      const { progressFilePath } = this.getPaths();
+      try {
+        const fileExists = await exists(progressFilePath);
+        if (fileExists) {
+          const jsonStr = await readTextFile(progressFilePath);
+          if (jsonStr) {
+            const parsed = JSON.parse(jsonStr);
+            if (parsed.history) {
+              Object.entries(parsed.history).forEach(([k, v]) => {
+                if (typeof v === "number" && v > 0) {
+                  history[k] = (history[k] || 0) + (v as number);
+                }
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load flashcard history file:", err);
+      }
     }
+
+    // 2. Cross-reference last_review dates stored in SQLite fsrs_states
+    try {
+      const rows = (await invokeIPC("db_get_fsrs_states", {})) as Array<{ last_review?: string; lastReview?: string }>;
+      if (Array.isArray(rows)) {
+        const sqliteCounts: Record<string, number> = {};
+        rows.forEach((r) => {
+          const rev = r.lastReview || r.last_review;
+          if (rev) {
+            const d = new Date(rev);
+            if (!isNaN(d.getTime())) {
+              const yyyy = d.getFullYear();
+              const mm = String(d.getMonth() + 1).padStart(2, "0");
+              const dd = String(d.getDate()).padStart(2, "0");
+              const dateStr = `${yyyy}-${mm}-${dd}`;
+              sqliteCounts[dateStr] = (sqliteCounts[dateStr] || 0) + 1;
+            }
+          }
+        });
+        Object.entries(sqliteCounts).forEach(([dateStr, cnt]) => {
+          history[dateStr] = Math.max(history[dateStr] || 0, cnt);
+        });
+      }
+    } catch (e) {
+      // Non-critical fallback if SQLite unavailable
+    }
+
+    return history;
   }
 
   // Save progress history map directly to native SQLite database
   async saveProgress(progress: Record<string, ProgressItem>, cards?: Flashcard[]) {
     try {
+      const nowIso = new Date().toISOString();
       for (const [cardId, item] of Object.entries(progress)) {
-        const cardObj = cards?.find(c => c.id === cardId);
+        const cardObj = cards?.find((c) => c.id === cardId);
         await invokeIPC("db_save_fsrs_state", {
           cardId,
           notePath: cardObj?.filePath || "",
@@ -89,7 +126,7 @@ export class FlashcardStore {
           cardState: item.state || 0,
           repetition: item.repetition || 0,
           interval: item.interval || 0,
-          lastReview: new Date().toISOString(),
+          lastReview: nowIso,
         });
       }
     } catch (err) {

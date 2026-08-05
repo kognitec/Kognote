@@ -256,6 +256,10 @@ export function stringifyFrontmatter(fields: KognoteFrontmatter): string {
     cleanBookmarked = "no";
   }
 
+  const mentionsLine = fields.mentions && fields.mentions.length > 0
+    ? `\nmentions: [${fields.mentions.map((m) => `"${m.replace(/"/g, '\\"')}"`).join(", ")}]`
+    : "";
+
   return `---
 type: "${fields.type || "note"}"
 status: ${fields.status || "none"}
@@ -264,7 +268,7 @@ due: "${fields.due || ""}"
 created: "${fields.created}"
 updated: "${fields.updated}"
 storage: ${cleanStorage}
-bookmarked: ${cleanBookmarked}
+bookmarked: ${cleanBookmarked}${mentionsLine}
 ---`;
 }
 

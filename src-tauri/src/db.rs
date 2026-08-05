@@ -37,10 +37,19 @@ pub fn init_db(app: &AppHandle, state: &DbState) -> Result<(), String> {
     }
 
     let db_path = get_db_path(app)?;
-    let conn = Connection::open(&db_path)
-        .map_err(|e| format!("Failed to open vector database: {e}"))?;
+    let conn = match Connection::open(&db_path) {
+        Ok(c) => c,
+        Err(_) => {
+            let corrupt_backup = db_path.with_extension("db.corrupt");
+            let _ = std::fs::rename(&db_path, &corrupt_backup);
+            Connection::open(&db_path).map_err(|e| format!("Failed to open vector database: {e}"))?
+        }
+    };
 
-    // 2. Enable foreign keys
+    // 2. High-performance WAL mode & lock busy timeout
+    let _ = conn.execute("PRAGMA journal_mode = WAL;", []);
+    let _ = conn.execute("PRAGMA busy_timeout = 5000;", []);
+    let _ = conn.execute("PRAGMA synchronous = NORMAL;", []);
     let _ = conn.execute("PRAGMA foreign_keys = ON;", []);
 
     // 3. Create tables
@@ -61,16 +70,39 @@ pub fn init_db(app: &AppHandle, state: &DbState) -> Result<(), String> {
     )
     .map_err(|e| format!("Failed to create index on file_path: {e}"))?;
 
-    // 4. Create virtual table for sqlite-vec
-    // Use sqlite-vec specific virtual table creation syntax
-    conn.execute(
+    // 4. Create virtual table for sqlite-vec (768 dimensions for nomic-embed-text-v1.5)
+    let vec_create_res = conn.execute(
         "CREATE VIRTUAL TABLE IF NOT EXISTS vec_embeddings USING vec0(
             id INTEGER PRIMARY KEY,
-            embedding float[384]
+            embedding float[768]
         );",
         [],
-    )
-    .map_err(|e| format!("Failed to create vec_embeddings virtual table: {e}"))?;
+    );
+
+    // Auto-migration: if existing database used 384d vectors, recreate vector tables for 768d
+    if vec_create_res.is_err() {
+        let _ = conn.execute("DROP TABLE IF EXISTS vec_embeddings;", []);
+        let _ = conn.execute("DROP TABLE IF EXISTS embeddings_metadata;", []);
+        let _ = conn.execute("DROP TABLE IF EXISTS fts_chunks;", []);
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS embeddings_metadata (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_path TEXT NOT NULL,
+                chunk_text TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            );",
+            [],
+        ).map_err(|e| format!("Failed to recreate embeddings_metadata: {e}"))?;
+
+        conn.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS vec_embeddings USING vec0(
+                id INTEGER PRIMARY KEY,
+                embedding float[768]
+            );",
+            [],
+        ).map_err(|e| format!("Failed to create 768d vec_embeddings: {e}"))?;
+    }
 
     // 5. Create note_versions table for delta diff versioning
     conn.execute(
@@ -356,8 +388,8 @@ pub async fn vector_upsert(
     chunk_text: String,
     embedding: Vec<f32>,
 ) -> Result<(), String> {
-    if embedding.len() != 384 {
-        return Err(format!("Embedding must be exactly 384 dimensions, got {}", embedding.len()));
+    if embedding.len() != 768 {
+        return Err(format!("Embedding must be exactly 768 dimensions, got {}", embedding.len()));
     }
 
     with_conn(&state, |conn| {
@@ -454,8 +486,8 @@ pub async fn vector_search(
     query_embedding: Vec<f32>,
     top_k: u32,
 ) -> Result<Vec<VectorSearchResult>, String> {
-    if query_embedding.len() != 384 {
-        return Err(format!("Query embedding must be 384 dimensions, got {}", query_embedding.len()));
+    if query_embedding.len() != 768 {
+        return Err(format!("Query embedding must be 768 dimensions, got {}", query_embedding.len()));
     }
 
     with_conn(&state, |conn| {

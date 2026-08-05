@@ -440,15 +440,17 @@ class AIService {
         unlistenDone();
       }
 
+      if (this.inactivityTimeout) clearTimeout(this.inactivityTimeout);
       this.inactivityTimeout = setTimeout(() => {
         this.unloadModel().catch(console.error);
-      }, 45000);
+      }, 15000);
 
       return accumulated;
     } catch (err: any) {
+      if (this.inactivityTimeout) clearTimeout(this.inactivityTimeout);
       this.inactivityTimeout = setTimeout(() => {
         this.unloadModel().catch(console.error);
-      }, 45000);
+      }, 15000);
       throw err;
     }
   }
@@ -485,10 +487,11 @@ class AIService {
           tools: options?.tools ?? null,
         });
 
-        // Auto-unload after 45 seconds of inactivity to free system RAM
+        // Auto-unload after 15 seconds of inactivity to free system RAM
+        if (this.inactivityTimeout) clearTimeout(this.inactivityTimeout);
         this.inactivityTimeout = setTimeout(() => {
           this.unloadModel().catch(console.error);
-        }, 45000);
+        }, 15000);
 
         return result;
       } else if (this.settings.provider === "anthropic") {
@@ -615,9 +618,10 @@ class AIService {
       }
     } catch (err: any) {
       if (this.settings.provider === "local") {
+        if (this.inactivityTimeout) clearTimeout(this.inactivityTimeout);
         this.inactivityTimeout = setTimeout(() => {
           this.unloadModel().catch(console.error);
-        }, 45000);
+        }, 15000);
       }
       throw err;
     }

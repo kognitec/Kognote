@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { SettingsProvider, useSettings } from "./contexts/SettingsContext";
+import { ThemeProvider } from "./contexts/ThemeContext";
 import { VaultProvider } from "./contexts/VaultContext";
 import { SyncProvider } from "./contexts/SyncContext";
 import { VaultPicker } from "./components/VaultPicker";
 import { Layout } from "./components/Layout";
+import { CopilotChat } from "./components/CopilotChat";
 import { CheckCircle } from "lucide-react";
 import logoImg from "./assets/logo.png";
 
@@ -77,6 +79,15 @@ const ToastHost: React.FC = () => {
 
 const MainApp: React.FC = () => {
   const { vaultPath, loading } = useSettings();
+  const isStandaloneChat = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "ai-chat";
+
+  if (isStandaloneChat) {
+    return (
+      <div className="h-screen w-screen bg-background text-foreground flex flex-col overflow-hidden select-none">
+        <CopilotChat isDetached={true} />
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -98,13 +109,15 @@ const MainApp: React.FC = () => {
 
 export default function App() {
   return (
-    <SettingsProvider>
-      <VaultProvider>
-        <SyncProvider>
-          <MainApp />
-          <ToastHost />
-        </SyncProvider>
-      </VaultProvider>
-    </SettingsProvider>
+    <ThemeProvider>
+      <SettingsProvider>
+        <VaultProvider>
+          <SyncProvider>
+            <MainApp />
+            <ToastHost />
+          </SyncProvider>
+        </VaultProvider>
+      </SettingsProvider>
+    </ThemeProvider>
   );
 }

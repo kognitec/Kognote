@@ -475,7 +475,6 @@ export const BoardView: React.FC = () => {
                 <option value="">All Types</option>
                 <option value="note">Note</option>
                 <option value="daily">Daily</option>
-                <option value="template">Template</option>
                 <option value="clipping">Clipping</option>
               </select>
               <ChevronDown className="h-3 w-3 text-slate-500 absolute right-2 pointer-events-none" />

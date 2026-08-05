@@ -22,9 +22,29 @@ import { DEFAULT_AGENTS_MD } from "../constants/defaultAgents";
 import { ONBOARDING_NOTES } from "../constants/onboardingNotes";
 import { BUILTIN_TEMPLATES, LEGACY_DEPRECATED_TEMPLATES } from "../lib/templates";
 
+import { store } from "./SettingsContext";
+
 // Re-export types (non-component exports are OK in a context file when they are type-only).
 export type { FileEntry, ScannedTask, ScannedDateReference, BoardCard, NoteCachedData } from "../types/note";
-// Re-export constants so existing consumers don't need to change their import paths.
+
+const flattenFiles = (entries: FileEntry[]): Map<string, FileEntry> => {
+  const map = new Map<string, FileEntry>();
+  const traverse = (items: FileEntry[]) => {
+    for (const item of items) {
+      if (!item.is_dir) {
+        map.set(item.path, item);
+        const norm = item.path.replace(/\\/g, "/");
+        map.set(norm, item);
+      } else if (item.children) {
+        traverse(item.children);
+      }
+    }
+  };
+  traverse(entries);
+  return map;
+};
+
+// Rest of constants...
 export {
   DAILY_NOTES_FOLDER,
   ATTACHMENTS_FOLDER,
@@ -142,6 +162,8 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
   };
 
+  const hasRestoredWorkspaceRef = useRef(false);
+
   const refreshFiles = useCallback(async () => {
     if (!vaultPath) {
       setFiles([]);
@@ -156,11 +178,48 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         await invokeIPC("write_note", { path: agentsPath, content: DEFAULT_AGENTS_MD }).catch(() => {});
       }
       const fileList = await invokeIPC("list_vault_files", { vaultPath });
-      setFiles(filterSystemFiles(fileList));
+      const filtered = filterSystemFiles(fileList);
+      setFiles(filtered);
+
+      if (!hasRestoredWorkspaceRef.current) {
+        hasRestoredWorkspaceRef.current = true;
+        const fileMap = flattenFiles(filtered);
+        const [savedOpenPaths, savedActivePath, savedView] = await Promise.all([
+          store.get<string[]>("workspaceOpenFiles"),
+          store.get<string>("workspaceActiveFile"),
+          store.get<any>("workspaceActiveView"),
+        ]);
+
+        if (Array.isArray(savedOpenPaths) && savedOpenPaths.length > 0) {
+          const restored = savedOpenPaths.map((p) => fileMap.get(p) || fileMap.get(p.replace(/\\/g, "/"))).filter(Boolean) as FileEntry[];
+          if (restored.length > 0) {
+            setOpenFiles(restored);
+          }
+        }
+        if (savedActivePath) {
+          const active = fileMap.get(savedActivePath) || fileMap.get(savedActivePath.replace(/\\/g, "/"));
+          if (active) {
+            setActiveFileState(active);
+          }
+        }
+        if (savedView) {
+          setActiveView(savedView);
+        }
+      }
     } catch (err) {
       console.error("Failed to list vault files:", err);
     }
   }, [vaultPath]);
+
+  // Persist workspace layout changes to LazyStore
+  useEffect(() => {
+    if (!hasRestoredWorkspaceRef.current) return;
+    const paths = openFiles.map((f) => f.path);
+    store.set("workspaceOpenFiles", paths);
+    store.set("workspaceActiveFile", activeFile?.path || null);
+    store.set("workspaceActiveView", activeView);
+    store.save();
+  }, [openFiles, activeFile, activeView]);
 
   const setActiveFile = useCallback((file: FileEntry | null) => {
     setActiveFileState(file);
@@ -291,11 +350,13 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Refresh files list when vault changes; also auto-create protected folders
   useEffect(() => {
-    refreshFiles();
     setActiveFileState(null);
     setOpenFiles([]);
 
-    if (!vaultPath) return;
+    if (!vaultPath) {
+      refreshFiles();
+      return;
+    }
 
     // Auto-create all 4 protected system folders if they don't exist
     const ensureProtectedFolders = async () => {
@@ -333,10 +394,10 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         unlistenFn = await listen<{ path: string; kind: string }>("vault_file_changed", (event) => {
           console.log(`File change detected: ${event.payload.path} (${event.payload.kind})`);
-          refreshFiles();
 
           if (debounceTimer) window.clearTimeout(debounceTimer);
           debounceTimer = window.setTimeout(() => {
+            refreshFiles();
             // Use ref so watcher always invokes the latest scan with current settings
             triggerNotesScanRef.current();
             window.dispatchEvent(new CustomEvent("reload-active-file", { detail: { path: event.payload.path } }));
@@ -1535,7 +1596,10 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       const processDelete = async (entries: FileEntry[]) => {
         for (const entry of entries) {
-          await invokeIPC("delete_note", { path: entry.path });
+          if (entry.is_dir && entry.children) {
+            await processDelete(entry.children);
+          }
+          await invokeIPC("delete_note", { path: entry.path }).catch(() => {});
           closeFile(entry.path);
         }
       };

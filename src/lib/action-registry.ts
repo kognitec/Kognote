@@ -1,5 +1,6 @@
 import { invokeIPC } from "./ipc";
 import { searchEngine } from "./search-engine";
+import { DELETED_FOLDER } from "./vault-constants";
 
 export interface ActionPayload {
   action: string;
@@ -14,6 +15,29 @@ export interface ActionHistoryRecord {
   previousState: string | null;
   newState: string | null;
   timestamp: number;
+}
+
+async function resolveNotePath(nameOrPath: string, vaultPath: string): Promise<string> {
+  if (!nameOrPath) return "";
+  const separator = vaultPath.includes("\\") ? "\\" : "/";
+  if (nameOrPath.includes("/") || nameOrPath.includes("\\")) {
+    return nameOrPath;
+  }
+  const cleanName = nameOrPath.endsWith(".md") ? nameOrPath : `${nameOrPath}.md`;
+  const rootCandidate = `${vaultPath}${separator}${cleanName}`;
+  const exists = await invokeIPC("fs_exists", { path: rootCandidate }).catch(() => false);
+  if (exists) return rootCandidate;
+
+  try {
+    const allMeta = await searchEngine.getAllNoteMetadata();
+    const match = allMeta.find((m) => {
+      const fileName = m.file_path.split(/[\/\\]/).pop() || "";
+      return fileName.toLowerCase() === cleanName.toLowerCase();
+    });
+    if (match) return match.file_path;
+  } catch {}
+
+  return rootCandidate;
 }
 
 class ActionRegistry {
@@ -42,7 +66,7 @@ class ActionRegistry {
           const name = args.name;
           if (!name) return { success: false, message: "Note name is required." };
           const cleanName = name.endsWith(".md") ? name : `${name}.md`;
-          const path = `${vaultPath}${separator}${cleanName}`;
+          const path = args.path || `${vaultPath}${separator}${cleanName}`;
           const rawInitial = args.content || `# ${name.replace(/\.md$/, "")}\n`;
           const { ensureAndSyncFrontmatter } = await import("./frontmatter");
           const { fullContent: initialContent } = ensureAndSyncFrontmatter(rawInitial, {
@@ -68,10 +92,10 @@ class ActionRegistry {
 
         case "write_note":
         case "append_note": {
-          const name = args.name;
-          if (!name) return { success: false, message: "Note name is required." };
-          const cleanName = name.endsWith(".md") ? name : `${name}.md`;
-          const path = args.path || `${vaultPath}${separator}${cleanName}`;
+          const name = args.name || args.noteName;
+          if (!name && !args.path) return { success: false, message: "Note name or path is required." };
+          const path = args.path || (await resolveNotePath(name, vaultPath));
+          const cleanName = path.split(/[\/\\]/).pop() || name;
 
           let previousContent: string | null = null;
           try {
@@ -105,17 +129,27 @@ class ActionRegistry {
         }
 
         case "delete_note": {
-          const name = args.name;
-          if (!name) return { success: false, message: "Note name is required." };
-          const cleanName = name.endsWith(".md") ? name : `${name}.md`;
-          const path = args.path || `${vaultPath}${separator}${cleanName}`;
+          const name = args.name || args.noteName;
+          if (!name && !args.path) return { success: false, message: "Note name or path is required." };
+          const path = args.path || (await resolveNotePath(name, vaultPath));
+          const cleanName = path.split(/[\/\\]/).pop() || name;
 
           let currentContent: string | null = null;
           try {
             currentContent = await invokeIPC("read_note", { path });
           } catch {}
 
-          const trashDir = `${vaultPath}${separator}Trash`;
+          if (currentContent && path.endsWith(".md")) {
+            const { ensureAndSyncFrontmatter } = await import("./frontmatter");
+            const { fullContent: deletedContent } = ensureAndSyncFrontmatter(currentContent, {
+              storage: "deleted",
+              bookmarked: "no",
+              forceUpdateTimestamp: true,
+            });
+            await invokeIPC("write_note", { path, content: deletedContent }).catch(() => {});
+          }
+
+          const trashDir = `${vaultPath}${separator}${DELETED_FOLDER}`;
           const trashPath = `${trashDir}${separator}${cleanName}`;
 
           const folderExists = await invokeIPC("fs_exists", { path: trashDir }).catch(() => false);
@@ -139,13 +173,13 @@ class ActionRegistry {
         }
 
         case "set_task_status": {
-          const noteName = args.noteName;
+          const noteName = args.noteName || args.name;
           const taskText = args.taskText;
           const completed = args.completed === true;
           if (!noteName || !taskText) return { success: false, message: "noteName and taskText are required." };
 
-          const cleanName = noteName.endsWith(".md") ? noteName : `${noteName}.md`;
-          const path = `${vaultPath}${separator}${cleanName}`;
+          const path = args.path || (await resolveNotePath(noteName, vaultPath));
+          const cleanName = path.split(/[\/\\]/).pop() || noteName;
 
           const currentContent = (await invokeIPC("read_note", { path })) as string;
           const lines = currentContent.split("\n");
@@ -184,16 +218,16 @@ class ActionRegistry {
           window.dispatchEvent(new CustomEvent("reload-active-file", { detail: { path } }));
           return {
             success: true,
-            message: `Marked task as ${completed ? "Completed" : "Pending"} in **${noteName}**`,
+            message: `Marked task as ${completed ? "Completed" : "Pending"} in **${cleanName}**`,
             recordId: record.id,
           };
         }
 
         case "set_board_card": {
           const name = args.name || args.noteName;
-          if (!name) return { success: false, message: "Note name is required." };
-          const cleanName = name.endsWith(".md") ? name : `${name}.md`;
-          const path = args.path || `${vaultPath}${separator}${cleanName}`;
+          if (!name && !args.path) return { success: false, message: "Note name or path is required." };
+          const path = args.path || (await resolveNotePath(name, vaultPath));
+          const cleanName = path.split(/[\/\\]/).pop() || name;
 
           let previousContent = "";
           try {
@@ -234,8 +268,8 @@ class ActionRegistry {
           const taskText = args.text || args.taskText;
           if (!taskText) return { success: false, message: "Task text is required." };
 
-          const cleanName = noteName.endsWith(".md") ? noteName : `${noteName}.md`;
-          const path = args.path || `${vaultPath}${separator}${cleanName}`;
+          const path = args.path || (await resolveNotePath(noteName, vaultPath));
+          const cleanName = path.split(/[\/\\]/).pop() || noteName;
 
           let currentContent = "";
           try {
@@ -277,7 +311,8 @@ class ActionRegistry {
         }
 
         case "replace_block": {
-          const path = args.path || (args.name ? `${vaultPath}${separator}${args.name.endsWith(".md") ? args.name : `${args.name}.md`}` : null);
+          const name = args.name || args.noteName;
+          const path = args.path || (name ? await resolveNotePath(name, vaultPath) : null);
           const searchText = args.search_text || args.searchText;
           const replaceText = args.replace_text || args.replaceText;
 
@@ -298,7 +333,7 @@ class ActionRegistry {
           }
 
           const { ensureAndSyncFrontmatter } = await import("./frontmatter");
-          const rawNewContent = currentContent.replace(searchText, replaceText);
+          const rawNewContent = currentContent.split(searchText).join(replaceText);
           const { fullContent: newContent } = ensureAndSyncFrontmatter(rawNewContent, { forceUpdateTimestamp: true });
 
           await invokeIPC("write_note", { path, content: newContent });
@@ -327,11 +362,12 @@ class ActionRegistry {
           const newName = args.newName;
           if (!oldName || !newName) return { success: false, message: "oldName and newName are required." };
 
-          const cleanOld = oldName.endsWith(".md") ? oldName : `${oldName}.md`;
-          const cleanNew = newName.endsWith(".md") ? newName : `${newName}.md`;
+          const oldPath = await resolveNotePath(oldName, vaultPath);
+          const oldFileName = oldPath.split(/[\/\\]/).pop() || oldName;
+          const parentDir = oldPath.substring(0, Math.max(oldPath.lastIndexOf("/"), oldPath.lastIndexOf("\\")));
 
-          const oldPath = `${vaultPath}${separator}${cleanOld}`;
-          const newPath = `${vaultPath}${separator}${cleanNew}`;
+          const cleanNew = newName.endsWith(".md") ? newName : `${newName}.md`;
+          const newPath = `${parentDir || vaultPath}${separator}${cleanNew}`;
 
           await invokeIPC("rename_note", { oldPath, newPath });
 
@@ -346,7 +382,7 @@ class ActionRegistry {
           this.history.push(record);
 
           window.dispatchEvent(new CustomEvent("reload-active-file", { detail: { path: newPath } }));
-          return { success: true, message: `Renamed **${cleanOld}** to **${cleanNew}**`, recordId: record.id };
+          return { success: true, message: `Renamed **${oldFileName}** to **${cleanNew}**`, recordId: record.id };
         }
 
         default:

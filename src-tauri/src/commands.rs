@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 use crate::watcher::{WatcherState, is_path_in_vault};
 use crate::db::{DbState, insert_note_version, with_conn};
@@ -122,6 +123,34 @@ pub fn read_note(
     Ok(cleaned)
 }
 
+fn atomic_write_file(target_path: &Path, content: &[u8]) -> Result<(), String> {
+    let parent = target_path.parent().ok_or_else(|| "Invalid parent directory".to_string())?;
+    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+
+    let file_name = target_path.file_name().unwrap_or_default().to_string_lossy();
+    let tmp_path = parent.join(format!(".{}.tmp.{}", file_name, rand::random::<u32>()));
+
+    let mut attempts = 0;
+    loop {
+        match fs::File::create(&tmp_path).and_then(|mut f| f.write_all(content).and_then(|_| f.sync_all())) {
+            Ok(_) => break,
+            Err(_e) if attempts < 3 => {
+                attempts += 1;
+                std::thread::sleep(std::time::Duration::from_millis(50 * attempts as u64));
+            }
+            Err(e) => {
+                let _ = fs::remove_file(&tmp_path);
+                return Err(format!("Atomic write failed: {e}"));
+            }
+        }
+    }
+
+    fs::rename(&tmp_path, target_path).map_err(|e| {
+        let _ = fs::remove_file(&tmp_path);
+        format!("Atomic rename failed: {e}")
+    })
+}
+
 #[tauri::command]
 pub fn write_note(
     path: String,
@@ -168,7 +197,7 @@ pub fn write_note(
     let _ = insert_note_version(&db_state, &path, &patch, &checksum);
     // --- End delta versioning logic ---
 
-    fs::write(file_path, content.as_bytes()).map_err(|e| e.to_string())?;
+    atomic_write_file(file_path, content.as_bytes())?;
     watcher_state.register_internal_write(&path);
     Ok(())
 }

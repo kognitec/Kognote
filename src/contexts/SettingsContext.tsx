@@ -4,7 +4,7 @@ import { aiService } from "../lib/local-ai";
 import { getSecret, setSecret, deleteSecret } from "../lib/stronghold";
 
 // Use LazyStore for safe asynchronous initialization in Tauri 2.0
-const store = new LazyStore(".settings.json");
+export const store = new LazyStore(".settings.json");
 
 interface SettingsContextType {
   vaultPath: string | null;
@@ -41,10 +41,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [includeArchivedInScans, _setIncludeArchivedInScansState] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Force dark mode permanently on mount
-  useEffect(() => {
-    window.document.documentElement.classList.add("dark");
-  }, []);
+  // Theme is dynamically managed by ThemeContext
 
   // Load settings on startup
   useEffect(() => {

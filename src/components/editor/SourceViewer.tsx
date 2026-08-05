@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { EditorState } from "@codemirror/state";
+import { EditorState, Compartment } from "@codemirror/state";
 import { EditorView, lineNumbers, keymap } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
@@ -7,6 +7,7 @@ import { defaultKeymap } from "@codemirror/commands";
 import { autocompletion, CompletionContext, CompletionResult } from "@codemirror/autocomplete";
 
 import { useVault, FileEntry } from "../../contexts/VaultContext";
+import { useTheme } from "../../contexts/ThemeContext";
 import { getDateSuggestions, isDateQueryCompleted } from "../../lib/date-parser";
 import { getShortestUniquePath } from "../../lib/wikilink-utils";
 import { getDragState } from "../../lib/drag-state";
@@ -30,10 +31,71 @@ interface SourceEditorProps {
   onBlur?: (val: string) => void;
 }
 
+const getThemeExtensions = (theme: "light" | "dark") => {
+  const isLight = theme === "light";
+
+  const customTheme = EditorView.theme({
+    "&": {
+      color: isLight ? "#1e293b" : "#cbd5e1",
+      backgroundColor: isLight ? "#ffffff" : "#07080c",
+      height: "100%",
+      fontFamily: "'Fira Code', 'Courier New', monospace",
+      fontSize: "13px"
+    },
+    ".cm-content": {
+      caretColor: isLight ? "#4f46e5" : "#818cf8"
+    },
+    "&.cm-focused .cm-cursor": {
+      borderLeftColor: isLight ? "#4f46e5" : "#818cf8"
+    },
+    "&.cm-focused .cm-selectionBackground, ::selection": {
+      backgroundColor: isLight ? "#c7d2fe !important" : "#4f46e540 !important"
+    },
+    ".cm-gutters": {
+      backgroundColor: isLight ? "#f8fafc" : "#0b0c10",
+      color: isLight ? "#64748b" : "#475569",
+      borderRight: isLight ? "1px solid #e2e8f0" : "1px solid #1f2335"
+    },
+    ".cm-activeLineGutter": {
+      backgroundColor: isLight ? "#e0e7ff" : "#161825",
+      color: isLight ? "#4338ca" : "#818cf8"
+    },
+    ".cm-activeLine": {
+      backgroundColor: isLight ? "#f8fafc" : "#0f111a"
+    },
+    ".custom-source-tag": {
+      backgroundColor: isLight ? "#e0e7ff" : "#6366f120",
+      color: isLight ? "#4338ca" : "#818cf8",
+      padding: "1px 4px",
+      borderRadius: "4px",
+      fontWeight: "600"
+    },
+    ".custom-source-link": {
+      color: isLight ? "#0284c7" : "#38bdf8",
+      textDecoration: "underline",
+      cursor: "pointer"
+    },
+    ".cm-tooltip-autocomplete": {
+      backgroundColor: isLight ? "#ffffff" : "#11131c",
+      border: isLight ? "1px solid #cbd5e1" : "1px solid #312e81",
+      borderRadius: "8px",
+      boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.15)"
+    },
+    ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
+      backgroundColor: isLight ? "#e0e7ff" : "#1e293b20",
+      color: isLight ? "#3730a3" : "#a5b4fc"
+    }
+  });
+
+  return isLight ? [customTheme] : [oneDark, customTheme];
+};
+
 export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, onBlur }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const themeCompartmentRef = useRef(new Compartment());
   const { files, vaultPath, attachmentsFolderPath, refreshFiles } = useVault();
+  const { theme } = useTheme();
 
   // Store props in refs to keep callback identities stable and prevent
   // editor destruction/recreation while typing in source mode.
@@ -53,59 +115,6 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
 
   useEffect(() => {
     if (!containerRef.current) return;
-
-    const customTheme = EditorView.theme({
-      "&": {
-        color: "#cbd5e1",
-        backgroundColor: "#07080c",
-        height: "100%",
-        fontFamily: "'Fira Code', 'Courier New', monospace",
-        fontSize: "13px"
-      },
-      ".cm-content": {
-        caretColor: "#818cf8"
-      },
-      "&.cm-focused .cm-cursor": {
-        borderLeftColor: "#818cf8"
-      },
-      "&.cm-focused .cm-selectionBackground, ::selection": {
-        backgroundColor: "#4f46e540 !important"
-      },
-      ".cm-gutters": {
-        backgroundColor: "#0b0c10",
-        color: "#475569",
-        borderRight: "1px solid #1f2335"
-      },
-      ".cm-activeLineGutter": {
-        backgroundColor: "#161825",
-        color: "#818cf8"
-      },
-      ".cm-activeLine": {
-        backgroundColor: "#0f111a"
-      },
-      ".custom-source-tag": {
-        backgroundColor: "#6366f120",
-        color: "#818cf8",
-        padding: "1px 4px",
-        borderRadius: "4px",
-        fontWeight: "600"
-      },
-      ".custom-source-link": {
-        color: "#38bdf8",
-        textDecoration: "underline",
-        cursor: "pointer"
-      },
-      ".cm-tooltip-autocomplete": {
-        backgroundColor: "#11131c",
-        border: "1px solid #312e81",
-        borderRadius: "8px",
-        boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.5)"
-      },
-      ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
-        backgroundColor: "#1e293b20",
-        color: "#a5b4fc"
-      }
-    });
 
     // Autocomplete source for [[wikilinks]], #tags, /commands, and @dates
     const customAutocompleteSource = (context: CompletionContext): CompletionResult | null => {
@@ -195,8 +204,7 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
       extensions: [
         markdown(),
         lineNumbers(),
-        oneDark,
-        customTheme,
+        themeCompartmentRef.current.of(getThemeExtensions(theme)),
         autocompletion({ override: [customAutocompleteSource] }),
         keymap.of(defaultKeymap),
         EditorView.lineWrapping,
@@ -363,6 +371,14 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
 
   useEffect(() => {
     if (viewRef.current) {
+      viewRef.current.dispatch({
+        effects: themeCompartmentRef.current.reconfigure(getThemeExtensions(theme))
+      });
+    }
+  }, [theme]);
+
+  useEffect(() => {
+    if (viewRef.current) {
       const currentVal = viewRef.current.state.doc.toString();
       if (currentVal !== content) {
         viewRef.current.dispatch({
@@ -373,7 +389,7 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
   }, [content]);
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#07080c] flex flex-col">
+    <div className="relative h-full w-full overflow-hidden bg-white dark:bg-[#07080c] flex flex-col">
       {/* CodeMirror Editable Container */}
       <div ref={containerRef} className="flex-1 overflow-auto font-mono text-xs" />
     </div>

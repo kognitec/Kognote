@@ -13,7 +13,7 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setThemeState] = useState<Theme>(() => {
     const saved = localStorage.getItem("kognote_theme");
-    return (saved === "light" || saved === "dark") ? saved : "dark";
+    return (saved === "light" || saved === "dark") ? saved : "light";
   });
 
   // Apply theme class to <html> element and persist in localStorage

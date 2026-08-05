@@ -299,7 +299,7 @@ export class SearchEngine {
     }
   }
 
-  // Indexes the contents of a note using heading-aware paragraph chunking & native sqlite-vec
+  // Indexes note contents using heading-aware paragraph chunking & native 768d sqlite-vec
   async indexFile(filePath: string, content: string) {
     await this.init();
 
@@ -325,29 +325,14 @@ export class SearchEngine {
           ? `[Section: ${currentHeading}] ${block}`
           : block;
 
-        // Smart 512-token cap (~2000 chars max per chunk)
-        if (baseChunk.length > 2000) {
-          const sentences = baseChunk.split(/(?<=[.?!])\s+/);
-          let currentSubChunk = "";
-          for (const sentence of sentences) {
-            if ((currentSubChunk + " " + sentence).length > 2000 && currentSubChunk) {
-              chunks.push(currentSubChunk.trim());
-              currentSubChunk = currentHeading ? `[Section: ${currentHeading} (cont.)] ${sentence}` : sentence;
-            } else {
-              currentSubChunk = currentSubChunk ? `${currentSubChunk} ${sentence}` : sentence;
-            }
-          }
-          if (currentSubChunk.trim()) {
-            chunks.push(currentSubChunk.trim());
-          }
-        } else {
-          chunks.push(baseChunk);
-        }
+        chunks.push(baseChunk);
       }
 
       for (const chunkText of chunks) {
         try {
-          const vector = await embeddingClient.embed(chunkText);
+          // Add nomic-embed-text-v1.5 document instruction prefix
+          const docFormatted = `search_document: ${chunkText}`;
+          const vector = await embeddingClient.embed(docFormatted);
           await invoke("vector_upsert", { filePath, chunkText, embedding: vector });
         } catch (err) {
           console.error(`Failed to embed chunk in ${filePath}:`, err);
@@ -360,11 +345,9 @@ export class SearchEngine {
 
   async indexFileChunk(filePath: string, chunkText: string) {
     try {
-      const vector = await embeddingClient.embed(chunkText);
+      const docFormatted = `search_document: ${chunkText}`;
+      const vector = await embeddingClient.embed(docFormatted);
       await invoke("vector_upsert", { filePath, chunkText, embedding: vector });
-      if (this.db) {
-        await this.db.execute(`INSERT INTO note_fts (file_path, chunk_text) VALUES ($1, $2)`, [filePath, chunkText]).catch(() => {});
-      }
     } catch (err) {
       console.error(`Failed to embed chunk in ${filePath}:`, err);
     }
@@ -373,7 +356,9 @@ export class SearchEngine {
   // Query vector search database using native sqlite-vec
   async search(query: string, topK = 8): Promise<SearchResult[]> {
     try {
-      const queryVector = await embeddingClient.embed(query);
+      // Add nomic-embed-text-v1.5 query instruction prefix
+      const queryFormatted = `search_query: ${query}`;
+      const queryVector = await embeddingClient.embed(queryFormatted);
       return await invoke<SearchResult[]>("vector_search", { queryText: query, queryEmbedding: queryVector, topK });
     } catch (err) {
       console.error("Vector search failed:", err);
@@ -383,7 +368,7 @@ export class SearchEngine {
 
   /**
    * Hybrid RAG Search: Combines FTS5 full-text BM25 keyword search with native sqlite-vec
-   * 384d cosine similarity embeddings using Reciprocal Rank Fusion (RRF).
+   * 768d cosine similarity embeddings using Reciprocal Rank Fusion (RRF).
    */
   async hybridRrfSearch(query: string, topK = 8, kFactor = 60): Promise<SearchResult[]> {
     try {

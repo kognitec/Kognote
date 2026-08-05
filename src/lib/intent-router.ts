@@ -41,18 +41,23 @@ const NOTE_SCOPE_MARKERS = /\b(in|from|to|into|on)\s+(this|my|the|active|open)\s
 // Layer 5: Pure Question / Conversational Words
 const PURE_CHAT_WORDS = /\b(explain|why|how|what|who|where|when|tell me|describe|discuss|meaning|summarize|understand|greetings|hello|hi|hey|thanks|thank you)\b/i;
 
+// Layer 6: Referential Follow-Up Patterns ("do that", "apply that", "fix that", "change it")
+const REFERENTIAL_DO_REGEX = /\b(do|apply|change|remove|delete|undo|fix|update|rewrite|modify)\s+(that|it|this|those|these)\b/i;
+
 /**
  * World-Class Zero-Latency Intent Gateway for Kognote.
  * 
  * Features:
  * - 0ms execution latency (eliminates double-inference delays and VRAM locks on local models).
  * - Multi-layer semantic scoring engine covering negative directives, advice queries, starting imperatives, and file targets.
+ * - Context-aware sliding window evaluation for referential follow-up directives ("do that", "apply it").
  * - Dual-pass LLM fallback for cloud/API models when prompts are genuinely ambiguous.
  */
 export async function classifyIntent(
   userText: string,
   activeFileName?: string | null,
-  pinnedContextsCount: number = 0
+  pinnedContextsCount: number = 0,
+  recentHistory?: string[]
 ): Promise<IntentResult> {
   const trimmed = userText.trim();
   if (!trimmed) {
@@ -72,6 +77,19 @@ export async function classifyIntent(
       targetFile: activeFileName || null,
       reasoning: "Explicit slash command or structural action trigger.",
     };
+  }
+
+  // ── LAYER 0.5: REFERENTIAL FOLLOW-UP CONTEXT RESOLUTION ─────────────────────
+  if (recentHistory && recentHistory.length > 0 && REFERENTIAL_DO_REGEX.test(trimmed)) {
+    const lastMsg = recentHistory[recentHistory.length - 1] || "";
+    if (STARTING_IMPERATIVE_REGEX.test(lastMsg) || DO_VERB_REGEX.test(lastMsg) || lastMsg.includes("```diff")) {
+      return {
+        intent: "DO",
+        confidence: 0.96,
+        targetFile: activeFileName || null,
+        reasoning: "Context-aware referential follow-up directive targeting previous note edit.",
+      };
+    }
   }
 
   // ── LAYER 1: ANTI-EDIT & INTERROGATIVE ADVICE GUARDS ───────────────────────

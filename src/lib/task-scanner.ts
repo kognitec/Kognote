@@ -27,6 +27,7 @@ export interface ScannedDateReference {
 export interface ScanOptions {
   includeArchived?: boolean;
   includeTrash?: boolean;
+  vaultPath?: string;
 }
 
 export function isArchivedPath(path: string): boolean {
@@ -71,29 +72,27 @@ export async function scanVaultForTasksAndDates(
   options?: ScanOptions
 ): Promise<{ tasks: ScannedTask[]; dateRefs: ScannedDateReference[] }> {
   // Try native Rust parallel vault scanner first (100x faster for 20,000 notes)
-  if (entries.length > 0) {
-    let rootPath = entries[0]?.path || "";
-    // Derive top-level vault root folder path
-    const slashIdx = Math.max(rootPath.indexOf("/"), rootPath.indexOf("\\"));
-    if (slashIdx > 0) {
-      // Find root directory path
-      const dirPath = rootPath.replace(/\\/g, "/");
-      const parts = dirPath.split("/").filter(Boolean);
-      if (parts.length > 1) {
-        // Reconstruct root directory path
-        const rootVaultDir = rootPath.startsWith("/") ? "/" + parts[0] : parts[0] + (rootPath.includes(":\\") ? ":\\" : "/");
-        try {
-          const res = (await invokeIPC("scan_vault_tasks", { vaultPath: rootVaultDir })) as unknown as {
-            tasks: ScannedTask[];
-            dateRefs: ScannedDateReference[];
-          };
-          if (res && Array.isArray(res.tasks) && Array.isArray(res.dateRefs)) {
-            return res;
-          }
-        } catch (_e) {
-          // Fallback to JS loop if native command is unavailable
-        }
+  let targetVaultDir = options?.vaultPath || "";
+  if (!targetVaultDir && entries.length > 0) {
+    const firstPath = entries[0]?.path || "";
+    const norm = firstPath.replace(/\\/g, "/");
+    const lastSlash = norm.lastIndexOf("/");
+    if (lastSlash > 0) {
+      targetVaultDir = firstPath.substring(0, lastSlash);
+    }
+  }
+
+  if (targetVaultDir) {
+    try {
+      const res = (await invokeIPC("scan_vault_tasks", { vaultPath: targetVaultDir })) as unknown as {
+        tasks: ScannedTask[];
+        dateRefs: ScannedDateReference[];
+      };
+      if (res && Array.isArray(res.tasks) && Array.isArray(res.dateRefs)) {
+        return res;
       }
+    } catch (_e) {
+      // Fallback to JS loop if native command is unavailable or fails
     }
   }
 

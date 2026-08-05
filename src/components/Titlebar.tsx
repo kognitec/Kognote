@@ -56,7 +56,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
       const prev = prevPosRef.current;
 
       if (prev && Math.abs(prev.left - targetLeft) > 2) {
-        const stretchAmount = Math.min(Math.abs(targetLeft - prev.left), 26);
+        const stretchAmount = Math.min(Math.abs(targetLeft - prev.left), 10);
 
         let stretchLeft = prev.left;
         let stretchWidth = prev.width + stretchAmount;
@@ -88,7 +88,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
           phase: "stretch",
         });
 
-        // Phase 2 (t = 90ms): Unanchor tail and travel across in stretched state to target destination
+        // Phase 2 (t = 60ms): Unanchor tail and travel across in stretched state to target destination
         animTimerRef1.current = setTimeout(() => {
           setIndicatorStyle({
             left: travelLeft,
@@ -96,9 +96,9 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
             opacity: 1,
             phase: "travel",
           });
-        }, 90);
+        }, 60);
 
-        // Phase 3 (t = 210ms): Arrive at target destination, front edge stops, tail gradually contracts to original pill size
+        // Phase 3 (t = 140ms): Arrive at target destination, front edge stops, tail gradually contracts to original pill size
         animTimerRef2.current = setTimeout(() => {
           setIndicatorStyle({
             left: targetLeft,
@@ -107,7 +107,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
             phase: "contract",
           });
           prevPosRef.current = { left: targetLeft, width: targetWidth };
-        }, 210);
+        }, 140);
       } else {
         // Initial mount or window resize
         setIndicatorStyle({
@@ -318,11 +318,24 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
             </button>
           </div>
         )}
-        <div className="flex items-center gap-2.5 group cursor-default" data-tauri-drag-region>
-          <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-linear-to-br from-indigo-500/15 via-purple-500/10 to-pink-500/15 dark:from-indigo-500/25 dark:via-purple-500/20 dark:to-pink-500/25 border border-indigo-500/25 dark:border-indigo-400/40 p-1 shadow-xs transition-all duration-300 group-hover:scale-105 group-hover:border-indigo-500/50">
-            <img src={logoImg} alt="Kognote Logo" className="h-full w-full object-contain filter drop-shadow-xs" />
-          </div>
-          <span className="font-black text-[13px] tracking-tight bg-clip-text text-transparent bg-linear-to-r from-indigo-700 via-purple-700 to-pink-600 dark:from-indigo-300 dark:via-purple-300 dark:to-pink-400">
+        <div className="flex items-center gap-2 group cursor-default" data-tauri-drag-region>
+          <img
+            src={logoImg}
+            alt="Kognote Logo"
+            className="h-8 w-8 object-contain transition-all duration-300 group-hover:scale-110"
+            style={{
+              filter: theme === "dark"
+                ? "drop-shadow(0 0 6px rgba(139,92,246,0.7)) drop-shadow(0 0 12px rgba(249,115,22,0.4))"
+                : "drop-shadow(0 2px 4px rgba(109,40,217,0.3)) drop-shadow(0 1px 3px rgba(234,88,12,0.2))"
+            }}
+          />
+          <span className="font-black text-[15px] tracking-tight bg-clip-text text-transparent select-none"
+            style={{
+              backgroundImage: theme === "dark"
+                ? "linear-gradient(135deg, #a78bfa 0%, #c084fc 40%, #f472b6 80%, #fb923c 100%)"
+                : "linear-gradient(135deg, #4f46e5 0%, #7c3aed 40%, #db2777 80%, #ea580c 100%)"
+            }}
+          >
             Kognote
           </span>
         </div>
@@ -338,12 +351,12 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
           <div
             className={`absolute top-1 bottom-1 rounded-full bg-linear-to-r from-blue-600 via-indigo-600 to-purple-600 shadow-[0_2px_10px_rgba(99,102,241,0.4)] border border-white/30 pointer-events-none ${
               indicatorStyle.phase === "stretch"
-                ? "transition-all duration-100 ease-out"
+                ? "transition-all duration-70 ease-out"
                 : indicatorStyle.phase === "travel"
-                ? "transition-all duration-120 ease-linear"
+                ? "transition-all duration-80 ease-linear"
                 : indicatorStyle.phase === "contract"
-                ? "transition-all duration-280 ease-[cubic-bezier(0.16,1,0.3,1)]"
-                : "transition-all duration-150 ease-out"
+                ? "transition-all duration-160 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                : "transition-all duration-100 ease-out"
             }`}
             style={{
               transform: `translateX(${indicatorStyle.left}px)`,

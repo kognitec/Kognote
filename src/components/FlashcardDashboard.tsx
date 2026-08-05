@@ -4,10 +4,12 @@ import { useSettings } from "../contexts/SettingsContext";
 import { useSync } from "../contexts/SyncContext";
 import { flashcardStore } from "../lib/flashcard-store";
 import { Flashcard } from "../lib/flashcard-parser";
-import { FlashcardReview } from "./FlashcardReview";
 import { parseFrontmatter } from "../lib/frontmatter";
 import { aiService } from "../lib/local-ai";
 import { invokeIPC } from "../lib/ipc";
+import { isModKey } from "../lib/keyboard-utils";
+import { computeFSRS } from "../lib/fsrs";
+import confetti from "canvas-confetti";
 import { 
   Brain, 
   GraduationCap, 
@@ -23,6 +25,8 @@ import {
   SlidersHorizontal, 
   RefreshCw, 
   Zap,
+  Flame,
+  Activity,
   FolderOpen,
   Tag,
   Settings2,
@@ -34,8 +38,540 @@ import {
   Clock,
   Target,
   Filter,
-  AlertTriangle
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle2,
+  RotateCw,
+  Volume2,
+  Undo2
 } from "lucide-react";
+
+interface FlashcardReviewProps {
+  cards: Flashcard[];
+  onClose: () => void;
+}
+
+const FlashcardReview: React.FC<FlashcardReviewProps> = ({ cards, onClose }) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isFlipped, setIsFlipped] = useState(false);
+  const [reviewDone, setReviewDone] = useState(false);
+  const [sessionCards, setSessionCards] = useState<Flashcard[]>([]);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [historyStack, setHistoryStack] = useState<{ index: number; cardState: Flashcard }[]>([]);
+
+  // Edit Card Modal State
+  const [editingCard, setEditingCard] = useState<Flashcard | null>(null);
+  const [editFront, setEditFront] = useState("");
+  const [editBack, setEditBack] = useState("");
+
+  const reviewedCountRef = useRef(0);
+
+  // Initialize session cards prioritized by note target due dates
+  useEffect(() => {
+    const sorted = [...cards].sort((a, b) => {
+      if (a.noteDueDate && b.noteDueDate) {
+        return a.noteDueDate.localeCompare(b.noteDueDate);
+      }
+      if (a.noteDueDate) return -1;
+      if (b.noteDueDate) return 1;
+      return 0;
+    });
+    setSessionCards(sorted);
+  }, [cards]);
+
+  const activeCard = sessionCards[currentIndex];
+
+  const speakText = (text: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    if (isSpeaking) {
+      setIsSpeaking(false);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.95;
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  useEffect(() => {
+    return () => {
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  const handleUndoRating = async () => {
+    if (historyStack.length === 0) return;
+    const last = historyStack[historyStack.length - 1];
+    setHistoryStack((prev) => prev.slice(0, -1));
+
+    const updated = [...sessionCards];
+    updated[last.index] = last.cardState;
+    setSessionCards(updated);
+    setCurrentIndex(last.index);
+    setIsFlipped(false);
+    setReviewDone(false);
+
+    const progressMap = await flashcardStore.loadProgress();
+    progressMap[last.cardState.id] = {
+      interval: last.cardState.interval,
+      repetition: last.cardState.repetition,
+      efactor: last.cardState.efactor,
+      nextReviewDate: last.cardState.nextReviewDate,
+      stability: last.cardState.stability,
+      difficulty: last.cardState.difficulty,
+      state: last.cardState.state,
+    };
+    await flashcardStore.saveProgress(progressMap, updated);
+  };
+
+  // Live save edited card back to source markdown file
+  const handleSaveCardEdit = async () => {
+    if (!editingCard || !editFront.trim() || !editBack.trim()) return;
+    const success = await flashcardStore.updateFlashcardInNote(editingCard, editFront, editBack);
+    if (success) {
+      const updated = [...sessionCards];
+      updated[currentIndex] = {
+        ...editingCard,
+        front: editFront.trim(),
+        back: editBack.trim(),
+      };
+      setSessionCards(updated);
+    }
+    setEditingCard(null);
+  };
+
+  // Delete card live from source markdown file
+  const handleDeleteCardInReview = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!activeCard) return;
+    if (!confirm("Are you sure you want to delete this flashcard from its source note?")) return;
+
+    await flashcardStore.deleteFlashcardFromNote(activeCard);
+    const updated = sessionCards.filter((_, idx) => idx !== currentIndex);
+    setSessionCards(updated);
+    setIsFlipped(false);
+
+    if (updated.length === 0) {
+      setReviewDone(true);
+    } else if (currentIndex >= updated.length) {
+      setCurrentIndex(updated.length - 1);
+    }
+  };
+
+  const getIntervalString = (grade: number): string => {
+    if (!activeCard) return "";
+    const nextState = computeFSRS(
+      {
+        interval: activeCard.interval,
+        repetition: activeCard.repetition,
+        efactor: activeCard.efactor,
+        nextReviewDate: activeCard.nextReviewDate,
+        stability: activeCard.stability,
+        difficulty: activeCard.difficulty,
+        state: activeCard.state,
+      },
+      grade
+    );
+    const days = nextState.interval;
+    if (days < 30) return `${days}d`;
+    const months = Math.round(days / 30);
+    return `${months}mo`;
+  };
+
+  const handleFlip = () => {
+    setIsFlipped((prev) => !prev);
+  };
+
+  const handleGrade = async (grade: number) => {
+    if (!activeCard) return;
+
+    setHistoryStack((prev) => [...prev, { index: currentIndex, cardState: { ...activeCard } }]);
+    reviewedCountRef.current += 1;
+
+    // Calculate updated card schedule using FSRS
+    const nextState = computeFSRS(
+      {
+        interval: activeCard.interval,
+        repetition: activeCard.repetition,
+        efactor: activeCard.efactor,
+        nextReviewDate: activeCard.nextReviewDate,
+        stability: activeCard.stability,
+        difficulty: activeCard.difficulty,
+        state: activeCard.state,
+      },
+      grade
+    );
+
+    // Save progress to local vault file
+    const progressMap = await flashcardStore.loadProgress();
+    progressMap[activeCard.id] = {
+      interval: nextState.interval,
+      repetition: nextState.repetition,
+      efactor: nextState.efactor,
+      nextReviewDate: nextState.nextReviewDate,
+      stability: nextState.stability,
+      difficulty: nextState.difficulty,
+      state: nextState.state,
+    };
+    await flashcardStore.saveProgress(progressMap, sessionCards);
+
+    // Update active card local state
+    const updatedCards = [...sessionCards];
+    updatedCards[currentIndex] = {
+      ...activeCard,
+      ...nextState,
+    };
+    setSessionCards(updatedCards);
+
+    // Transition state
+    setIsFlipped(false);
+    
+    // Proceed to next card or complete session
+    setTimeout(async () => {
+      if (currentIndex + 1 < sessionCards.length) {
+        setCurrentIndex((prev) => prev + 1);
+      } else {
+        // Log the session completion count accurately
+        try {
+          await flashcardStore.logSession(reviewedCountRef.current);
+        } catch (e) {
+          console.error("Failed to log session counts:", e);
+        }
+
+        // Complete review, fire confetti!
+        confetti({
+          particleCount: 150,
+          spread: 80,
+          origin: { y: 0.6 },
+          colors: ["#6366f1", "#ec4899", "#10b981"],
+        });
+        setReviewDone(true);
+      }
+    }, 150);
+  };
+
+  // Allow spacebar key to flip and number keys (1-4) to grade
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (reviewDone || !activeCard) return;
+
+      if (e.key === "u" || (e.key === "z" && isModKey(e))) {
+        e.preventDefault();
+        handleUndoRating();
+      } else if (e.key === " " || e.key === "Enter") {
+        e.preventDefault();
+        handleFlip();
+      } else if (isFlipped) {
+        if (e.key === "1") handleGrade(0); // Again
+        else if (e.key === "2") handleGrade(2); // Hard
+        else if (e.key === "3") handleGrade(3); // Good
+        else if (e.key === "4") handleGrade(5); // Easy
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isFlipped, currentIndex, sessionCards, reviewDone, historyStack]);
+
+  const handleExit = async () => {
+    if (reviewedCountRef.current > 0) {
+      try {
+        await flashcardStore.logSession(reviewedCountRef.current);
+      } catch (e) {
+        console.error("Failed to log session counts on exit:", e);
+      }
+    }
+    onClose();
+  };
+
+  if (sessionCards.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center bg-background text-slate-500 gap-4">
+        <span>No cards due for review!</span>
+        <button
+          onClick={handleExit}
+          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2 font-semibold text-xs text-white hover:bg-indigo-500 cursor-pointer"
+        >
+          <ArrowLeft className="h-4 w-4" /> Go Back
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full w-full flex-col bg-background text-slate-200 select-none animate-fade-in">
+      {/* Header toolbar */}
+      <div className="flex h-12 items-center justify-between border-b border-card-border bg-sidebar px-4">
+        <button
+          onClick={handleExit}
+          className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+        >
+          <ArrowLeft className="h-4 w-4" /> Exit Review
+        </button>
+
+        {!reviewDone && (
+          <span className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">
+            Card {currentIndex + 1} of {sessionCards.length}
+          </span>
+        )}
+
+        <div className="flex items-center gap-2">
+          {historyStack.length > 0 && !reviewDone && (
+            <button
+              onClick={handleUndoRating}
+              className="flex items-center gap-1 text-[11px] font-bold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 rounded-lg border border-amber-500/30 transition-all cursor-pointer"
+              title="Undo last card rating (Cmd+Z or U)"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+              <span>Undo</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Main container */}
+      <div className="flex-1 flex flex-col items-center justify-center p-6">
+        {reviewDone ? (
+          <div className="max-w-sm rounded-2xl border border-card-border bg-card p-8 text-center shadow-2xl animate-fade-in">
+            <CheckCircle2 className="mx-auto h-16 w-16 text-emerald-500 mb-4 animate-scale-up" />
+            <h2 className="text-xl font-bold text-slate-200 mb-2">Review Complete!</h2>
+            <p className="text-xs text-slate-500 leading-relaxed mb-6">
+              You've cleared all scheduled cards for today. Spaced repetition will notify you when cards are ready for review.
+            </p>
+            <button
+              onClick={handleExit}
+              className="w-full rounded-xl bg-indigo-600 py-3 font-semibold text-xs text-white hover:bg-indigo-500 transition-all active:scale-95 shadow-lg shadow-indigo-600/30 cursor-pointer"
+            >
+              Back to Dashboard
+            </button>
+          </div>
+        ) : (
+          <div className="w-full max-w-lg flex flex-col items-center gap-8">
+            
+            {/* Progress bar */}
+            <div className="w-full bg-card h-1.5 rounded-full overflow-hidden border border-card-border">
+              <div
+                style={{ width: `${((currentIndex) / sessionCards.length) * 100}%` }}
+                className="bg-indigo-600 h-full rounded-full transition-all duration-300"
+              />
+            </div>
+
+            {/* 3D Card Flipping Card */}
+            <div
+              onClick={handleFlip}
+              className="w-full h-80 perspective-1000 cursor-pointer group"
+            >
+              <div
+                className={`relative w-full h-full transform-style-3d duration-500 rounded-2xl border border-card-border shadow-xl ${
+                  isFlipped ? "rotate-y-180" : ""
+                }`}
+              >
+                {/* Front Side */}
+                <div className="absolute inset-0 backface-hidden bg-card p-6 flex flex-col items-center justify-center rounded-2xl">
+                  <span className="absolute top-4 left-4 text-[9px] font-bold text-slate-600 uppercase tracking-widest">
+                    Question / Front
+                  </span>
+                  
+                  <div className="absolute top-4 right-4 flex items-center gap-1.5">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingCard(activeCard);
+                        setEditFront(activeCard.front);
+                        setEditBack(activeCard.back);
+                      }}
+                      className="p-1.5 rounded-md border text-slate-500 hover:text-indigo-300 hover:bg-indigo-500/20 border-slate-800 transition-colors cursor-pointer"
+                      title="Edit flashcard in note"
+                    >
+                      <Edit3 className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={handleDeleteCardInReview}
+                      className="p-1.5 rounded-md border text-slate-500 hover:text-rose-400 hover:bg-rose-500/20 border-slate-800 transition-colors cursor-pointer"
+                      title="Delete flashcard from note"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => speakText(activeCard.front, e)}
+                      className={`p-1.5 rounded-md border transition-colors cursor-pointer ${
+                        isSpeaking ? "text-indigo-400 bg-indigo-500/20 border-indigo-500/40" : "text-slate-500 hover:text-slate-200 hover:bg-slate-800 border-slate-800"
+                      }`}
+                      title="Listen to question (Text-to-Speech)"
+                    >
+                      <Volume2 className="h-3.5 w-3.5" />
+                    </button>
+                    {activeCard.noteDueDate && (
+                      <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 flex items-center gap-1" title={`Source note deadline: ${activeCard.noteDueDate}`}>
+                        <Target className="h-2.5 w-2.5" />
+                        Due: {activeCard.noteDueDate}
+                      </span>
+                    )}
+                    <span className="text-[9px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 max-w-30 truncate" title={activeCard.filePath.split(/[/\\]/).pop()}>
+                      {activeCard.filePath.split(/[/\\]/).pop()?.replace(/\.md$/, "")}
+                    </span>
+                  </div>
+
+                  <p className="text-base text-center leading-relaxed font-semibold max-w-sm overflow-y-auto whitespace-pre-wrap select-text">
+                    {activeCard.front}
+                  </p>
+                  <span className="absolute bottom-4 text-[10px] text-slate-500 flex items-center gap-1.5 font-medium group">
+                    Click card or press Space to reveal <RotateCw className="h-3 w-3 transition-transform duration-300 group-hover:rotate-180" />
+                  </span>
+                </div>
+
+                {/* Back Side */}
+                <div className="absolute inset-0 backface-hidden rotate-y-180 bg-card border border-card-border p-6 flex flex-col items-center justify-center rounded-2xl shadow-xl">
+                  <span className="absolute top-4 left-4 text-[9px] font-bold text-slate-500 uppercase tracking-widest">
+                    Answer / Back
+                  </span>
+                  
+                  <div className="absolute top-4 right-4 flex items-center gap-2">
+                    <button
+                      onClick={(e) => speakText(activeCard.back, e)}
+                      className={`p-1.5 rounded-md border transition-colors cursor-pointer ${
+                        isSpeaking ? "text-indigo-500 bg-indigo-500/20 border-indigo-500/40" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-card-hover border-card-border"
+                      }`}
+                      title="Listen to answer (Text-to-Speech)"
+                    >
+                      <Volume2 className="h-3.5 w-3.5" />
+                    </button>
+                    <span className="text-[9px] font-bold text-indigo-500 dark:text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 max-w-35 truncate" title={activeCard.filePath.split(/[/\\]/).pop()}>
+                      {activeCard.filePath.split(/[/\\]/).pop()?.replace(/\.md$/, "")}
+                    </span>
+                  </div>
+
+                  <p className="text-base text-center leading-relaxed font-semibold max-w-sm overflow-y-auto whitespace-pre-wrap text-indigo-600 dark:text-indigo-200 select-text">
+                    {activeCard.back}
+                  </p>
+                  <span className="absolute bottom-4 text-[10px] text-slate-500 flex items-center gap-1.5 font-medium">
+                    Click card to flip back
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Controller Action buttons */}
+            <div className="w-full flex flex-col gap-3">
+              {!isFlipped ? (
+                <button
+                  onClick={handleFlip}
+                  className="w-full rounded-xl bg-indigo-600 py-3.5 font-semibold text-xs text-white hover:bg-indigo-500 active:scale-98 shadow-lg shadow-indigo-600/30 transition-all cursor-pointer"
+                >
+                  Show Answer (Space)
+                </button>
+              ) : (
+                <div className="grid grid-cols-4 gap-2">
+                  <button
+                    onClick={() => handleGrade(0)}
+                    className="flex flex-col items-center gap-1 rounded-xl bg-red-500/10 py-2.5 text-xs font-bold text-red-400 border border-red-500/20 hover:bg-red-500/20 active:scale-95 transition-all cursor-pointer relative group/btn"
+                  >
+                    <span className="flex items-center gap-1">
+                      <span>Again</span>
+                      <kbd className="text-[8px] bg-red-500/20 px-1 py-0.2 rounded font-mono">1</kbd>
+                    </span>
+                    <span className="text-[9px] font-medium text-red-500/70">{getIntervalString(0)}</span>
+                  </button>
+                  <button
+                    onClick={() => handleGrade(2)}
+                    className="flex flex-col items-center gap-1 rounded-xl bg-amber-500/10 py-2.5 text-xs font-bold text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 active:scale-95 transition-all cursor-pointer relative group/btn"
+                  >
+                    <span className="flex items-center gap-1">
+                      <span>Hard</span>
+                      <kbd className="text-[8px] bg-amber-500/20 px-1 py-0.2 rounded font-mono">2</kbd>
+                    </span>
+                    <span className="text-[9px] font-medium text-amber-500/70">{getIntervalString(2)}</span>
+                  </button>
+                  <button
+                    onClick={() => handleGrade(3)}
+                    className="flex flex-col items-center gap-1 rounded-xl bg-indigo-500/10 py-2.5 text-xs font-bold text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 active:scale-95 transition-all cursor-pointer relative group/btn"
+                  >
+                    <span className="flex items-center gap-1">
+                      <span>Good</span>
+                      <kbd className="text-[8px] bg-indigo-500/20 px-1 py-0.2 rounded font-mono">3</kbd>
+                    </span>
+                    <span className="text-[9px] font-medium text-indigo-500/70">{getIntervalString(3)}</span>
+                  </button>
+                  <button
+                    onClick={() => handleGrade(5)}
+                    className="flex flex-col items-center gap-1 rounded-xl bg-emerald-500/10 py-2.5 text-xs font-bold text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 active:scale-95 transition-all cursor-pointer relative group/btn"
+                  >
+                    <span className="flex items-center gap-1">
+                      <span>Easy</span>
+                      <kbd className="text-[8px] bg-emerald-500/20 px-1 py-0.2 rounded font-mono">4</kbd>
+                    </span>
+                    <span className="text-[9px] font-medium text-emerald-500/70">{getIntervalString(5)}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Edit Card Modal Overlay */}
+      {editingCard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="w-full max-w-md rounded-2xl border border-card-border bg-card p-6 shadow-2xl flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-card-border pb-3">
+              <span className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                <Edit3 className="h-4 w-4 text-indigo-400" />
+                Edit Flashcard (Live Sync to Note)
+              </span>
+              <button
+                onClick={() => setEditingCard(null)}
+                className="text-slate-500 hover:text-slate-300 p-1 rounded-md transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3 text-xs">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Question (Front)</span>
+                <textarea
+                  value={editFront}
+                  onChange={(e) => setEditFront(e.target.value)}
+                  className="w-full rounded-xl bg-background border border-slate-800 p-3 text-slate-200 text-xs focus:outline-none focus:border-indigo-500/50 resize-y font-medium min-h-17.5"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Answer (Back)</span>
+                <textarea
+                  value={editBack}
+                  onChange={(e) => setEditBack(e.target.value)}
+                  className="w-full rounded-xl bg-background border border-slate-800 p-3 text-slate-200 text-xs focus:outline-none focus:border-indigo-500/50 resize-y font-medium min-h-17.5"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-card-border">
+              <button
+                onClick={() => setEditingCard(null)}
+                className="px-4 py-2 rounded-lg border border-slate-800 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveCardEdit}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white shadow-md shadow-indigo-600/30 transition-all cursor-pointer"
+              >
+                <Check className="h-3.5 w-3.5" /> Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const formatUserFriendlyDate = (dateStr?: string) => {
   if (!dateStr) return "";
@@ -53,11 +589,10 @@ const formatUserFriendlyDate = (dateStr?: string) => {
 };
 
 export const FlashcardDashboard: React.FC = () => {
-  const { files, activeFile, openFile, setActiveView } = useVault();
+  const { files, activeFile, openFile, setActiveView, noteCache } = useVault();
   const { vaultPath, includeArchivedInScans } = useSettings();
 
   const [cards, setCards] = useState<Flashcard[]>([]);
-  const [dueCards, setDueCards] = useState<Flashcard[]>([]);
   const [history, setHistory] = useState<Record<string, number>>({});
   const [isSyncing, setIsSyncing] = useState(false);
   const [isReviewing, setIsReviewing] = useState(false);
@@ -161,7 +696,6 @@ export const FlashcardDashboard: React.FC = () => {
       const due = synced.filter((card) => card.nextReviewDate <= today);
 
       setCards(synced);
-      setDueCards(due);
       setHistory(histLog);
 
       const total = synced.length;
@@ -260,14 +794,103 @@ export const FlashcardDashboard: React.FC = () => {
     return Array.from(deckMap.values()).sort((a, b) => b.due - a.due || a.name.localeCompare(b.name));
   }, [cards, deckGrouping]);
 
-  // Weekly consistency contribution heatmap cells (84 days / 12 weeks)
-  const heatmapCells = useMemo(() => {
-    const cells = [];
+  // Multi-category activity tracker per day for 84 days (12 weeks)
+  const activityData = useMemo(() => {
+    const counts: Record<string, { flashcards: number; noteEdits: number; tasksCompleted: number; boardDone: number; total: number }> = {};
+
+    const getOrInit = (dateStr: string) => {
+      if (!counts[dateStr]) {
+        counts[dateStr] = { flashcards: 0, noteEdits: 0, tasksCompleted: 0, boardDone: 0, total: 0 };
+      }
+      return counts[dateStr];
+    };
+
+    // 1. Flashcard reviews history
+    Object.entries(history).forEach(([dateStr, count]) => {
+      if (count > 0) {
+        const item = getOrInit(dateStr);
+        item.flashcards += count;
+        item.total += count;
+      }
+    });
+
+    // 2. Note updates, task completions & board status from noteCache
+    if (noteCache) {
+      Object.values(noteCache).forEach((note) => {
+        if (note.modifiedAt) {
+          let mtime = Number(note.modifiedAt);
+          if (!isNaN(mtime) && mtime > 0) {
+            if (mtime < 1e11) {
+              mtime = mtime * 1000;
+            }
+            const d = new Date(mtime);
+            if (!isNaN(d.getTime())) {
+              const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+              const item = getOrInit(dateStr);
+
+              // Note edit/creation
+              item.noteEdits += 1;
+              item.total += 1;
+
+              // Completed tasks
+              if (Array.isArray(note.tasks)) {
+                const completedCount = note.tasks.filter((t) => t.completed).length;
+                if (completedCount > 0) {
+                  item.tasksCompleted += completedCount;
+                  item.total += completedCount;
+                }
+              }
+
+              // Board status Done
+              if (note.boardCard && note.boardCard.status === "Done") {
+                item.boardDone += 1;
+                item.total += 1;
+              }
+            }
+          }
+        }
+      });
+    }
+
+    return counts;
+  }, [history, noteCache]);
+
+  const { heatmapCells, monthsHeader, streakStats } = useMemo(() => {
+    const cells: Array<{
+      date: string;
+      formattedDate: string;
+      flashcards: number;
+      noteEdits: number;
+      tasksCompleted: number;
+      boardDone: number;
+      total: number;
+      isToday: boolean;
+      dayOfWeek: number;
+      weekIndex: number;
+    }> = [];
+
     const now = new Date();
-    // 84 days ago (12 weeks)
-    const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 84);
-    const dayOfWeek = startDate.getDay();
-    startDate.setDate(startDate.getDate() - dayOfWeek); // align to Sunday
+    const yyyyNow = now.getFullYear();
+    const mmNow = String(now.getMonth() + 1).padStart(2, "0");
+    const ddNow = String(now.getDate()).padStart(2, "0");
+    const todayStr = `${yyyyNow}-${mmNow}-${ddNow}`;
+
+    // Align to current week's Sunday, 11 weeks ago (84 days total)
+    const currentSunday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+    const startDate = new Date(currentSunday.getFullYear(), currentSunday.getMonth(), currentSunday.getDate() - 77);
+
+    // 12-week month header calculation
+    const monthLabels: Array<{ name: string; weekIndex: number; spanWeeks: number }> = [];
+    for (let w = 0; w < 12; w++) {
+      const sundayDate = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + w * 7);
+      const mName = sundayDate.toLocaleDateString("en-US", { month: "short" });
+      const lastLabel = monthLabels[monthLabels.length - 1];
+      if (lastLabel && lastLabel.name === mName) {
+        lastLabel.spanWeeks += 1;
+      } else {
+        monthLabels.push({ name: mName, weekIndex: w, spanWeeks: 1 });
+      }
+    }
 
     for (let i = 0; i < 84; i++) {
       const d = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + i);
@@ -275,13 +898,79 @@ export const FlashcardDashboard: React.FC = () => {
       const mm = String(d.getMonth() + 1).padStart(2, "0");
       const dd = String(d.getDate()).padStart(2, "0");
       const dateStr = `${yyyy}-${mm}-${dd}`;
+      const isToday = dateStr === todayStr;
+
+      const act = activityData[dateStr] || { flashcards: 0, noteEdits: 0, tasksCompleted: 0, boardDone: 0, total: 0 };
+      const dayNum = d.getDay();
+      const weekIndex = Math.floor(i / 7);
+
+      const formattedDate = d.toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+
       cells.push({
         date: dateStr,
-        count: history[dateStr] || 0,
+        formattedDate,
+        flashcards: act.flashcards,
+        noteEdits: act.noteEdits,
+        tasksCompleted: act.tasksCompleted,
+        boardDone: act.boardDone,
+        total: act.total,
+        isToday,
+        dayOfWeek: dayNum,
+        weekIndex,
       });
     }
-    return cells;
-  }, [history]);
+
+    // Streak calculations
+    const sortedCells = [...cells].sort((a, b) => a.date.localeCompare(b.date));
+    let currentStreak = 0;
+    let longestStreak = 0;
+    let tempStreak = 0;
+    let activeDaysCount = 0;
+    let totalActivityCount = 0;
+
+    let streakBroken = false;
+    const todayIndex = sortedCells.findIndex((c) => c.isToday);
+    const startIndex = todayIndex >= 0 ? todayIndex : sortedCells.length - 1;
+
+    for (let i = startIndex; i >= 0; i--) {
+      const cell = sortedCells[i];
+      if (cell.total > 0) {
+        if (!streakBroken) currentStreak++;
+      } else {
+        if (i === todayIndex) {
+          continue; // today might be in progress
+        }
+        streakBroken = true;
+      }
+    }
+
+    sortedCells.forEach((c) => {
+      if (c.total > 0) {
+        activeDaysCount++;
+        totalActivityCount += c.total;
+        tempStreak++;
+        if (tempStreak > longestStreak) longestStreak = tempStreak;
+      } else {
+        tempStreak = 0;
+      }
+    });
+
+    return {
+      heatmapCells: cells,
+      monthsHeader: monthLabels,
+      streakStats: {
+        currentStreak,
+        longestStreak,
+        activeDaysCount,
+        totalActivityCount,
+      },
+    };
+  }, [activityData]);
 
   // Forecast analytics metrics
   const forecastStats = useMemo(() => {
@@ -304,14 +993,14 @@ export const FlashcardDashboard: React.FC = () => {
     return { dueTomorrow, dueIn7Days, retentionRate };
   }, [cards, stats]);
 
-  // Launch review session for specific list of cards
+  // Launch review session for specific list of cards (reviews due cards, or falls back to all cards for practice)
   const startReviewSession = (targetCards: Flashcard[]) => {
+    if (!targetCards || targetCards.length === 0) return;
     const today = new Date().toISOString().split("T")[0];
     const due = targetCards.filter((card) => card.nextReviewDate <= today);
-    if (due.length > 0) {
-      setReviewFilterCards(due);
-      setIsReviewing(true);
-    }
+    const toReview = due.length > 0 ? due : targetCards;
+    setReviewFilterCards(toReview);
+    setIsReviewing(true);
   };
 
   // Generate Flashcards using Local AI
@@ -535,9 +1224,9 @@ ${noteBody}
     return (
       <FlashcardReview 
         cards={reviewFilterCards} 
-        onClose={() => { 
+        onClose={async () => { 
           setIsReviewing(false); 
-          syncDeck(); 
+          await syncDeck(); 
         }} 
       />
     );
@@ -601,23 +1290,29 @@ ${noteBody}
             {activeTab === "overview" && (
               <>
                 {/* Play Review Hero */}
-                <div className="rounded-2xl border border-indigo-500/20 bg-linear-to-br from-indigo-950/20 via-indigo-900/10 to-transparent p-6 flex flex-col sm:flex-row items-center justify-between gap-6 shadow-lg shadow-indigo-950/5">
+                <div className="rounded-2xl border border-indigo-500/25 dark:border-indigo-500/20 bg-linear-to-br from-indigo-500/10 via-indigo-500/5 to-transparent dark:from-indigo-950/30 dark:via-indigo-900/15 dark:to-transparent p-6 flex flex-col sm:flex-row items-center justify-between gap-6 shadow-sm dark:shadow-lg dark:shadow-indigo-950/10">
                   <div className="flex flex-col gap-1.5">
-                    <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
-                      <Sparkles className="h-5 w-5 text-indigo-400" /> Ready to Review
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      <Sparkles className="h-5 w-5 text-indigo-600 dark:text-indigo-400" /> Ready to Review
                     </h2>
-                    <p className="text-xs text-slate-400 leading-relaxed max-w-md">
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed max-w-md">
                       Boost your retention using spatial intervals. There are {stats.due} flashcards waiting for you to review today.
                     </p>
                   </div>
 
                   <button
-                    onClick={() => { setReviewFilterCards(dueCards); setIsReviewing(true); }}
-                    disabled={stats.due === 0}
+                    onClick={() => {
+                      const today = new Date().toISOString().split("T")[0];
+                      const due = cards.filter((card) => card.nextReviewDate <= today);
+                      const toReview = due.length > 0 ? due : cards;
+                      setReviewFilterCards(toReview);
+                      setIsReviewing(true);
+                    }}
+                    disabled={cards.length === 0}
                     className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 font-bold text-xs text-white hover:bg-indigo-500 active:scale-95 disabled:opacity-40 shadow-lg shadow-indigo-600/30 transition-all cursor-pointer shrink-0"
                   >
                     <Play className="h-4 w-4 text-white fill-white shrink-0" />
-                    Review All Due ({stats.due})
+                    {stats.due > 0 ? `Review All Due (${stats.due})` : `Practice All Cards (${cards.length})`}
                   </button>
                 </div>
 
@@ -629,7 +1324,7 @@ ${noteBody}
                     </div>
                     <div className="flex flex-col">
                       <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Total</span>
-                      <span className="text-base font-bold text-slate-200">{stats.total}</span>
+                      <span className="text-base font-bold text-slate-800 dark:text-slate-200">{stats.total}</span>
                     </div>
                   </div>
 
@@ -639,7 +1334,7 @@ ${noteBody}
                     </div>
                     <div className="flex flex-col">
                       <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Due Today</span>
-                      <span className="text-base font-bold text-slate-200">{stats.due}</span>
+                      <span className="text-base font-bold text-slate-800 dark:text-slate-200">{stats.due}</span>
                     </div>
                   </div>
 
@@ -649,7 +1344,7 @@ ${noteBody}
                     </div>
                     <div className="flex flex-col">
                       <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Learning</span>
-                      <span className="text-base font-bold text-slate-200">{stats.learning}</span>
+                      <span className="text-base font-bold text-slate-800 dark:text-slate-200">{stats.learning}</span>
                     </div>
                   </div>
 
@@ -659,7 +1354,7 @@ ${noteBody}
                     </div>
                     <div className="flex flex-col">
                       <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Mastered</span>
-                      <span className="text-base font-bold text-slate-200">{stats.mastered}</span>
+                      <span className="text-base font-bold text-slate-800 dark:text-slate-200">{stats.mastered}</span>
                     </div>
                   </div>
 
@@ -669,16 +1364,16 @@ ${noteBody}
                     </div>
                     <div className="flex flex-col">
                       <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Retention</span>
-                      <span className="text-base font-bold text-slate-200">{forecastStats.retentionRate}%</span>
+                      <span className="text-base font-bold text-slate-800 dark:text-slate-200">{forecastStats.retentionRate}%</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Review Forecast Banner */}
                 <div className="rounded-xl border border-card-border bg-card p-3.5 flex items-center justify-between text-xs">
-                  <span className="flex items-center gap-2 text-slate-400 font-medium">
-                    <BarChart3 className="h-4 w-4 text-indigo-400 shrink-0" />
-                    <span className="font-bold text-slate-200">Upcoming Forecast:</span>
+                  <span className="flex items-center gap-2 text-slate-500 dark:text-slate-400 font-medium">
+                    <BarChart3 className="h-4 w-4 text-indigo-500 dark:text-indigo-400 shrink-0" />
+                    <span className="font-bold text-slate-800 dark:text-slate-200">Upcoming Forecast:</span>
                   </span>
 
                   <div className="flex items-center gap-4 text-[11px] font-semibold">
@@ -692,46 +1387,207 @@ ${noteBody}
                   </div>
                 </div>
 
-                {/* Heatmap Section */}
-                <div className="rounded-xl border border-card-border bg-card p-4 flex flex-col gap-3.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
-                      <CalendarDays className="h-3.5 w-3.5 text-indigo-400" />
-                      Study Consistency Heatmap (Last 12 Weeks)
-                    </span>
-                  </div>
+                {/* Enhanced Heatmap & Vault Activity Section */}
+                <div className="rounded-xl border border-card-border bg-card p-5 flex flex-col gap-4 shadow-xs overflow-visible relative">
+                  {/* Header & Badges */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 pb-2.5 border-b border-card-border/60">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                        <Activity className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 tracking-wider uppercase">
+                          Study & Vault Activity
+                        </h3>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                          Consistency tracking across flashcards, notes & tasks (Last 12 Weeks)
+                        </p>
+                      </div>
+                    </div>
 
-                  <div className="flex items-end justify-center gap-2 overflow-x-auto py-2">
-                    <div className="grid grid-flow-col grid-rows-7 gap-1.5 select-none">
-                      {heatmapCells.map((cell, idx) => {
-                        let cellBg = "bg-[#161825] border-transparent";
-                        if (cell.count > 0 && cell.count <= 3) {
-                          cellBg = "bg-indigo-900/60 border-indigo-800/40 text-indigo-300";
-                        } else if (cell.count > 3 && cell.count <= 8) {
-                          cellBg = "bg-indigo-600/80 border-indigo-500/50 text-indigo-100";
-                        } else if (cell.count > 8) {
-                          cellBg = "bg-indigo-400 border-indigo-300 text-[#090a0f]";
-                        }
+                    {/* Streak Metrics Pills */}
+                    <div className="flex items-center gap-2 flex-wrap text-[11px]">
+                      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 text-amber-700 dark:text-amber-300 font-bold shadow-2xs">
+                        <Flame className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400 animate-pulse" />
+                        <span>Streak:</span>
+                        <span className="text-amber-800 dark:text-amber-200 font-extrabold">{streakStats.currentStreak} {streakStats.currentStreak === 1 ? "day" : "days"}</span>
+                      </div>
 
-                        return (
-                          <div
-                            key={idx}
-                            className={`h-3 w-3 rounded-[3px] border ${cellBg} transition-colors cursor-pointer hover:scale-125`}
-                            title={`${cell.count} cards reviewed on ${cell.date}`}
-                          />
-                        );
-                      })}
+                      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/25 text-indigo-700 dark:text-indigo-300 font-bold shadow-2xs">
+                        <Zap className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+                        <span>Best:</span>
+                        <span className="text-indigo-900 dark:text-indigo-200 font-extrabold">{streakStats.longestStreak} days</span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 text-slate-600 dark:text-slate-300 font-medium">
+                        <CalendarDays className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" />
+                        <span>Active:</span>
+                        <span className="text-slate-900 dark:text-slate-100 font-bold">{streakStats.activeDaysCount}/84 days</span>
+                      </div>
                     </div>
                   </div>
-                  
-                  {/* Heatmap Legend */}
-                  <div className="flex justify-end items-center gap-1.5 text-[9px] text-slate-500 font-medium pr-2">
-                    <span>Less</span>
-                    <div className="h-2 w-2 rounded-xs bg-[#161825]" />
-                    <div className="h-2 w-2 rounded-xs bg-indigo-900/60" />
-                    <div className="h-2 w-2 rounded-xs bg-indigo-600/80" />
-                    <div className="h-2 w-2 rounded-xs bg-indigo-400" />
-                    <span>More</span>
+
+                  {/* Heatmap Grid with Month & Day Headers */}
+                  <div className="flex flex-col gap-1.5 w-full py-2 scrollbar-none overflow-visible">
+                    {/* Month Labels Header Row aligned via 12-col grid */}
+                    <div className="grid grid-cols-12 gap-1.5 text-[10px] font-semibold text-slate-500 dark:text-slate-400 pl-8 w-full">
+                      {monthsHeader.map((m, idx) => (
+                        <div
+                          key={idx}
+                          style={{ gridColumn: `span ${m.spanWeeks}` }}
+                          className="truncate text-left font-bold text-indigo-600 dark:text-indigo-400/90"
+                        >
+                          {m.name}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Grid Container with Day-of-Week Y-Axis */}
+                    <div className="flex items-center gap-2 w-full overflow-visible">
+                      {/* Day Labels Y-Axis */}
+                      <div className="flex flex-col justify-between text-[9px] font-bold text-slate-500 dark:text-slate-400 py-0.5 h-25.5 w-6 shrink-0 select-none">
+                        <span>Sun</span>
+                        <span>Tue</span>
+                        <span>Thu</span>
+                        <span>Sat</span>
+                      </div>
+
+                      {/* 12-Column Grid filling full card width */}
+                      <div className="grid grid-cols-12 gap-1.5 flex-1 select-none overflow-visible">
+                        {Array.from({ length: 12 }).map((_, weekIdx) => {
+                          const horizPosClass =
+                            weekIdx >= 9
+                              ? "right-0 left-auto translate-x-0"
+                              : weekIdx <= 2
+                              ? "left-0 translate-x-0"
+                              : "left-1/2 -translate-x-1/2";
+
+                          return (
+                            <div key={weekIdx} className="flex flex-col gap-0.75 relative hover:z-50 focus-within:z-50 overflow-visible">
+                              {Array.from({ length: 7 }).map((_, dayIdx) => {
+                                const cellIndex = weekIdx * 7 + dayIdx;
+                                const cell = heatmapCells[cellIndex];
+                                if (!cell) return null;
+
+                                const vertPosClass = dayIdx <= 3 ? "top-full mt-2" : "bottom-full mb-2";
+
+                                return (
+                                  <div
+                                    key={cellIndex}
+                                    className={`group relative h-3.5 w-full rounded-[3px] border overflow-visible transition-colors duration-150 cursor-pointer hover:brightness-110 hover:border-slate-400 dark:hover:border-slate-500 hover:z-50 focus-within:z-50 ${
+                                      cell.isToday
+                                        ? "ring-2 ring-amber-400 dark:ring-amber-400 ring-offset-1 ring-offset-white dark:ring-offset-slate-950 z-20"
+                                        : "z-1"
+                                    } ${cell.total === 0 ? "bg-slate-100 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-700/60" : "bg-slate-900/30 border-slate-300 dark:border-slate-700"}`}
+                                  >
+                                    {/* Stacked Horizontal Graph Bar Inside Pill */}
+                                    {cell.total > 0 && (
+                                      <div className="flex h-full w-full rounded-xs overflow-hidden">
+                                        {cell.flashcards > 0 && (
+                                          <div
+                                            style={{ width: `${(cell.flashcards / cell.total) * 100}%` }}
+                                            className="h-full bg-amber-400 dark:bg-amber-400 border-r border-black/20 dark:border-black/40 last:border-r-0 transition-all"
+                                            title={`Flashcards: ${cell.flashcards}`}
+                                          />
+                                        )}
+                                        {cell.noteEdits > 0 && (
+                                          <div
+                                            style={{ width: `${(cell.noteEdits / cell.total) * 100}%` }}
+                                            className="h-full bg-violet-500 dark:bg-violet-400 border-r border-black/20 dark:border-black/40 last:border-r-0 transition-all"
+                                            title={`Notes: ${cell.noteEdits}`}
+                                          />
+                                        )}
+                                        {cell.tasksCompleted > 0 && (
+                                          <div
+                                            style={{ width: `${(cell.tasksCompleted / cell.total) * 100}%` }}
+                                            className="h-full bg-teal-400 dark:bg-teal-400 border-r border-black/20 dark:border-black/40 last:border-r-0 transition-all"
+                                            title={`Tasks: ${cell.tasksCompleted}`}
+                                          />
+                                        )}
+                                        {cell.boardDone > 0 && (
+                                          <div
+                                            style={{ width: `${(cell.boardDone / cell.total) * 100}%` }}
+                                            className="h-full bg-orange-400 dark:bg-orange-400 border-r border-black/20 dark:border-black/40 last:border-r-0 transition-all"
+                                            title={`Board Done: ${cell.boardDone}`}
+                                          />
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* 2D Edge-Aware Tooltip on Hover */}
+                                    <div className={`pointer-events-none absolute ${vertPosClass} ${horizPosClass} opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-40 whitespace-nowrap rounded-lg bg-slate-900 border border-slate-700/90 px-3 py-2 text-[10px] shadow-2xl text-slate-100`}>
+                                      <div className="font-bold text-indigo-300 border-b border-slate-800 pb-1 mb-1.5 flex items-center justify-between gap-3">
+                                        <span>{cell.formattedDate}</span>
+                                        {cell.isToday && (
+                                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase font-black tracking-wider">Today</span>
+                                        )}
+                                      </div>
+                                      {cell.total > 0 ? (
+                                        <div className="flex flex-col gap-1 text-[10px]">
+                                          {cell.flashcards > 0 && (
+                                            <div className="flex items-center gap-2">
+                                              <div className="h-2 w-2 rounded-xs bg-amber-400 shrink-0" />
+                                              <span className="text-slate-300 font-medium">{cell.flashcards} Flashcards reviewed</span>
+                                            </div>
+                                          )}
+                                          {cell.noteEdits > 0 && (
+                                            <div className="flex items-center gap-2">
+                                              <div className="h-2 w-2 rounded-xs bg-violet-400 shrink-0" />
+                                              <span className="text-slate-300 font-medium">{cell.noteEdits} Notes updated</span>
+                                            </div>
+                                          )}
+                                          {cell.tasksCompleted > 0 && (
+                                            <div className="flex items-center gap-2">
+                                              <div className="h-2 w-2 rounded-xs bg-teal-400 shrink-0" />
+                                              <span className="text-slate-300 font-medium">{cell.tasksCompleted} Tasks completed</span>
+                                            </div>
+                                          )}
+                                          {cell.boardDone > 0 && (
+                                            <div className="flex items-center gap-2">
+                                              <div className="h-2 w-2 rounded-xs bg-orange-400 shrink-0" />
+                                              <span className="text-slate-300 font-medium">{cell.boardDone} Board items Done</span>
+                                            </div>
+                                          )}
+                                          <div className="border-t border-slate-800 pt-1 mt-0.5 text-slate-400 font-semibold text-[9px] flex justify-between gap-4">
+                                            <span>Total Interactions:</span>
+                                            <span className="text-white font-bold">{cell.total}</span>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <span className="text-slate-400 italic">No activity recorded</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Heatmap Legend & Summary Footnote */}
+                  <div className="flex items-center justify-between pt-1 border-t border-card-border/40 text-[9px] text-slate-500 dark:text-slate-400 font-medium px-1">
+                    <span>Total 12-week activity: <strong className="text-indigo-600 dark:text-indigo-400 font-bold">{streakStats.totalActivityCount} interactions</strong></span>
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <div className="h-2 w-2 rounded-xs bg-amber-400 shrink-0" />
+                        <span className="text-slate-600 dark:text-slate-300 font-semibold">Flashcards</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="h-2 w-2 rounded-xs bg-violet-400 shrink-0" />
+                        <span className="text-slate-600 dark:text-slate-300 font-semibold">Notes</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="h-2 w-2 rounded-xs bg-teal-400 shrink-0" />
+                        <span className="text-slate-600 dark:text-slate-300 font-semibold">Tasks</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="h-2 w-2 rounded-xs bg-orange-400 shrink-0" />
+                        <span className="text-slate-600 dark:text-slate-300 font-semibold">Kanban Done</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -788,7 +1644,8 @@ ${noteBody}
                       {decks.map((deck) => (
                         <div 
                           key={deck.name} 
-                          className="rounded-xl border border-card-border bg-card p-4 flex items-center justify-between hover:border-indigo-500/30 hover:bg-card-hover transition-all group"
+                          onClick={() => startReviewSession(deck.cards)}
+                          className="rounded-xl border border-card-border bg-card p-4 flex items-center justify-between hover:border-indigo-500/40 hover:bg-card-hover transition-all group cursor-pointer"
                         >
                           <div className="flex flex-col gap-1.5 truncate pr-4">
                             <span className="text-xs font-bold text-foreground flex items-center gap-1.5 truncate">
@@ -806,15 +1663,19 @@ ${noteBody}
                             <div className="flex items-center gap-2 text-[10px] text-slate-500 font-medium">
                               <span>{deck.total} cards</span>
                               <span className="h-1 w-1 rounded-full bg-slate-400" />
-                              <span className="text-amber-500 dark:text-amber-400 font-semibold">{deck.due} due</span>
+                              <span className={deck.due > 0 ? "text-amber-500 dark:text-amber-400 font-semibold" : "text-emerald-500 dark:text-emerald-400 font-semibold"}>
+                                {deck.due > 0 ? `${deck.due} due` : "Completed"}
+                              </span>
                             </div>
                           </div>
 
                           <button
-                            onClick={() => startReviewSession(deck.cards)}
-                            disabled={deck.due === 0}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600/20 text-indigo-500 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white disabled:opacity-30 disabled:hover:bg-indigo-600/20 disabled:hover:text-indigo-400 active:scale-95 transition-all cursor-pointer shrink-0"
-                            title={`Review ${deck.due} due cards in ${deck.name}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startReviewSession(deck.cards);
+                            }}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600/20 text-indigo-500 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white active:scale-95 transition-all cursor-pointer shrink-0"
+                            title={deck.due > 0 ? `Review ${deck.due} due cards in ${deck.name}` : `Practice all ${deck.total} cards in ${deck.name}`}
                           >
                             <Play className="h-3.5 w-3.5 fill-current" />
                           </button>

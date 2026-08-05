@@ -302,6 +302,10 @@ export const Editor: React.FC = () => {
     let isCancelled = false;
 
     // Reset floating AI toolbar when switching active notes
+    if (aiActionAbortControllerRef.current) {
+      aiActionAbortControllerRef.current.abort();
+      aiActionAbortControllerRef.current = null;
+    }
     setFloatingSelection(null);
     setFloatingResult(null);
     setIsAiLoading(false);
@@ -487,48 +491,119 @@ export const Editor: React.FC = () => {
 
 
 
-  // AI Selection Action execution
+  const aiActionAbortControllerRef = useRef<AbortController | null>(null);
+
+  const handleCloseFloatingAi = useCallback(() => {
+    if (aiActionAbortControllerRef.current) {
+      aiActionAbortControllerRef.current.abort();
+      aiActionAbortControllerRef.current = null;
+    }
+    setFloatingResult(null);
+    setFloatingSelection(null);
+    setIsAiLoading(false);
+  }, []);
+
+  // AI Selection Action execution with Live Streaming & Abort Support
   const handleExecuteAiAction = async (
     action: "rewrite" | "explain" | "summarize" | "fix" | "expand" | "shorten" | "flashcard" | "tasks" | "tone" | "custom",
     customInstruction?: string
   ) => {
     if (!floatingSelection || !floatingSelection.text) return;
+    const currentSel = floatingSelection;
+    const coords = currentSel.coords;
+
+    if (aiActionAbortControllerRef.current) {
+      aiActionAbortControllerRef.current.abort();
+      aiActionAbortControllerRef.current = null;
+    }
+
+    const abortCtrl = new AbortController();
+    aiActionAbortControllerRef.current = abortCtrl;
+
     setIsAiLoading(true);
+    setFloatingResult({
+      originalText: currentSel.text,
+      aiResultText: "",
+      actionType: action === "tone" ? (customInstruction || "Tone") : action,
+      coords,
+    });
 
     try {
-      let resultText = "";
+      let prompt = "";
+      let systemPrompt = "";
+
       if (action === "rewrite") {
-        resultText = await aiService.rewriteText(floatingSelection.text);
+        prompt = `Rewrite and improve the following text:\n\n${currentSel.text}`;
+        systemPrompt = "You are an expert editor. Rewrite the text for maximum clarity, tone, and readability. Keep the core meaning. Output ONLY the rewritten text without markdown code block fences or explanations.";
       } else if (action === "explain") {
-        resultText = await aiService.explainConcept(floatingSelection.text);
+        prompt = `Explain the following concept or text clearly:\n\n${currentSel.text}`;
+        systemPrompt = "You are a clear and concise teacher. Explain the text in simple, intuitive terms. Output ONLY the clear explanation.";
       } else if (action === "summarize") {
-        resultText = await aiService.summarizeNote(floatingSelection.text);
+        prompt = `Summarize the key points of the following text:\n\n${currentSel.text}`;
+        systemPrompt = "You are a note summarizer. Provide a concise bullet point summary of the text. Output ONLY markdown bullet points.";
       } else if (action === "fix") {
-        resultText = await aiService.formatMarkdown(floatingSelection.text);
+        prompt = `Fix grammar, spelling, and Markdown formatting for:\n\n${currentSel.text}`;
+        systemPrompt = "You are a Markdown formatting assistant. Fix grammar, spelling, and structure. Output ONLY the polished text.";
       } else if (action === "expand") {
-        resultText = await aiService.expandText(floatingSelection.text);
+        prompt = `Expand and elaborate on the following text with rich detail and context:\n\n${currentSel.text}`;
+        systemPrompt = "You are an expert technical writer. Expand the text cleanly with deeper context and examples while maintaining accuracy. Output ONLY the expanded markdown text.";
       } else if (action === "shorten") {
-        resultText = await aiService.shortenText(floatingSelection.text);
+        prompt = `Shorten and condense the following text while preserving essential information:\n\n${currentSel.text}`;
+        systemPrompt = "You are a concise editor. Reduce the length of the text while retaining all critical facts. Output ONLY the condensed markdown text.";
       } else if (action === "flashcard") {
-        resultText = await aiService.makeFlashcards(floatingSelection.text);
+        prompt = `Create spaced-repetition flashcards from the following text:\n\n${currentSel.text}`;
+        systemPrompt = "You are a study assistant. Generate spaced repetition flashcards in the format:\n@flashcard (Question :: Answer)\nCreate 2-4 high quality cards. Output ONLY the flashcard lines.";
       } else if (action === "tasks") {
-        resultText = await aiService.extractTasks(floatingSelection.text);
+        prompt = `Extract all actionable tasks and to-dos from the following text:\n\n${currentSel.text}`;
+        systemPrompt = "You are a productivity assistant. Extract actionable to-dos as markdown task checkboxes (- [ ] Task description). Output ONLY the task list.";
       } else if (action === "tone" && customInstruction) {
-        resultText = await aiService.changeTone(floatingSelection.text, customInstruction);
+        prompt = `Rewrite the following text in a ${customInstruction} tone:\n\n${currentSel.text}`;
+        systemPrompt = `You are an expert communicator. Rewrite the text using a ${customInstruction} tone. Keep the core meaning intact. Output ONLY the rewritten markdown text.`;
       } else if (action === "custom" && customInstruction) {
-        resultText = await aiService.chat(customInstruction, floatingSelection.text);
+        prompt = `Context:\n${currentSel.text}\n\nTask: ${customInstruction}`;
+        systemPrompt = "You are Kognote AI assistant. Provide helpful, accurate responses. Output clean markdown.";
       }
 
-      setFloatingResult({
-        originalText: floatingSelection.text,
-        aiResultText: resultText || "No response received.",
-        actionType: action === "tone" ? `${customInstruction || "Tone"}` : action,
-        coords: floatingSelection.coords
-      });
-    } catch (err) {
+      let accumulated = "";
+      const finalResult = await aiService.generateTextStreaming(
+        prompt,
+        systemPrompt,
+        (token) => {
+          accumulated += token;
+          setFloatingResult({
+            originalText: currentSel.text,
+            aiResultText: accumulated,
+            actionType: action === "tone" ? (customInstruction || "Tone") : action,
+            coords,
+          });
+        },
+        { abortSignal: abortCtrl.signal }
+      );
+
+      if (finalResult) {
+        setFloatingResult({
+          originalText: currentSel.text,
+          aiResultText: finalResult,
+          actionType: action === "tone" ? (customInstruction || "Tone") : action,
+          coords,
+        });
+      }
+    } catch (err: any) {
+      if (err?.name === "AbortError" || abortCtrl.signal.aborted) {
+        return;
+      }
       console.error("AI action failed:", err);
+      setFloatingResult({
+        originalText: currentSel.text,
+        aiResultText: `Error: ${err.message || "Failed to generate AI output"}`,
+        actionType: action === "tone" ? (customInstruction || "Tone") : action,
+        coords,
+      });
     } finally {
       setIsAiLoading(false);
+      if (aiActionAbortControllerRef.current === abortCtrl) {
+        aiActionAbortControllerRef.current = null;
+      }
     }
   };
 
@@ -1523,10 +1598,7 @@ export const Editor: React.FC = () => {
         onExecuteAi={handleExecuteAiAction}
         onReplaceSelection={handleReplaceSelection}
         onInsertBelow={handleInsertBelow}
-        onClose={() => {
-          setFloatingResult(null);
-          setFloatingSelection(null);
-        }}
+        onClose={handleCloseFloatingAi}
         isAiLoading={isAiLoading}
       />
 

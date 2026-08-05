@@ -327,7 +327,27 @@ pub fn run() {
             watcher::watch_vault,
             watcher::unwatch_vault,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| match event {
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+                let state = app_handle.state::<Arc<LlmState>>();
+                if let Ok(mut guard) = state.server_process.lock() {
+                    if let Some(mut child) = guard.take() {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                    }
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    use std::os::windows::process::CommandExt;
+                    let _ = std::process::Command::new("taskkill")
+                        .args(&["/F", "/IM", "llama-server.exe"])
+                        .creation_flags(0x08000000)
+                        .status();
+                }
+            }
+            _ => {}
+        });
 }
 

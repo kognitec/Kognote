@@ -49,6 +49,13 @@ jobs:
             llama_asset: ''
             llama_bin_name: ''
 
+          # ─── Linux x64 ────────────────────────────────────────────────────
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            label: 'Linux (x64)'
+            llama_asset: 'llama-{VERSION}-bin-ubuntu-x64.zip'
+            llama_bin_name: 'llama-server-x86_64-unknown-linux-gnu'
+
     runs-on: ${{ matrix.platform }}
     name: Build — ${{ matrix.label }}
 
@@ -56,6 +63,13 @@ jobs:
       # ── 1. Checkout ────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # ── 1.5 Install Linux system dependencies ─────────────────────────────
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev patchelf librsvg2-dev
 
       # ── 2. Node.js ─────────────────────────────────────────────────────────
       - name: Setup Node.js
@@ -76,13 +90,9 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
 
-      # ── 5. Download llama-server binary (macOS only) ───────────────────────
-      # Both macOS targets download their matching binary from the pinned
-      # llama.cpp release. This guarantees version consistency across platforms
-      # and removes reliance on any binary committed to the repo.
-      # Windows uses the .exe + DLLs already in src-tauri/bin/ (committed).
-      - name: Download llama-server for macOS
-        if: matrix.platform == 'macos-latest'
+      # ── 5. Download llama-server binary (macOS & Linux) ─────────────────────
+      - name: Download llama-server for macOS & Linux
+        if: matrix.platform == 'macos-latest' || matrix.platform == 'ubuntu-22.04'
         run: |
           # Resolve the asset name using the pinned version
           ASSET="${{ matrix.llama_asset }}"

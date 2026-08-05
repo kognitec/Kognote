@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::process::{Child, Command};
 use std::io::Write;
 use futures_util::StreamExt;
@@ -60,6 +60,20 @@ pub const MODELS: &[ModelInfo] = &[
         sha256: None,
     },
     ModelInfo {
+        id: "llama-3.2-3b-instruct",
+        display_name: "Llama 3.2 (3B Instruct)",
+        url: "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+        filename: "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+        size_bytes: 2_020_000_000,
+        target_tier: "mid",
+        ram_required: "2.8 GB RAM",
+        speed_rating: "🧠 High Intelligence Prose (35+ tok/s)",
+        description: "General-purpose instruction model from Meta. Best for creative writing, summaries, and complex reasoning.",
+        gpu_layers: 99,
+        ctx_size: 16384,
+        sha256: None,
+    },
+    ModelInfo {
         id: "qwen2.5-coder-7b",
         display_name: "Qwen 2.5 Coder (7B)",
         url: "https://huggingface.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf",
@@ -79,6 +93,15 @@ fn find_model(id: &str) -> Option<&'static ModelInfo> {
     MODELS.iter().find(|m| m.id == id)
 }
 
+fn find_available_port(start_port: u16, max_attempts: u16) -> u16 {
+    for p in start_port..(start_port + max_attempts) {
+        if std::net::TcpListener::bind(("127.0.0.1", p)).is_ok() {
+            return p;
+        }
+    }
+    start_port
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // LLM state — wraps optional child llama-server process
 // ─────────────────────────────────────────────────────────────────────────────
@@ -86,7 +109,7 @@ fn find_model(id: &str) -> Option<&'static ModelInfo> {
 pub struct LlmState {
     pub server_process: Mutex<Option<Child>>,
     pub current_model_id: Mutex<Option<String>>,
-    pub server_port: u16,
+    pub server_port: AtomicU16,
     pub http_client: reqwest::Client,
     pub is_loading: AtomicBool,
 }
@@ -102,7 +125,7 @@ impl LlmState {
         Self {
             server_process: Mutex::new(None),
             current_model_id: Mutex::new(None),
-            server_port: 11435, // Avoid collision with Ollama's 11434
+            server_port: AtomicU16::new(11435), // Default 11435, dynamically updated on server bind
             http_client,
             is_loading: AtomicBool::new(false),
         }
@@ -651,7 +674,14 @@ pub async fn ensure_llama_server(app: &AppHandle) -> Result<PathBuf, String> {
 
     // Platform release ZIP containing prebuilt llama-server
     #[cfg(target_os = "windows")]
-    let runtime_url = "https://github.com/ggml-org/llama.cpp/releases/download/b4800/llama-b4800-bin-win-cpu-x64.zip";
+    let runtime_url = {
+        let gpu = detect_gpu().to_lowercase();
+        if gpu.contains("rtx") || gpu.contains("gtx") || gpu.contains("radeon") || gpu.contains("nvidia") || gpu.contains("amd") {
+            "https://github.com/ggml-org/llama.cpp/releases/download/b4800/llama-b4800-bin-win-vulkan-x64.zip"
+        } else {
+            "https://github.com/ggml-org/llama.cpp/releases/download/b4800/llama-b4800-bin-win-cpu-x64.zip"
+        }
+    };
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     let runtime_url = "https://github.com/ggml-org/llama.cpp/releases/download/b4800/llama-b4800-bin-macos-arm64.zip";
@@ -791,7 +821,8 @@ pub async fn llm_load_model(
     let _ = Command::new("killall").arg("llama-server").status();
 
     let server_bin = ensure_llama_server(&app).await?;
-    let port = state.server_port;
+    let port = find_available_port(11435, 10);
+    state.server_port.store(port, Ordering::SeqCst);
 
     let log_path = app
         .path()
@@ -948,7 +979,7 @@ struct OaiResponse {
 pub async fn llm_check_connection(
     state: tauri::State<'_, Arc<LlmState>>,
 ) -> Result<bool, String> {
-    let port = state.server_port;
+    let port = state.server_port.load(Ordering::SeqCst);
     let client = &state.http_client;
     let is_healthy = client
         .get(format!("http://127.0.0.1:{port}/health"))
@@ -969,7 +1000,7 @@ pub async fn llm_generate(
     temperature: Option<f32>,
     tools: Option<serde_json::Value>,
 ) -> Result<String, String> {
-    let port = state.server_port;
+    let port = state.server_port.load(Ordering::SeqCst);
     let client = &state.http_client;
 
     // Check if llama-server is healthy; if not, attempt auto-recovery load
@@ -1047,7 +1078,7 @@ pub async fn llm_generate_stream(
     temperature: Option<f32>,
     tools: Option<serde_json::Value>,
 ) -> Result<(), String> {
-    let port = state.server_port;
+    let port = state.server_port.load(Ordering::SeqCst);
     let client = &state.http_client;
 
     let result: Result<(), String> = async {

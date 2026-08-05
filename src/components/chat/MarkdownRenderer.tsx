@@ -87,13 +87,13 @@ function parseInline(
       );
     } else if (boldText1 || boldText2) {
       nodes.push(
-        <strong key={`bold-${match.index}`} className="font-semibold text-slate-100">
+        <strong key={`bold-${match.index}`} className="font-semibold text-slate-900 dark:text-slate-100">
           {boldText1 || boldText2}
         </strong>
       );
     } else if (italicText1 || italicText2) {
       nodes.push(
-        <em key={`italic-${match.index}`} className="italic text-slate-300">
+        <em key={`italic-${match.index}`} className="italic text-slate-700 dark:text-slate-300">
           {italicText1 || italicText2}
         </em>
       );
@@ -101,14 +101,14 @@ function parseInline(
       nodes.push(
         <code
           key={`code-${match.index}`}
-          className="font-mono text-[11px] text-indigo-300 bg-indigo-950/50 border border-indigo-500/20 px-1 py-0.5 rounded select-text"
+          className="font-mono text-[11px] text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-500/20 px-1 py-0.5 rounded select-text"
         >
           {codeText}
         </code>
       );
     } else if (strikeText) {
       nodes.push(
-        <del key={`strike-${match.index}`} className="line-through text-slate-500">
+        <del key={`strike-${match.index}`} className="line-through text-slate-400 dark:text-slate-500">
           {strikeText}
         </del>
       );
@@ -138,8 +138,8 @@ const CodeBlock: React.FC<{ language: string; code: string }> = ({ language, cod
   const displayLang = (language || "code").toUpperCase();
 
   return (
-    <div className="my-2 rounded-xl bg-[#090a12] border border-white/8 overflow-hidden font-mono text-[11px] shadow-sm">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[#0e101a] border-b border-white/6 text-[10px] font-semibold text-slate-400">
+    <div className="my-2 rounded-xl bg-slate-900 dark:bg-[#090a12] border border-slate-700 dark:border-white/8 overflow-hidden font-mono text-[11px] shadow-sm">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-slate-950 dark:bg-[#0e101a] border-b border-slate-800 dark:border-white/6 text-[10px] font-semibold text-slate-400">
         <div className="flex items-center gap-1.5 text-indigo-400 font-mono tracking-wider text-[10px]">
           <Code2 className="h-3 w-3" />
           <span>{displayLang}</span>
@@ -162,7 +162,7 @@ const CodeBlock: React.FC<{ language: string; code: string }> = ({ language, cod
           )}
         </button>
       </div>
-      <pre className="p-3 text-slate-200 overflow-x-auto whitespace-pre leading-relaxed select-text font-mono custom-scrollbar">
+      <pre className="p-3 text-slate-100 dark:text-slate-200 overflow-x-auto whitespace-pre leading-relaxed select-text font-mono custom-scrollbar">
         {code}
       </pre>
     </div>
@@ -189,13 +189,13 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     if (currentList) {
       if (currentList.type === "ul") {
         blocks.push(
-          <ul key={`ul-${blocks.length}`} className="list-disc list-inside space-y-1 my-1.5 text-slate-300 text-xs pl-1">
+          <ul key={`ul-${blocks.length}`} className="list-disc list-inside space-y-1 my-1.5 text-slate-700 dark:text-slate-300 text-xs pl-1">
             {currentList.items}
           </ul>
         );
       } else {
         blocks.push(
-          <ol key={`ol-${blocks.length}`} className="list-decimal list-inside space-y-1 my-1.5 text-slate-300 text-xs pl-1">
+          <ol key={`ol-${blocks.length}`} className="list-decimal list-inside space-y-1 my-1.5 text-slate-700 dark:text-slate-300 text-xs pl-1">
             {currentList.items}
           </ol>
         );
@@ -257,7 +257,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     if (trimmed.startsWith("# ")) {
       flushList();
       blocks.push(
-        <h1 key={`h1-${i}`} className="text-sm font-bold text-slate-100 my-2 border-b border-white/6 pb-1">
+        <h1 key={`h1-${i}`} className="text-sm font-bold text-slate-900 dark:text-slate-100 my-2 border-b border-slate-200 dark:border-white/6 pb-1">
           {parseInline(trimmed.substring(2), openNoteByName)}
         </h1>
       );
@@ -266,7 +266,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     if (trimmed.startsWith("## ")) {
       flushList();
       blocks.push(
-        <h2 key={`h2-${i}`} className="text-[13px] font-semibold text-indigo-300 my-1.5">
+        <h2 key={`h2-${i}`} className="text-[13px] font-semibold text-indigo-600 dark:text-indigo-300 my-1.5">
           {parseInline(trimmed.substring(3), openNoteByName)}
         </h2>
       );
@@ -275,7 +275,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     if (trimmed.startsWith("### ")) {
       flushList();
       blocks.push(
-        <h3 key={`h3-${i}`} className="text-xs font-semibold text-slate-200 my-1">
+        <h3 key={`h3-${i}`} className="text-xs font-semibold text-slate-800 dark:text-slate-200 my-1">
           {parseInline(trimmed.substring(4), openNoteByName)}
         </h3>
       );
@@ -284,7 +284,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     if (trimmed.startsWith("#### ")) {
       flushList();
       blocks.push(
-        <h4 key={`h4-${i}`} className="text-xs font-medium text-slate-300 my-1">
+        <h4 key={`h4-${i}`} className="text-xs font-medium text-slate-700 dark:text-slate-300 my-1">
           {parseInline(trimmed.substring(5), openNoteByName)}
         </h4>
       );
@@ -297,9 +297,9 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       const isChecked = /^[-*]\s*\[[xX]\]/.test(trimmed);
       const taskText = trimmed.replace(/^[-*]\s*\[[ xX]\]/, "").trim();
       blocks.push(
-        <div key={`task-${i}`} className="flex items-start gap-2 text-xs my-1 bg-white/2 border border-white/5 rounded-lg px-2.5 py-1.5">
-          <CheckCircle className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${isChecked ? "text-emerald-400" : "text-slate-500"}`} />
-          <span className={isChecked ? "line-through text-slate-500" : "text-slate-200"}>
+        <div key={`task-${i}`} className="flex items-start gap-2 text-xs my-1 bg-slate-100 dark:bg-white/2 border border-slate-200 dark:border-white/5 rounded-lg px-2.5 py-1.5">
+          <CheckCircle className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${isChecked ? "text-emerald-500 dark:text-emerald-400" : "text-slate-400 dark:text-slate-500"}`} />
+          <span className={isChecked ? "line-through text-slate-400 dark:text-slate-500" : "text-slate-800 dark:text-slate-200"}>
             {parseInline(taskText, openNoteByName)}
           </span>
         </div>
@@ -338,7 +338,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       flushList();
       const quoteText = trimmed.substring(2);
       blocks.push(
-        <blockquote key={`quote-${i}`} className="my-1.5 border-l-2 border-indigo-500/60 pl-3 py-1 bg-indigo-500/4 text-slate-300 italic text-xs rounded-r-md">
+        <blockquote key={`quote-${i}`} className="my-1.5 border-l-2 border-indigo-500/60 pl-3 py-1 bg-indigo-50 dark:bg-indigo-500/10 text-slate-700 dark:text-slate-300 italic text-xs rounded-r-md">
           {parseInline(quoteText, openNoteByName)}
         </blockquote>
       );
@@ -348,14 +348,14 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     // Horizontal Rule (--- or ***)
     if (/^(?:---|\*\*\*|___)$/.test(trimmed)) {
       flushList();
-      blocks.push(<hr key={`hr-${i}`} className="border-white/8 my-2.5" />);
+      blocks.push(<hr key={`hr-${i}`} className="border-slate-200 dark:border-white/8 my-2.5" />);
       continue;
     }
 
     // Standard Paragraph
     flushList();
     blocks.push(
-      <p key={`p-${i}`} className="text-xs text-slate-300 leading-relaxed my-1 select-text">
+      <p key={`p-${i}`} className="text-xs text-slate-800 dark:text-slate-300 leading-relaxed my-1 select-text">
         {parseInline(line, openNoteByName)}
       </p>
     );
@@ -385,5 +385,5 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     }
   }
 
-  return <div className="space-y-0.5 text-xs text-slate-200">{blocks}</div>;
+  return <div className="space-y-0.5 text-xs text-slate-800 dark:text-slate-200">{blocks}</div>;
 };

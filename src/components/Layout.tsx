@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useVault } from "../contexts/VaultContext";
 import { useSync } from "../contexts/SyncContext";
+import { store } from "../contexts/SettingsContext";
 import { FileTree } from "./FileTree";
 import { Editor } from "./Editor";
 import { Titlebar } from "./Titlebar";
@@ -106,13 +107,84 @@ export const Layout: React.FC = () => {
   const [isTabsSquished, setIsTabsSquished] = useState(false);
 
   useEffect(() => {
-    const handleOpenAiPrompt = () => {
+    const handleOpenAiPrompt = async () => {
+      try {
+        const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+        const existing = await WebviewWindow.getByLabel("ai-chat");
+        if (existing) {
+          await existing.close();
+        }
+      } catch {}
+      setIsChatDetached(false);
       setIsChatOpen(true);
       window.dispatchEvent(new CustomEvent("clear-floating-ai-selection"));
     };
+
     window.addEventListener("open-ai-chat-with-prompt", handleOpenAiPrompt);
-    return () => window.removeEventListener("open-ai-chat-with-prompt", handleOpenAiPrompt);
+
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen("open-docked-ai-chat", async () => {
+        setIsChatDetached(false);
+        setIsChatOpen(true);
+      }).then((un) => {
+        unlisten = un;
+      });
+    }).catch(() => {});
+
+    return () => {
+      window.removeEventListener("open-ai-chat-with-prompt", handleOpenAiPrompt);
+      if (unlisten) unlisten();
+    };
   }, []);
+
+  const handleToggleDetach = async () => {
+    try {
+      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      const existing = await WebviewWindow.getByLabel("ai-chat");
+      if (existing) {
+        await existing.close();
+        setIsChatDetached(false);
+        setIsChatOpen(true);
+        return;
+      }
+      const win = new WebviewWindow("ai-chat", {
+        url: "/index.html?view=ai-chat",
+        title: "KogNote AI Assistant",
+        width: 440,
+        height: 620,
+        resizable: true,
+        alwaysOnTop: true,
+        decorations: true,
+      });
+      win.once("tauri://created", () => {
+        setIsChatOpen(false);
+      });
+      win.once("tauri://error", (err) => {
+        console.error("Failed to create native AI WebviewWindow:", err);
+        setIsChatDetached((prev) => !prev);
+      });
+    } catch (err) {
+      console.warn("Native WebviewWindow not supported, toggling in-app floating mode:", err);
+      setIsChatDetached((prev) => !prev);
+    }
+  };
+
+  const handleToggleChat = async () => {
+    if (!isChatOpen) {
+      try {
+        const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+        const existing = await WebviewWindow.getByLabel("ai-chat");
+        if (existing) {
+          await existing.close();
+        }
+      } catch {}
+      setIsChatDetached(false);
+      setIsChatOpen(true);
+    } else {
+      setIsChatOpen(false);
+    }
+  };
 
   // Dynamic detection for tab squishing / crowded workspace
   useEffect(() => {
@@ -259,6 +331,14 @@ export const Layout: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    store.get<number>("sidebarWidth").then((w) => {
+      if (w && w >= 180 && w <= 450) {
+        setSidebarWidth(w);
+      }
+    });
+  }, []);
+
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();
     isResizingRef.current = true;
@@ -270,14 +350,20 @@ export const Layout: React.FC = () => {
       const newWidth = Math.max(180, Math.min(e.clientX, 450));
       setSidebarWidth(newWidth);
     };
-    const handleMouseUp = () => { isResizingRef.current = false; };
+    const handleMouseUp = () => {
+      if (isResizingRef.current) {
+        isResizingRef.current = false;
+        store.set("sidebarWidth", sidebarWidth);
+        store.save();
+      }
+    };
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, []);
+  }, [sidebarWidth]);
 
 
 
@@ -429,18 +515,18 @@ export const Layout: React.FC = () => {
       <div className="absolute bottom-0 right-0 z-90 flex items-center select-none">
         <div className="cmyk-glow-button-wrapper">
           <button
-            onClick={() => setIsChatOpen(!isChatOpen)}
+            onClick={handleToggleChat}
             className={`relative z-10 flex items-center gap-1.5 px-3.5 py-1.5 rounded-tl-xl border-t border-l shadow-2xl backdrop-blur-md cursor-pointer transition-all duration-200 hover:scale-105 active:scale-95 group ${isChatOpen
                 ? "bg-card/95 text-white border-cyan-500/50 shadow-cyan-500/20"
                 : "bg-sidebar/95 hover:bg-card-hover/95 border-white/10 text-slate-200 hover:text-white"
               }`}
             title="Toggle KogNote AI Chat"
           >
-            <div className="relative flex items-center justify-center shrink-0">
+            <div className="w-5 h-5 rounded-full bg-black flex items-center justify-center p-0.5 shrink-0 shadow-xs ring-1 ring-white/10">
               <img
                 src={aiStaticIcon}
                 alt="KogNote AI"
-                className="w-4 h-4 object-contain transition-transform group-hover:scale-110"
+                className="w-3.5 h-3.5 object-contain"
               />
             </div>
             <span className="text-[11px] font-bold tracking-tight">KogNote AI</span>
@@ -453,14 +539,14 @@ export const Layout: React.FC = () => {
         <div
           className={`fixed transition-all duration-300 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 ${
             isChatDetached
-              ? "top-14 right-6 z-250 w-145 h-187.5 max-w-[92vw] max-h-[85vh] bg-background/95 border border-indigo-500/50 rounded-2xl shadow-[0_35px_80px_rgba(0,0,0,0.9)] shadow-indigo-500/20 backdrop-blur-2xl resize overflow-auto drop-shadow-2xl"
-              : "bottom-10 right-3 z-100 w-100 sm:w-110 h-145 max-h-[calc(100vh-60px)] bg-background/90 border border-card-border/80 rounded-2xl shadow-[0_25px_60px_rgba(0,0,0,0.75)] backdrop-blur-xl"
+              ? "top-14 right-6 z-250 w-105 sm:w-115 h-150 max-w-[calc(100vw-32px)] max-h-[calc(100vh-80px)] bg-background/95 border border-indigo-500/50 rounded-2xl shadow-2xl shadow-indigo-500/20 backdrop-blur-md resize overflow-auto drop-shadow-2xl"
+              : "bottom-5 right-5 z-100 w-90 sm:w-97.5 h-130 max-w-[calc(100vw-32px)] max-h-[calc(100vh-80px)] bg-background/95 border border-card-border/80 rounded-2xl shadow-xl backdrop-blur-md"
           }`}
         >
           <CopilotChat
             onClose={() => setIsChatOpen(false)}
             isDetached={isChatDetached}
-            onToggleDetach={() => setIsChatDetached(!isChatDetached)}
+            onToggleDetach={handleToggleDetach}
             onOpenSettings={() => setIsSettingsOpen(true)}
           />
         </div>

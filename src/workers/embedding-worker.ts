@@ -1,15 +1,16 @@
 import { pipeline, env } from "@huggingface/transformers";
 
 // Configure transformers.js to load bundled local static models from /models/
+// Configure transformers.js to load local static models or download/cache ONNX model weights
 env.allowLocalModels = true;
-env.allowRemoteModels = false; // Strictly offline from local assets
+env.allowRemoteModels = true;
 (env as any).localURL = "/models/";
 
 let pipelineInstance: any = null;
 
 async function getPipeline() {
   if (!pipelineInstance) {
-    pipelineInstance = await pipeline("feature-extraction", "Xenova/bge-small-en-v1.5", {
+    pipelineInstance = await pipeline("feature-extraction", "nomic-ai/nomic-embed-text-v1.5", {
       progress_callback: (data: any) => {
         if (data.status === "progress") {
           self.postMessage({ type: "progress", file: data.file, progress: data.progress });

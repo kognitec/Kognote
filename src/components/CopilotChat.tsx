@@ -242,7 +242,26 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
   const [userScrolledUp, setUserScrolledUp] = useState(false);
   const [internalDetached, setInternalDetached] = useState(false);
   const isDetached = externalDetached !== undefined ? externalDetached : internalDetached;
-  const toggleDetach = onToggleDetach || (() => setInternalDetached(!internalDetached));
+  
+  const handleDetachClick = async () => {
+    const isStandalone = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "ai-chat";
+    if (isStandalone) {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const { emit } = await import("@tauri-apps/api/event");
+        await emit("open-docked-ai-chat", {});
+        await getCurrentWindow().close();
+        return;
+      } catch (err) {
+        console.error("Failed to re-attach standalone window:", err);
+      }
+    }
+    if (onToggleDetach) {
+      onToggleDetach();
+    } else {
+      setInternalDetached(!internalDetached);
+    }
+  };
 
   // Model Menu Popover & Status Tracking
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -328,6 +347,9 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
   const handleAppFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (attachedMediaFile?.url) {
+        URL.revokeObjectURL(attachedMediaFile.url);
+      }
       setAttachedMediaFile({
         name: file.name,
         type: file.type || "file",
@@ -737,7 +759,11 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       });
 
       try {
-        localStorage.setItem("kognote_copilot_chat_threads", JSON.stringify(updated.slice(0, 30)));
+        const sanitized = updated.map((t) => ({
+          ...t,
+          conversationHistory: (t.conversationHistory || []).slice(-12),
+        }));
+        localStorage.setItem("kognote_copilot_chat_threads", JSON.stringify(sanitized.slice(0, 30)));
       } catch {}
       return updated;
     });
@@ -947,13 +973,15 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       // 4. Ingest Pinned Context Chips (@notes and #tags) with caching
       if (pinnedContexts.length > 0) {
         contextHeader += `\n[PINNED CONTEXT REPOSITORIES]:\n`;
+        const nowMs = Date.now();
         for (const chip of pinnedContexts) {
           if (chip.path) {
             try {
-              let text = pinnedCacheRef.current.get(chip.path)?.content;
+              const cached = pinnedCacheRef.current.get(chip.path);
+              let text = cached && (nowMs - cached.mtime < 30000) ? cached.content : "";
               if (!text) {
                 text = (await invokeIPC("read_note", { path: chip.path })) as string;
-                pinnedCacheRef.current.set(chip.path, { content: text, mtime: Date.now() });
+                pinnedCacheRef.current.set(chip.path, { content: text, mtime: nowMs });
               }
               contextHeader += `--- PINNED NOTE: "${chip.label}" ---\n${text.slice(0, 4000)}\n\n`;
             } catch {}
@@ -966,10 +994,11 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
 
             for (const tf of taggedFiles) {
               try {
-                let text = pinnedCacheRef.current.get(tf.path)?.content;
+                const cached = pinnedCacheRef.current.get(tf.path);
+                let text = cached && (nowMs - cached.mtime < 30000) ? cached.content : "";
                 if (!text) {
                   text = (await invokeIPC("read_note", { path: tf.path })) as string;
-                  pinnedCacheRef.current.set(tf.path, { content: text, mtime: Date.now() });
+                  pinnedCacheRef.current.set(tf.path, { content: text, mtime: nowMs });
                 }
                 contextHeader += `[Tag Match: ${tf.name}]\n${text.slice(0, 2000)}\n\n`;
               } catch {}
@@ -1035,8 +1064,9 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       const estimatedTokenCount = Math.ceil(fullContextLength / 4);
       setEstimatedTokens(estimatedTokenCount);
 
-      // Run Pre-Flight Intent Gateway Classification
-      const intentResult = await classifyIntent(userText, targetRefFile?.name, pinnedContexts.length);
+      // Run Pre-Flight Intent Gateway Classification with recent conversation history context
+      const recentHistory = messages.slice(-3).map((m) => m.text);
+      const intentResult = await classifyIntent(userText, targetRefFile?.name, pinnedContexts.length, recentHistory);
 
       let intentDirective = "";
       if (contextScopeMode === "none") {
@@ -1322,7 +1352,16 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       setLoading(false);
       embeddingQueue.resume();
     }
-  }, [activeView, activeFile, files, pinnedContexts, contextScopeMode, conversationHistory, attachedMediaFile, noteCache, vaultPath]);
+  }, [activeView, activeFile, files, pinnedContexts, contextScopeMode, conversationHistory, attachedMediaFile, noteCache, vaultPath, userTimezone, aiProvider, flatMdFiles]);
+
+  const clearAttachments = () => {
+    setInputMessage("");
+    setAttachedFile(null);
+    if (attachedMediaFile?.url) {
+      URL.revokeObjectURL(attachedMediaFile.url);
+    }
+    setAttachedMediaFile(null);
+  };
 
   // Handle external prompt dispatches (Command Palette, AI Summarize, Ask AI)
   useEffect(() => {
@@ -1390,9 +1429,9 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (inputMessage.trim() || attachedFile || pinnedContexts.length > 0) {
+      if (inputMessage.trim() || attachedFile || pinnedContexts.length > 0 || attachedMediaFile) {
         submitPrompt(inputMessage.trim(), attachedFile);
-        setInputMessage("");
+        clearAttachments();
       }
     }
   };
@@ -1409,9 +1448,9 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputMessage.trim() && !attachedFile && pinnedContexts.length === 0) return;
+    if (!inputMessage.trim() && !attachedFile && pinnedContexts.length === 0 && !attachedMediaFile) return;
     await submitPrompt(inputMessage.trim(), attachedFile);
-    setInputMessage("");
+    clearAttachments();
   };
 
   // Helper to parse thinking steps (<think>...</think> or ▶ thinking tags)
@@ -1543,11 +1582,13 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       {/* ── A. LINEAR COMPACT HEADER BAR ────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-card-border/50 bg-background/50 backdrop-blur-md shrink-0 select-none z-20">
         <div className="flex items-center gap-2">
-          <img 
-            src={loading ? aiAnimatedGif : aiStaticIcon} 
-            alt="KogNote AI" 
-            className="w-5.5 h-5.5 object-contain shrink-0" 
-          />
+          <div className="w-5.5 h-5.5 rounded-full bg-black flex items-center justify-center p-0.5 shrink-0 shadow-xs ring-1 ring-white/10">
+            <img 
+              src={loading ? aiAnimatedGif : aiStaticIcon} 
+              alt="KogNote AI" 
+              className="w-4 h-4 object-contain" 
+            />
+          </div>
           
           {/* Clickable AI Model Dropdown Badge */}
           <div className="relative">
@@ -1682,7 +1723,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
           {/* Detach / Attach Window Toggle Button */}
           <button
             type="button"
-            onClick={toggleDetach}
+            onClick={handleDetachClick}
             className={`p-1 rounded-md transition-all cursor-pointer ${
               isDetached 
                 ? "text-indigo-300 bg-indigo-500/20 border border-indigo-500/30 hover:bg-indigo-500/30" 
@@ -1771,8 +1812,8 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
           <div className="my-auto py-4 px-2 flex flex-col items-center justify-center animate-in fade-in duration-500 select-none">
             <div className="w-full max-w-sm flex flex-col items-center text-center">
               
-              <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center mb-3 shadow-lg shadow-indigo-500/10">
-                <img src={aiStaticIcon} alt="KogNote AI" className="w-6 h-6 object-contain" />
+              <div className="w-12 h-12 rounded-full bg-black flex items-center justify-center p-2 mb-3 shadow-lg ring-1 ring-white/10">
+                <img src={aiStaticIcon} alt="KogNote AI" className="w-7 h-7 object-contain" />
               </div>
 
               <h3 className="text-sm font-bold text-slate-100 mb-1 tracking-tight">
