@@ -387,7 +387,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
       </div>
 
       {/* Center section: Switcher Capsule Pills with Fluid Moving Indicator */}
-      <div className="flex-1 flex justify-center" data-tauri-drag-region>
+      <div className="flex-1 flex items-center justify-center h-full" data-tauri-drag-region>
         <div
           ref={navContainerRef}
           className="relative flex items-center p-1 rounded-full bg-white dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/90 dark:border-slate-800 shadow-xs overflow-hidden gap-0.5"
