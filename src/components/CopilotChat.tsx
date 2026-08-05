@@ -884,7 +884,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       referenceFile: targetRefFile || undefined
     };
 
-    setMessages((prev) => [...prev, activeMsg]);
+    setMessages((prev) => [...prev.filter((m) => !m.id.startsWith("welcome")), activeMsg]);
     setLoading(true);
     embeddingQueue.pause();
 
@@ -2012,42 +2012,44 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
               </div>
 
               {/* Bottom Action Footer with Copy, Insert to Note, and Timestamp */}
-              <div className="flex items-center justify-between w-full mt-1 pt-0.5">
-                <div className="flex items-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => handleCopyText(msg.text, msg.id)}
-                    className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors py-0.5 px-1.5 rounded hover:bg-white/6 cursor-pointer"
-                    title="Copy response"
-                  >
-                    {copiedId === msg.id ? (
-                      <>
-                        <Check className="h-3 w-3 text-emerald-400" />
-                        <span className="text-emerald-400 font-medium">Copied</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="h-3 w-3" />
-                        <span>Copy</span>
-                      </>
-                    )}
-                  </button>
+              {!msg.id.startsWith("welcome") && (
+                <div className="flex items-center justify-between w-full mt-1 pt-0.5">
+                  <div className="flex items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => handleCopyText(msg.text, msg.id)}
+                      className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors py-0.5 px-1.5 rounded hover:bg-white/6 cursor-pointer"
+                      title="Copy response"
+                    >
+                      {copiedId === msg.id ? (
+                        <>
+                          <Check className="h-3 w-3 text-emerald-400" />
+                          <span className="text-emerald-400 font-medium">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3 w-3" />
+                          <span>Copy</span>
+                        </>
+                      )}
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => handleInsertToNote(msg.text)}
-                    className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-300 transition-colors py-0.5 px-1.5 rounded hover:bg-white/6 cursor-pointer"
-                    title="Insert to active note"
-                  >
-                    <CornerDownLeft className="h-3 w-3" />
-                    <span>Insert to note</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => handleInsertToNote(msg.text)}
+                      className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-300 transition-colors py-0.5 px-1.5 rounded hover:bg-white/6 cursor-pointer"
+                      title="Insert to active note"
+                    >
+                      <CornerDownLeft className="h-3 w-3" />
+                      <span>Insert to note</span>
+                    </button>
+                  </div>
+
+                  <span className="text-[10px] text-slate-500 font-normal select-none">
+                    {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
                 </div>
-
-                <span className="text-[10px] text-slate-500 font-normal select-none">
-                  {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </div>
+              )}
             </div>
           );
         })}
