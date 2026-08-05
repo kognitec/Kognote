@@ -231,12 +231,12 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
       data-tauri-drag-region
       onMouseDown={handleStartDrag}
       onDoubleClick={handleDoubleClick}
-      className="flex h-11 w-full items-center justify-between border-b border-card-border bg-background/95 backdrop-blur-xl px-3 text-foreground select-none relative z-40 transition-colors duration-200"
+      className="flex h-9 w-full items-center justify-between border-b border-card-border bg-background/95 backdrop-blur-xl px-2.5 text-foreground select-none relative z-40 transition-colors duration-200"
     >
       {/* Left section: Logo & macOS window controls */}
-      <div className="flex items-center gap-3 shrink-0" data-tauri-drag-region>
+      <div className="flex items-center gap-2 shrink-0" data-tauri-drag-region>
         {isMac && (
-          <div className="flex items-center gap-2 mr-1 group/traffic">
+          <div className="flex items-center gap-1.5 mr-1 group/traffic">
             <button
               onClick={handleClose}
               className="w-3 h-3 rounded-full bg-[#ff5f57] border border-[#e0443e] hover:bg-[#e0443e] flex items-center justify-center cursor-pointer relative transition-all shadow-xs"
@@ -260,18 +260,18 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
             </button>
           </div>
         )}
-        <div className="flex items-center gap-2 group cursor-default" data-tauri-drag-region>
+        <div className="flex items-center gap-1.5 group cursor-default" data-tauri-drag-region>
           <img
             src={logoImg}
             alt="Kognote Logo"
-            className="h-7 w-7 object-contain transition-all duration-300 group-hover:scale-110"
+            className="h-4.5 w-4.5 object-contain transition-all duration-300 group-hover:scale-110"
             style={{
               filter: theme === "dark"
-                ? "drop-shadow(0 0 6px rgba(139,92,246,0.7)) drop-shadow(0 0 12px rgba(249,115,22,0.4))"
-                : "drop-shadow(0 2px 4px rgba(109,40,217,0.3)) drop-shadow(0 1px 3px rgba(234,88,12,0.2))"
+                ? "drop-shadow(0 0 4px rgba(139,92,246,0.6))"
+                : "drop-shadow(0 1px 2px rgba(109,40,217,0.3))"
             }}
           />
-          <span className="font-black text-[15px] tracking-tight bg-clip-text text-transparent select-none"
+          <span className="font-bold text-xs tracking-tight bg-clip-text text-transparent select-none"
             style={{
               backgroundImage: theme === "dark"
                 ? "linear-gradient(135deg, #a78bfa 0%, #c084fc 40%, #f472b6 80%, #fb923c 100%)"
@@ -280,7 +280,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
           >
             Kognote
           </span>
-          <span className="text-[8.5px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-indigo-500/10 dark:bg-indigo-400/15 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20 dark:border-indigo-400/30 shadow-2xs leading-none select-none transition-colors duration-200">
+          <span className="text-[7.5px] font-bold uppercase tracking-wider px-1 py-0.2 rounded bg-indigo-500/10 dark:bg-indigo-400/15 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20 dark:border-indigo-400/30 shadow-2xs leading-none select-none transition-colors duration-200">
             BETA
           </span>
         </div>
