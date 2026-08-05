@@ -547,8 +547,8 @@ export const Layout: React.FC = () => {
         <div
           className={`fixed transition-all duration-300 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 ${
             isChatDetached
-              ? "top-14 right-6 z-250 w-88 sm:w-96 h-130 max-w-[calc(100vw-32px)] max-h-[calc(100vh-80px)] bg-background/95 border border-indigo-500/50 rounded-2xl shadow-2xl shadow-indigo-500/20 backdrop-blur-md resize overflow-auto drop-shadow-2xl"
-              : "bottom-5 right-5 z-100 w-78 sm:w-84 h-115 max-w-[calc(100vw-32px)] max-h-[calc(100vh-80px)] bg-background/95 border border-card-border/80 rounded-2xl shadow-xl backdrop-blur-md"
+              ? "top-14 right-6 z-250 w-92 sm:w-100 h-135 max-w-[calc(100vw-32px)] max-h-[calc(100vh-80px)] bg-background/95 border border-indigo-500/50 rounded-2xl shadow-2xl shadow-indigo-500/20 backdrop-blur-md resize overflow-auto drop-shadow-2xl"
+              : "bottom-5 right-5 z-100 w-84 sm:w-92 h-125 max-w-[calc(100vw-32px)] max-h-[calc(100vh-80px)] bg-background/95 border border-card-border/80 rounded-2xl shadow-xl backdrop-blur-md"
           }`}
         >
           <CopilotChat

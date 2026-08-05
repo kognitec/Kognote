@@ -1496,18 +1496,19 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
       
       {/* ── CHAT THREAD HISTORY DRAWER OVERLAY ─────────────────────────────────── */}
       {isHistoryDrawerOpen && (
-        <div className="absolute inset-0 z-50 bg-card backdrop-blur-md flex flex-col animate-fade-in p-4 overflow-hidden text-foreground">
-          <div className="flex items-center justify-between pb-3 border-b border-card-border/70 shrink-0">
-            <div className="flex items-center gap-2">
-              <History className="h-4 w-4 text-indigo-400" />
-              <span className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200">Chat Threads History</span>
-              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">({threads.length})</span>
+        <div className="absolute inset-0 z-50 bg-card backdrop-blur-md flex flex-col animate-fade-in p-3.5 overflow-hidden text-foreground">
+          <div className="flex items-center justify-between pb-2.5 border-b border-card-border/70 shrink-0 gap-2">
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              <History className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200 truncate">
+                History <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">({threads.length})</span>
+              </span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 type="button"
                 onClick={createNewThread}
-                className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-500 text-white px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer shadow-md shadow-indigo-600/20"
+                className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer shadow-md shadow-indigo-600/20"
               >
                 <Plus className="h-3 w-3" />
                 <span>New Chat</span>
@@ -1517,7 +1518,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                 onClick={() => setIsHistoryDrawerOpen(false)}
                 className="p-1 text-slate-500 hover:text-foreground rounded-md cursor-pointer hover:bg-card-hover"
               >
-                <X className="h-4 w-4" />
+                <X className="h-3.5 w-3.5" />
               </button>
             </div>
           </div>
@@ -1609,8 +1610,8 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
             </button>
 
             {modelMenuOpen && (
-              <div className="absolute left-0 top-full mt-1.5 z-100 w-64 bg-card border border-card-border rounded-xl p-1.5 shadow-2xl backdrop-blur-xl text-xs space-y-1">
-                <div className="px-2 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-wider">Local AI Models (Offline)</div>
+              <div className="absolute left-0 top-full mt-1 z-100 w-56 sm:w-60 max-h-64 overflow-y-auto custom-scrollbar bg-card border border-card-border rounded-xl p-1.5 shadow-2xl backdrop-blur-xl text-xs space-y-0.5">
+                <div className="px-2 py-0.5 text-[9px] font-bold text-slate-500 uppercase tracking-wider">Local AI Models (Offline)</div>
                 
                 {[
                   { id: "qwen2.5-coder-1.5b", name: "Qwen 2.5 Coder (1.5B)", desc: "Ultra Fast CPU" },
@@ -1626,68 +1627,68 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                       key={m.id}
                       type="button"
                       onClick={() => { setAiProvider("local"); setAiLocalModel(m.id); setModelMenuOpen(false); }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${
+                      className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${
                         isSelected
                           ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30"
                           : "hover:bg-card-hover text-slate-700 dark:text-slate-300"
                       }`}
                     >
-                      <div className="flex flex-col">
-                        <span className="flex items-center gap-1.5 font-bold text-xs">
+                      <div className="flex flex-col min-w-0">
+                        <span className="flex items-center gap-1 font-bold text-[11px] truncate">
                           {m.name}
                           {isDownloaded && (
-                            <span className="text-[8px] text-emerald-500 dark:text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded font-extrabold">
+                            <span className="text-[7.5px] text-emerald-500 dark:text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded font-extrabold shrink-0">
                               READY
                             </span>
                           )}
                         </span>
-                        <span className="text-[9.5px] text-slate-500">{m.desc}</span>
+                        <span className="text-[9px] text-slate-500 truncate">{m.desc}</span>
                       </div>
-                      {isSelected && <Check className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400 shrink-0" />}
+                      {isSelected && <Check className="h-3 w-3 text-indigo-500 dark:text-indigo-400 shrink-0 ml-1" />}
                     </button>
                   );
                 })}
 
-                <div className="px-2 py-1 text-[9.5px] text-slate-600 dark:text-slate-400 leading-tight border-t border-card-border pt-1.5 mt-1">
-                  ⚡ <strong>Auto Memory:</strong> Boots on demand when you chat and auto-unloads from RAM/VRAM when idle.
+                <div className="px-2 py-1 text-[9px] text-slate-600 dark:text-slate-400 leading-tight border-t border-card-border pt-1 mt-0.5">
+                  ⚡ <strong>Auto Memory:</strong> Boots on demand, unloads when idle.
                 </div>
 
-                <div className="pt-1 border-t border-card-border px-2 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-wider">Cloud AI Providers</div>
+                <div className="pt-1 border-t border-card-border px-2 py-0.5 text-[9px] font-bold text-slate-500 uppercase tracking-wider">Cloud AI Providers</div>
 
                 <button
                   type="button"
                   onClick={() => { setAiProvider("gemini"); setModelMenuOpen(false); }}
-                  className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${aiProvider === "gemini" ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30" : "hover:bg-card-hover text-slate-700 dark:text-slate-300"}`}
+                  className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between cursor-pointer text-[11px] ${aiProvider === "gemini" ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30" : "hover:bg-card-hover text-slate-700 dark:text-slate-300"}`}
                 >
                   <span>Google Gemini</span>
-                  {aiProvider === "gemini" && <Check className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />}
+                  {aiProvider === "gemini" && <Check className="h-3 w-3 text-indigo-500 dark:text-indigo-400" />}
                 </button>
 
                 <button
                   type="button"
                   onClick={() => { setAiProvider("openai"); setModelMenuOpen(false); }}
-                  className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${aiProvider === "openai" ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30" : "hover:bg-card-hover text-slate-700 dark:text-slate-300"}`}
+                  className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between cursor-pointer text-[11px] ${aiProvider === "openai" ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30" : "hover:bg-card-hover text-slate-700 dark:text-slate-300"}`}
                 >
                   <span>OpenAI GPT-4o</span>
-                  {aiProvider === "openai" && <Check className="h-3.5 w-3.5 text-indigo-400" />}
+                  {aiProvider === "openai" && <Check className="h-3 w-3 text-indigo-400" />}
                 </button>
 
                 <button
                   type="button"
                   onClick={() => { setAiProvider("anthropic"); setModelMenuOpen(false); }}
-                  className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${aiProvider === "anthropic" ? "bg-indigo-600/30 text-indigo-300 font-bold" : "hover:bg-[#1a1d2e] text-slate-300"}`}
+                  className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between cursor-pointer text-[11px] ${aiProvider === "anthropic" ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30" : "hover:bg-card-hover text-slate-700 dark:text-slate-300"}`}
                 >
                   <span>Anthropic Claude</span>
-                  {aiProvider === "anthropic" && <Check className="h-3.5 w-3.5 text-indigo-400" />}
+                  {aiProvider === "anthropic" && <Check className="h-3 w-3 text-indigo-400" />}
                 </button>
 
                 <button
                   type="button"
                   onClick={() => { setAiProvider("api"); setModelMenuOpen(false); }}
-                  className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${aiProvider === "api" ? "bg-indigo-600/30 text-indigo-300 font-bold" : "hover:bg-[#1a1d2e] text-slate-300"}`}
+                  className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between cursor-pointer text-[11px] ${aiProvider === "api" ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30" : "hover:bg-card-hover text-slate-700 dark:text-slate-300"}`}
                 >
                   <span>Custom API Endpoint</span>
-                  {aiProvider === "api" && <Check className="h-3.5 w-3.5 text-indigo-400" />}
+                  {aiProvider === "api" && <Check className="h-3 w-3 text-indigo-400" />}
                 </button>
               </div>
             )}
@@ -1887,9 +1888,9 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
             return (
               <div 
                 key={msg.id}
-                className="w-full animate-in fade-in slide-in-from-bottom-1 duration-200 group relative"
+                className="w-full animate-in fade-in slide-in-from-bottom-1 duration-200 group relative flex justify-end"
               >
-                <div className="bg-indigo-600 dark:bg-indigo-600/80 border border-indigo-500/40 text-white rounded-2xl p-2.5 px-3 text-[11px] shadow-md shadow-indigo-600/15 font-medium select-text w-full relative">
+                <div className="bg-indigo-600 dark:bg-indigo-600/90 text-white rounded-2xl rounded-tr-xs p-2.5 px-3.5 text-[11px] leading-relaxed shadow-sm shadow-indigo-600/15 font-medium select-text max-w-[85%] relative">
                   {msg.isEditing ? (
                     <form
                       onSubmit={(e) => {
