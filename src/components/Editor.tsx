@@ -1639,8 +1639,8 @@ export const Editor: React.FC = () => {
             {/* Flashcards Count */}
             {noteStats.flashcardCount > 0 ? (
               <div className="flex items-center gap-1.5" title="Flashcards in this note">
-                <GraduationCap className="h-3.5 w-3.5 text-purple-400 shrink-0" />
-                <span className="text-purple-300 font-semibold">{noteStats.flashcardCount}</span>
+                <GraduationCap className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400 shrink-0" />
+                <span className="text-amber-600 dark:text-amber-300 font-semibold">{noteStats.flashcardCount}</span>
                 <span className="text-slate-400">{noteStats.flashcardCount === 1 ? "flashcard" : "flashcards"}</span>
               </div>
             ) : (
