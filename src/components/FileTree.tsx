@@ -809,7 +809,7 @@ export const FileTree: React.FC = () => {
                             changeSortOption(opt.value);
                             setIsSortDropdownOpen(false);
                           }}
-                          className={`w-full text-left px-3 py-1.5 hover:bg-[#1a1d29] transition-colors flex items-center justify-between cursor-pointer ${sortOption === opt.value ? "text-[#d946ef] font-medium" : "text-slate-400 hover:text-slate-200"
+                          className={`w-full text-left px-3 py-1.5 hover:bg-card-hover transition-colors flex items-center justify-between cursor-pointer ${sortOption === opt.value ? "text-indigo-600 dark:text-indigo-400 font-bold" : "text-slate-700 dark:text-slate-300 hover:text-foreground"
                             }`}
                         >
                           <span>{opt.label}</span>
@@ -830,7 +830,7 @@ export const FileTree: React.FC = () => {
                   placeholder="folder name..."
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  className="flex-1 rounded-sm bg-[#1a1d29] px-2 py-1 text-xs border border-indigo-600 focus:outline-hidden text-slate-200"
+                  className="flex-1 rounded-sm bg-card px-2 py-1 text-xs border border-indigo-600 focus:outline-hidden text-foreground"
                 />
                 <button type="submit" className="p-1 text-emerald-500 hover:bg-emerald-500/10 rounded-sm">
                   <Check className="h-3.5 w-3.5" />
@@ -848,10 +848,10 @@ export const FileTree: React.FC = () => {
 
           {/* Starred / Bookmarked Notes Quick Access */}
           {starredNotes.length > 0 && (
-            <div className="px-3 py-1.5 border-b border-card-border bg-sidebar/40">
+            <div className="px-3 py-1 border-b border-card-border bg-sidebar/40">
               <button
                 onClick={() => setIsStarredOpen((prev) => !prev)}
-                className="flex items-center justify-between w-full text-[10px] font-bold text-amber-600 dark:text-amber-500 tracking-wider uppercase py-1 cursor-pointer select-none group"
+                className="flex items-center justify-between w-full text-[10px] font-bold text-amber-600 dark:text-amber-500 tracking-wider uppercase py-0.5 cursor-pointer select-none group"
               >
                 <div className="flex items-center gap-1.5">
                   <Bookmark className="h-3 w-3 fill-amber-600 dark:fill-amber-500 text-amber-600 dark:text-amber-500 drop-shadow-[0_0_6px_rgba(217,119,6,0.4)]" />
@@ -863,7 +863,7 @@ export const FileTree: React.FC = () => {
                 />
               </button>
               {isStarredOpen && (
-                <div className="space-y-0.5 mt-1 pb-1 animate-fade-in">
+                <div className="space-y-0.5 mt-0.5 pb-0.5 animate-fade-in">
                   {starredNotes.map((note: FileEntry) => (
                     <button
                       key={note.path}
@@ -878,10 +878,10 @@ export const FileTree: React.FC = () => {
                       onDragEnd={() => {
                         clearDragState();
                       }}
-                      className="flex items-center gap-2 w-full px-2 py-1 rounded-md text-xs text-slate-300 hover:bg-[#161825] hover:text-white transition-colors text-left truncate cursor-pointer group"
+                      className="flex items-center gap-1.5 w-full px-2 py-0.5 rounded-md text-xs text-slate-700 dark:text-slate-300 hover:bg-card-hover hover:text-foreground transition-colors text-left truncate cursor-pointer group"
                     >
                       {getFileIcon(note, noteCache)}
-                      <span className="truncate">{note.name.replace(/\.md$/, "")}</span>
+                      <span className="truncate" title={note.name.replace(/\.md$/, "")}>{note.name.replace(/\.md$/, "")}</span>
                     </button>
                   ))}
                 </div>
@@ -1608,8 +1608,8 @@ const TreeItem: React.FC<TreeItemProps> = ({ item, depth, isOpen, onToggleFolder
               clearDragState();
             }
           }}
-          style={{ paddingLeft: `${depth * 10 + 6}px` }}
-          className={`group flex items-center justify-between py-1 px-1.5 rounded-md mx-1 my-[1px] cursor-pointer transition-all duration-150 text-xs ${isDragOverFolder
+          style={{ paddingLeft: `${depth * 7 + 4}px` }}
+          className={`group flex items-center justify-between py-[2px] px-1.5 rounded-md mx-0.5 my-[1px] cursor-pointer transition-all duration-150 text-[11px] ${isDragOverFolder
               ? "bg-indigo-600/30 border border-indigo-500 text-white shadow-xs"
               : isActive
                 ? item.name.endsWith(".excalidraw")
@@ -1622,14 +1622,14 @@ const TreeItem: React.FC<TreeItemProps> = ({ item, depth, isOpen, onToggleFolder
             {item.is_dir ? (
               <span className="text-slate-400 shrink-0">
                 <ChevronRight
-                  className={`h-3.5 w-3.5 transform transition-transform duration-150 ${isOpen ? "rotate-90 text-indigo-500 dark:text-indigo-400" : ""}`}
+                  className={`h-3 w-3 transform transition-transform duration-150 ${isOpen ? "rotate-90 text-indigo-500 dark:text-indigo-400" : ""}`}
                 />
               </span>
             ) : null}
 
             {getFileIcon(item, noteCache, { className: "h-3.5 w-3.5 shrink-0", isOpenFolder: isOpen })}
 
-            <span className="truncate">
+            <span className="truncate" title={getDisplayName(item.name)}>
               {getDisplayName(item.name)}
             </span>
 
