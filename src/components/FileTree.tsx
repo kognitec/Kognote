@@ -67,6 +67,7 @@ interface TreeItemProps {
 export const FileTree: React.FC = () => {
   const {
     files,
+    vaultPath,
     createDirectory,
     deleteFileOrDirectory,
     openFile,
@@ -115,6 +116,18 @@ export const FileTree: React.FC = () => {
     setSortOption(opt);
     localStorage.setItem("vault_sort_option", opt);
   };
+
+  const vaultFolderName = useMemo(() => {
+    if (!vaultPath) return "Vault";
+    const parts = vaultPath.replace(/\\/g, "/").split("/").filter(Boolean);
+    return parts[parts.length - 1] || "Vault";
+  }, [vaultPath]);
+
+  const vaultTooltip = useMemo(() => {
+    return vaultPath
+      ? `Vault: ${vaultFolderName}\nPath: ${vaultPath}`
+      : "Vault Notes Directory";
+  }, [vaultPath, vaultFolderName]);
 
   // Tab State
   const [activeTab, setActiveTab] = useState<"files" | "tags" | "attachments" | "urls">("files");
@@ -766,7 +779,10 @@ export const FileTree: React.FC = () => {
             </div>
 
             <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 tracking-wider">
-              <span className="flex items-center gap-1.5">
+              <span
+                className="flex items-center gap-1.5 cursor-help hover:text-indigo-400 transition-colors"
+                title={vaultTooltip}
+              >
                 VAULT NOTES
                 {(filter || fileTypeFilter !== "all") && (
                   <span className="text-[9.5px] font-mono font-normal text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-1.5 py-0.2 rounded-full">
