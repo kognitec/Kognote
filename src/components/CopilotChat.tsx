@@ -1889,7 +1889,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                 key={msg.id}
                 className="w-full animate-in fade-in slide-in-from-bottom-1 duration-200 group relative"
               >
-                <div className="bg-[#14172a]/70 border border-indigo-500/20 text-slate-100 rounded-2xl p-3 text-xs shadow-xs select-text w-full relative">
+                <div className="bg-indigo-600 dark:bg-indigo-600/80 border border-indigo-500/40 text-white rounded-2xl p-3 text-xs shadow-md shadow-indigo-600/15 font-medium select-text w-full relative">
                   {msg.isEditing ? (
                     <form
                       onSubmit={(e) => {
@@ -1910,16 +1910,16 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                         defaultValue={msg.text}
                         autoFocus
                         rows={2}
-                        className="w-full bg-black/60 border border-indigo-500/50 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-400 font-sans"
+                        className="w-full bg-black/30 border border-white/30 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-white/50 font-sans"
                       />
                       <div className="flex items-center gap-2 justify-end">
-                        <button type="submit" className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold cursor-pointer transition">
+                        <button type="submit" className="px-3 py-1 rounded-lg bg-white text-indigo-950 hover:bg-white/90 text-[11px] font-bold cursor-pointer transition shadow-xs">
                           Resubmit
                         </button>
                         <button
                           type="button"
                           onClick={() => setMessages((prev) => prev.map((m) => m.id === msg.id ? { ...m, isEditing: false } : m))}
-                          className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] cursor-pointer"
+                          className="px-3 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-white text-[11px] font-medium cursor-pointer transition"
                         >
                           Cancel
                         </button>
@@ -1931,7 +1931,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                       <button
                         type="button"
                         onClick={() => setMessages((prev) => prev.map((m) => m.id === msg.id ? { ...m, isEditing: true } : m))}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity absolute top-2.5 right-2.5 p-1 rounded-md bg-[#1d2036] hover:bg-[#282c4b] text-slate-400 hover:text-white cursor-pointer"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity absolute top-2.5 right-2.5 p-1 rounded-md bg-white/15 hover:bg-white/25 text-white/90 hover:text-white cursor-pointer"
                         title="Edit prompt & regenerate"
                       >
                         <SquarePen className="h-3.5 w-3.5" />
