@@ -341,8 +341,11 @@ pub fn run() {
                 #[cfg(target_os = "windows")]
                 {
                     use std::os::windows::process::CommandExt;
+                    use std::process::Stdio;
                     let _ = std::process::Command::new("taskkill")
                         .args(&["/F", "/IM", "llama-server.exe"])
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
                         .creation_flags(0x08000000)
                         .status();
                 }
