@@ -1620,8 +1620,8 @@ export const GraphView: React.FC = () => {
       <div className="w-72 border-r dark:border-[#1e2335] border-slate-200 dark:bg-sidebar/95 bg-slate-50/95 backdrop-blur-md p-4 flex flex-col gap-4 shrink-0 overflow-y-auto z-10 custom-scrollbar">
         {/* Header */}
         <div>
-          <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 tracking-widest uppercase flex items-center gap-1.5">
-            <Waypoints className="h-3.5 w-3.5" /> Knowledge Graph
+          <span className="text-[10px] font-bold text-sky-500 dark:text-sky-400 tracking-widest uppercase flex items-center gap-1.5">
+            <Waypoints className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400" /> Knowledge Graph
           </span>
           <p className="text-[9.5px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
             Drag nodes to reposition · Scroll to zoom · Double-click to open

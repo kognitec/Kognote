@@ -372,10 +372,10 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
             { id: "editor",     label: "Editor",   icon: Edit,          title: "Markdown Editor",        iconColor: "text-indigo-600 dark:text-indigo-400" },
             { id: "canvas",     label: "Canvas",   icon: Network,       title: "Whiteboard Canvas",      iconColor: "text-purple-600 dark:text-purple-400" },
             { id: "graph",      label: "Graph",    icon: Waypoints,     title: "Graph Connection View",  iconColor: "text-sky-500 dark:text-sky-400" },
-            { id: "flashcards", label: "Review",   icon: GraduationCap, title: "Flashcards Dashboard",  iconColor: "text-amber-400" },
-            { id: "calendar",   label: "Calendar", icon: Calendar,      title: "Calendar Timeline",      iconColor: "text-rose-400" },
+            { id: "flashcards", label: "Review",   icon: GraduationCap, title: "Flashcards Dashboard",  iconColor: "text-amber-500 dark:text-amber-400" },
+            { id: "calendar",   label: "Calendar", icon: Calendar,      title: "Calendar Timeline",      iconColor: "text-rose-500 dark:text-rose-400" },
             { id: "tasks",      label: "Tasks",    icon: CheckSquare,   title: "Tasks Board",            iconColor: "text-emerald-500 dark:text-emerald-400" },
-            { id: "board",      label: "Board",    icon: Columns,       title: "Kanban Board",           iconColor: "text-orange-400" },
+            { id: "board",      label: "Board",    icon: Columns,       title: "Kanban Board",           iconColor: "text-orange-500 dark:text-orange-400" },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeView === tab.id;

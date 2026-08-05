@@ -721,8 +721,8 @@ export const TasksView: React.FC = () => {
           {/* Header title */}
           <div>
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-indigo-400 tracking-widest uppercase flex items-center gap-1.5">
-                <CheckSquare className="h-3.5 w-3.5" /> Task Board
+              <span className="text-[10px] font-bold text-emerald-500 dark:text-emerald-400 tracking-widest uppercase flex items-center gap-1.5">
+                <CheckSquare className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" /> Task Board
               </span>
               {loading && <RefreshCw className="h-3.5 w-3.5 text-indigo-400 animate-spin" />}
             </div>
@@ -1401,10 +1401,10 @@ export const TasksView: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  openNoteByName(task.noteName, {
-                                    scrollToLine: task.lineNumber,
-                                    highlightText: task.content,
-                                  });
+                                  openNoteByName(task.noteName);
+                                  setTimeout(() => {
+                                    window.dispatchEvent(new CustomEvent("scroll-to-line", { detail: { lineNumber: task.lineNumber } }));
+                                  }, 150);
                                 }}
                                 className="flex items-center gap-1 text-[9.5px] font-extrabold text-indigo-700 dark:text-indigo-300 hover:text-indigo-900 dark:hover:text-white bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-600/30 border border-indigo-200 dark:border-indigo-500/30 px-2 py-0.5 rounded-md max-w-xs sm:max-w-md md:max-w-lg lg:max-w-2xl truncate transition-all cursor-pointer"
                                 title={`Open note: ${task.noteName} (Line ${task.lineNumber + 1})`}

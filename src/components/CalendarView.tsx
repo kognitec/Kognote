@@ -932,8 +932,8 @@ export const CalendarView: React.FC = () => {
           {/* Header */}
           <div className="px-4 pt-4 pb-3 border-b border-card-border/60">
             <div className="flex items-center justify-between">
-              <span className="text-[10.5px] font-extrabold text-indigo-400 tracking-widest uppercase flex items-center gap-1.5">
-                <CalendarIcon className="h-3.5 w-3.5" /> Calendar
+              <span className="text-[10.5px] font-extrabold text-rose-500 dark:text-rose-400 tracking-widest uppercase flex items-center gap-1.5">
+                <CalendarIcon className="h-3.5 w-3.5 text-rose-500 dark:text-rose-400" /> Calendar
               </span>
               {loading && <span className="text-[9px] text-indigo-400 animate-pulse font-semibold">SYNCING...</span>}
             </div>
@@ -1585,16 +1585,12 @@ export const CalendarView: React.FC = () => {
             {/* Note & Task Quick Actions */}
             <div className="flex items-center justify-between pt-2">
               {(activeDetailEvent.noteName || activeDetailEvent.calendarId === "tasks" || activeDetailEvent.calendarId === "due-notes") && (() => {
-                const scannedTask = scannedTasks.find(st => st.id === activeDetailEvent.id);
-                const noteName = activeDetailEvent.noteName || (activeDetailEvent.calendarId === "tasks" ? scannedTask?.noteName : undefined);
+                const noteName = activeDetailEvent.noteName || (activeDetailEvent.calendarId === "tasks" ? scannedTasks.find(st => st.id === activeDetailEvent.id)?.noteName : undefined);
                 if (noteName) {
                   return (
                     <button
                       onClick={() => {
-                        openNoteByName(noteName, {
-                          scrollToLine: scannedTask?.lineNumber,
-                          highlightText: scannedTask?.content || activeDetailEvent.summary
-                        });
+                        openNoteByName(noteName);
                         setActiveDetailEvent(null);
                       }}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition cursor-pointer shadow-md"

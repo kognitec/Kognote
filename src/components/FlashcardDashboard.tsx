@@ -1236,8 +1236,8 @@ ${noteBody}
     <div className="flex h-full w-full flex-col bg-background text-slate-200 select-none animate-fade-in">
       {/* Title Toolbar */}
       <div className="flex h-12 items-center justify-between border-b border-card-border bg-sidebar px-4 shrink-0">
-        <span className="text-xs font-bold text-slate-300 tracking-wider flex items-center gap-1.5">
-          <GraduationCap className="h-4 w-4 text-indigo-400" />
+        <span className="text-xs font-bold text-amber-500 dark:text-amber-400 tracking-wider flex items-center gap-1.5">
+          <GraduationCap className="h-4 w-4 text-amber-500 dark:text-amber-400" />
           SPACED REPETITION REVIEW
         </span>
 
