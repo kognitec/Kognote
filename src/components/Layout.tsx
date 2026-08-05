@@ -429,7 +429,7 @@ export const Layout: React.FC = () => {
                         }
                       }}
                       className={`group flex items-center gap-1.5 h-7 px-2.5 text-[11px] rounded-t-md border-x border-t transition-all duration-150 cursor-pointer flex-1 min-w-12.5 max-w-40 ${isActive
-                          ? "bg-card text-[#d946ef] border-card-border border-t-[#d946ef] font-semibold"
+                          ? "bg-card text-indigo-600 dark:text-indigo-400 border-card-border border-t-indigo-500 font-semibold"
                           : "bg-transparent text-slate-500 hover:text-slate-300 hover:bg-card-hover/50 border-transparent"
                         }`}
                     >
@@ -480,8 +480,8 @@ export const Layout: React.FC = () => {
                 ) : (
                   <div className="flex h-full w-full flex-col items-center justify-center bg-background text-slate-500 select-none">
                     <div className="flex flex-col items-center gap-4 max-w-sm text-center">
-                      <div className="p-4 rounded-full bg-white/5 border border-white/6 backdrop-blur-md shadow-xl">
-                        <FileText className="h-8 w-8 text-[#d946ef]" />
+                      <div className="p-4 rounded-full bg-indigo-500/10 dark:bg-indigo-500/15 border border-indigo-500/20 shadow-xl">
+                        <FileText className="h-8 w-8 text-indigo-600 dark:text-indigo-400" />
                       </div>
                       <h3 className="text-sm font-semibold text-foreground">No open notes</h3>
                       <p className="text-xs text-slate-500 leading-relaxed">
@@ -497,10 +497,10 @@ export const Layout: React.FC = () => {
                 ) : (
                   <div className="flex h-full w-full flex-col items-center justify-center bg-background text-slate-500 select-none">
                     <div className="flex flex-col items-center gap-4 max-w-sm text-center">
-                      <div className="p-4 rounded-full bg-white/5 border border-white/6 backdrop-blur-md shadow-xl">
-                        <Network className="h-8 w-8 text-indigo-500" />
+                      <div className="p-4 rounded-full bg-purple-500/10 dark:bg-purple-500/15 border border-purple-500/20 shadow-xl">
+                        <Network className="h-8 w-8 text-purple-600 dark:text-purple-400" />
                       </div>
-                      <h3 className="text-sm font-semibold text-slate-300">No open drawing canvases</h3>
+                      <h3 className="text-sm font-semibold text-foreground">No open drawing canvases</h3>
                       <p className="text-xs text-slate-500 leading-relaxed">
                         Create or select an Excalidraw drawing canvas in the sidebar directory.
                       </p>
