@@ -423,12 +423,12 @@ export const BoardView: React.FC = () => {
       <div className="flex flex-col gap-3 border-b border-card-border px-6 py-4 bg-sidebar/50 backdrop-blur-md shrink-0">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
-            <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-orange-500/10 border border-orange-500/20 text-orange-500 dark:text-orange-400">
+            <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-teal-500/10 border border-teal-500/20 text-teal-600 dark:text-teal-400">
               <Columns className="h-4.5 w-4.5" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-orange-500 dark:text-orange-400 leading-tight">Vault Board</h1>
-              <p className="text-[10px] text-orange-600/70 dark:text-orange-400/70 font-semibold tracking-wide uppercase">
+              <h1 className="text-sm font-bold text-teal-600 dark:text-teal-400 leading-tight">Vault Board</h1>
+              <p className="text-[10px] text-teal-600/70 dark:text-teal-400/70 font-semibold tracking-wide uppercase">
                 Kanban project board from note status
               </p>
             </div>
