@@ -374,7 +374,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
             { id: "graph",      label: "Graph",    icon: Waypoints,     title: "Graph Connection View",  iconColor: "text-sky-500 dark:text-sky-400" },
             { id: "flashcards", label: "Review",   icon: GraduationCap, title: "Flashcards Dashboard",  iconColor: "text-amber-400" },
             { id: "calendar",   label: "Calendar", icon: Calendar,      title: "Calendar Timeline",      iconColor: "text-rose-400" },
-            { id: "tasks",      label: "Tasks",    icon: CheckSquare,   title: "Tasks Board",            iconColor: "text-teal-400" },
+            { id: "tasks",      label: "Tasks",    icon: CheckSquare,   title: "Tasks Board",            iconColor: "text-emerald-500 dark:text-emerald-400" },
             { id: "board",      label: "Board",    icon: Columns,       title: "Kanban Board",           iconColor: "text-orange-400" },
           ].map((tab) => {
             const Icon = tab.icon;
