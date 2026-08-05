@@ -343,25 +343,49 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                     className="w-full rounded-xl bg-slate-50 dark:bg-card border border-slate-300 dark:border-slate-800 px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer font-mono shadow-2xs"
                   >
                     {[
-                      { value: "auto", label: "System Default (Auto)" },
-                      { value: "UTC", label: "UTC (Coordinated Universal Time)" },
-                      { value: "America/New_York", label: "Eastern Time (US & Canada) - EST/EDT" },
-                      { value: "America/Chicago", label: "Central Time (US & Canada) - CST/CDT" },
-                      { value: "America/Denver", label: "Mountain Time (US & Canada) - MST/MDT" },
-                      { value: "America/Los_Angeles", label: "Pacific Time (US & Canada) - PST/PDT" },
-                      { value: "Europe/London", label: "London / GMT / BST" },
-                      { value: "Europe/Paris", label: "Paris / Berlin / Rome - CET/CEST" },
-                      { value: "Europe/Moscow", label: "Moscow - MSK" },
-                      { value: "Asia/Kolkata", label: "India Standard Time - IST (UTC+5:30)" },
-                      { value: "Asia/Dubai", label: "Gulf Standard Time - GST (UTC+4:00)" },
-                      { value: "Asia/Singapore", label: "Singapore Standard Time - SGT (UTC+8:00)" },
-                      { value: "Asia/Tokyo", label: "Japan Standard Time - JST (UTC+9:00)" },
-                      { value: "Australia/Sydney", label: "Australian Eastern Time - AEST/AEDT" },
-                    ].map((tz) => (
-                      <option key={tz.value} value={tz.value}>
-                        {tz.label}
-                      </option>
-                    ))}
+                      { value: "auto", base: "System Default (Auto)" },
+                      { value: "UTC", base: "UTC (Coordinated Universal Time)" },
+                      { value: "America/New_York", base: "Eastern Time (US & Canada) - EST/EDT" },
+                      { value: "America/Chicago", base: "Central Time (US & Canada) - CST/CDT" },
+                      { value: "America/Denver", base: "Mountain Time (US & Canada) - MST/MDT" },
+                      { value: "America/Los_Angeles", base: "Pacific Time (US & Canada) - PST/PDT" },
+                      { value: "Europe/London", base: "London / GMT / BST" },
+                      { value: "Europe/Paris", base: "Paris / Berlin / Rome - CET/CEST" },
+                      { value: "Europe/Moscow", base: "Moscow - MSK" },
+                      { value: "Asia/Kolkata", base: "India Standard Time - IST" },
+                      { value: "Asia/Dubai", base: "Gulf Standard Time - GST" },
+                      { value: "Asia/Singapore", base: "Singapore Standard Time - SGT" },
+                      { value: "Asia/Tokyo", base: "Japan Standard Time - JST" },
+                      { value: "Australia/Sydney", base: "Australian Eastern Time - AEST/AEDT" },
+                    ].map((tz) => {
+                      const getDynamicUtcOffset = (tzValue: string): string => {
+                        try {
+                          const targetTz = tzValue === "auto" ? Intl.DateTimeFormat().resolvedOptions().timeZone : tzValue;
+                          const now = new Date();
+                          const parts = new Intl.DateTimeFormat("en-US", {
+                            timeZone: targetTz,
+                            timeZoneName: "shortOffset",
+                          }).formatToParts(now);
+                          const tzPart = parts.find((p) => p.type === "timeZoneName")?.value || "";
+                          let offset = tzPart.replace(/^GMT/, "UTC");
+                          if (offset === "UTC") offset = "UTC+00:00";
+                          return offset;
+                        } catch {
+                          return "";
+                        }
+                      };
+
+                      const offset = getDynamicUtcOffset(tz.value);
+                      const displayLabel = tz.value === "auto"
+                        ? `${tz.base} (${Intl.DateTimeFormat().resolvedOptions().timeZone} - ${offset})`
+                        : `${tz.base} (${offset})`;
+
+                      return (
+                        <option key={tz.value} value={tz.value}>
+                          {displayLabel}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
