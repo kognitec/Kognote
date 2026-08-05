@@ -231,7 +231,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
       data-tauri-drag-region
       onMouseDown={handleStartDrag}
       onDoubleClick={handleDoubleClick}
-      className="flex h-9 w-full items-center justify-between border-b border-card-border bg-background/95 backdrop-blur-xl px-2.5 text-foreground select-none relative z-40 transition-colors duration-200"
+      className="flex h-10 w-full items-center justify-between border-b border-card-border bg-background/95 backdrop-blur-xl px-3 text-foreground select-none relative z-40 transition-colors duration-200"
     >
       {/* Left section: Logo & macOS window controls */}
       <div className="flex items-center gap-2 shrink-0" data-tauri-drag-region>
