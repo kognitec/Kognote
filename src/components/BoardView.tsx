@@ -147,16 +147,20 @@ export const BoardView: React.FC = () => {
       });
   }, [noteCache, includeArchivedInScans]);
 
-  const [hoveredCard, setHoveredCard] = useState<{ card: BoardCard; rect: DOMRect } | null>(null);
+  const [hoveredCard, setHoveredCard] = useState<{ card: BoardCard; mouseX: number; mouseY: number } | null>(null);
   const hoverTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const mousePosRef = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const handleCardMouseEnter = (card: BoardCard, e: React.MouseEvent<HTMLDivElement>) => {
-    const targetEl = e.currentTarget;
+    mousePosRef.current = { x: e.clientX, y: e.clientY };
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
     hoverTimerRef.current = setTimeout(() => {
-      const rect = targetEl.getBoundingClientRect();
-      setHoveredCard({ card, rect });
-    }, 140);
+      setHoveredCard({ card, mouseX: mousePosRef.current.x, mouseY: mousePosRef.current.y });
+    }, 100);
+  };
+
+  const handleCardMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    mousePosRef.current = { x: e.clientX, y: e.clientY };
   };
 
   const handleCardMouseLeave = () => {
@@ -177,10 +181,9 @@ export const BoardView: React.FC = () => {
       .replace(/!\[.*?\]\(.*?\)/g, "")
       .replace(/\[\[(.*?)\]\]/g, "$1")
       .replace(/[`*_~#]/g, "")
-      .replace(/\s+/g, " ")
       .trim();
 
-    return clean.slice(0, 600);
+    return clean.slice(0, 1800);
   };
 
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
@@ -767,6 +770,7 @@ export const BoardView: React.FC = () => {
                       onDrop={(e) => handleDrop(e, col.name)}
                       onClick={() => openFile(card.file)}
                       onMouseEnter={(e) => handleCardMouseEnter(card, e)}
+                      onMouseMove={handleCardMouseMove}
                       onMouseLeave={handleCardMouseLeave}
                       className={`shrink-0 group flex flex-col gap-2.5 rounded-xl border p-3.5 transition-all duration-300 cursor-pointer relative glass-card overflow-hidden w-full bg-card text-foreground ${card.priority === "high"
                           ? "border-red-500/30 hover:border-red-500/50"
@@ -933,32 +937,27 @@ export const BoardView: React.FC = () => {
 
       {/* ── 🎴 Rich Note Preview Hover Popover Card ────────────────────────────── */}
       {hoveredCard && (() => {
-        const { card, rect } = hoveredCard;
+        const { card, mouseX, mouseY } = hoveredCard;
         const snippet = getCleanNoteSnippet(card);
         const totalTasks = card.todoTasks + card.completedTasks;
 
-        const popoverWidth = 264;  // Slimmer vertical card width (w-66 / 264px)
-        const popoverHeight = 320; // Estimated height for boundary check
+        const popoverWidth = 280;  // Slimmer vertical card width (w-70 / 280px)
+        const popoverHeight = 360; // Estimated height for boundary check
 
-        // Align top-right corner of popover near bottom-right corner of the hovered board card
-        let left = rect.right - popoverWidth;
-        let top = rect.bottom + 6;
+        // Position popover right next to mouse cursor pointer
+        let left = mouseX + 14;
+        let top = mouseY + 10;
 
         // Horizontal boundary checks
-        if (left < 12) {
-          left = 12;
-        } else if (left + popoverWidth > window.innerWidth - 12) {
-          left = window.innerWidth - popoverWidth - 12;
+        if (left + popoverWidth > window.innerWidth - 12) {
+          left = mouseX - popoverWidth - 14; // Flip to left of cursor if room runs out on right
+          if (left < 12) left = 12;
         }
 
-        // Vertical boundary checks to prevent cut-off
-        if (rect.bottom + popoverHeight > window.innerHeight - 12) {
-          const topAbove = rect.top - popoverHeight - 6;
-          if (topAbove >= 12) {
-            top = topAbove;
-          } else {
-            top = Math.max(12, window.innerHeight - popoverHeight - 12);
-          }
+        // Vertical boundary checks
+        if (top + popoverHeight > window.innerHeight - 12) {
+          top = mouseY - popoverHeight - 10; // Flip above cursor if room runs out at bottom
+          if (top < 12) top = Math.max(12, window.innerHeight - popoverHeight - 12);
         }
 
         return (
@@ -966,7 +965,7 @@ export const BoardView: React.FC = () => {
             style={{ left: `${left}px`, top: `${top}px` }}
             onMouseEnter={() => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); }}
             onMouseLeave={handleCardMouseLeave}
-            className="fixed z-50 w-66 p-3 rounded-xl bg-white/95 dark:bg-[#121420]/95 backdrop-blur-md border border-slate-300 dark:border-slate-800 shadow-2xl flex flex-col gap-2 text-xs text-slate-900 dark:text-slate-100 animate-fade-in pointer-events-auto max-h-85"
+            className="fixed z-50 w-70 p-3 rounded-xl bg-white/95 dark:bg-[#121420]/95 backdrop-blur-md border border-slate-300 dark:border-slate-800 shadow-2xl flex flex-col gap-2 text-xs text-slate-900 dark:text-slate-100 animate-fade-in pointer-events-auto max-h-96"
           >
             {/* Header: Note Name + Type Badge */}
             <div className="flex items-start justify-between gap-1.5 border-b border-slate-200 dark:border-slate-800/80 pb-1.5 shrink-0">
@@ -983,8 +982,8 @@ export const BoardView: React.FC = () => {
               </span>
             </div>
 
-            {/* Note Body Content - Vertical scrollable list with expanded text */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-0.5 max-h-48">
+            {/* Note Body Content - Expanded vertical scrollable list with up to 1800 chars of body content */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 max-h-64 min-h-24">
               {snippet ? (
                 <p className="text-[10.5px] text-slate-600 dark:text-slate-300 leading-relaxed font-sans select-none whitespace-pre-wrap">
                   {snippet}
