@@ -1113,6 +1113,29 @@ html.light milkdown-block-edit button:hover svg {
   animation: fade-in 0.2s ease-out forwards;
 }
 
+/* 🎯 Flash highlight animation for task line jumps */
+@keyframes kognoteFlashPulse {
+  0% {
+    background-color: rgba(99, 102, 241, 0.35) !important;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.5) !important;
+    border-radius: 6px;
+  }
+  70% {
+    background-color: rgba(99, 102, 241, 0.18) !important;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3) !important;
+    border-radius: 6px;
+  }
+  100% {
+    background-color: transparent !important;
+    box-shadow: none !important;
+  }
+}
+
+.kognote-task-flash {
+  animation: kognoteFlashPulse 2s ease-out forwards !important;
+  transition: all 0.3s ease !important;
+}
+
 /* Hide Excalidraw branding and help buttons from the canvas layout */
 .excalidraw .help-icon,
 .excalidraw .footer-center,

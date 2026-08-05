@@ -466,6 +466,55 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
     }
   }, [openNoteByName]);
 
+  // Scroll to task line + 2-second flash highlight listener
+  useEffect(() => {
+    const handleScrollToLine = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail || !containerRef.current) return;
+
+      const { lineNumber, highlightText } = detail;
+
+      setTimeout(() => {
+        if (!containerRef.current) return;
+        const editorEl = containerRef.current.querySelector(".milkdown") || containerRef.current;
+        const blockNodes = Array.from(
+          editorEl.querySelectorAll("p, li, h1, h2, h3, h4, h5, h6, blockquote, tr, .custom-task-item")
+        );
+
+        let targetEl: Element | null = null;
+
+        if (highlightText && typeof highlightText === "string" && highlightText.trim()) {
+          const cleanTarget = highlightText.replace(/^[-*+]\s*\[[ xX]\]\s*/, "").trim().toLowerCase();
+          for (const node of blockNodes) {
+            const nodeText = (node.textContent || "").trim().toLowerCase();
+            if (cleanTarget.length > 3 && nodeText.includes(cleanTarget.slice(0, 25))) {
+              targetEl = node;
+              break;
+            }
+          }
+        }
+
+        if (!targetEl && lineNumber !== undefined && lineNumber >= 0 && blockNodes.length > 0) {
+          const idx = Math.min(lineNumber, blockNodes.length - 1);
+          targetEl = blockNodes[idx];
+        }
+
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+          targetEl.classList.remove("kognote-task-flash");
+          void (targetEl as HTMLElement).offsetWidth;
+          targetEl.classList.add("kognote-task-flash");
+          setTimeout(() => {
+            targetEl?.classList.remove("kognote-task-flash");
+          }, 2200);
+        }
+      }, 150);
+    };
+
+    window.addEventListener("kognote-scroll-to-line", handleScrollToLine);
+    return () => window.removeEventListener("kognote-scroll-to-line", handleScrollToLine);
+  }, []);
+
   // Extract YAML frontmatter to prevent raw --- lines from appearing in preview body
   const frontmatterInfo = useMemo(() => parseFrontmatter(content), [content]);
   const frontmatterRawRef = useRef(frontmatterInfo.frontmatterRaw);

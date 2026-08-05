@@ -378,6 +378,56 @@ export const SourceViewer: React.FC<SourceEditorProps> = ({ content, onChange, o
   }, [theme]);
 
   useEffect(() => {
+    const handleScrollToLine = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail || !viewRef.current) return;
+
+      const { lineNumber, highlightText } = detail;
+      const view = viewRef.current;
+
+      setTimeout(() => {
+        if (!viewRef.current) return;
+        const doc = view.state.doc;
+        let targetLine = lineNumber !== undefined ? Math.min(Math.max(1, lineNumber + 1), doc.lines) : 1;
+
+        if (highlightText && typeof highlightText === "string" && highlightText.trim()) {
+          const cleanTarget = highlightText.replace(/^[-*+]\s*\[[ xX]\]\s*/, "").trim().toLowerCase();
+          for (let i = 1; i <= doc.lines; i++) {
+            const lineText = doc.line(i).text.trim().toLowerCase();
+            if (cleanTarget.length > 3 && lineText.includes(cleanTarget.slice(0, 25))) {
+              targetLine = i;
+              break;
+            }
+          }
+        }
+
+        const lineObj = doc.line(targetLine);
+        view.dispatch({
+          selection: { anchor: lineObj.from, head: lineObj.to },
+          effects: EditorView.scrollIntoView(lineObj.from, { y: "center" }),
+        });
+
+        try {
+          const lineDom = view.domAtPos(lineObj.from).node as HTMLElement;
+          const lineParent = (lineDom?.nodeType === 3 ? lineDom.parentElement : lineDom) as HTMLElement | null;
+          const targetLineEl = lineParent?.closest(".cm-line") || lineParent;
+          if (targetLineEl) {
+            targetLineEl.classList.remove("kognote-task-flash");
+            void (targetLineEl as HTMLElement).offsetWidth;
+            targetLineEl.classList.add("kognote-task-flash");
+            setTimeout(() => {
+              targetLineEl.classList.remove("kognote-task-flash");
+            }, 2200);
+          }
+        } catch (err) {}
+      }, 150);
+    };
+
+    window.addEventListener("kognote-scroll-to-line", handleScrollToLine);
+    return () => window.removeEventListener("kognote-scroll-to-line", handleScrollToLine);
+  }, []);
+
+  useEffect(() => {
     if (viewRef.current) {
       const currentVal = viewRef.current.state.doc.toString();
       if (currentVal !== content) {

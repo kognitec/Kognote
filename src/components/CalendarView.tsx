@@ -1585,12 +1585,16 @@ export const CalendarView: React.FC = () => {
             {/* Note & Task Quick Actions */}
             <div className="flex items-center justify-between pt-2">
               {(activeDetailEvent.noteName || activeDetailEvent.calendarId === "tasks" || activeDetailEvent.calendarId === "due-notes") && (() => {
-                const noteName = activeDetailEvent.noteName || (activeDetailEvent.calendarId === "tasks" ? scannedTasks.find(st => st.id === activeDetailEvent.id)?.noteName : undefined);
+                const scannedTask = scannedTasks.find(st => st.id === activeDetailEvent.id);
+                const noteName = activeDetailEvent.noteName || (activeDetailEvent.calendarId === "tasks" ? scannedTask?.noteName : undefined);
                 if (noteName) {
                   return (
                     <button
                       onClick={() => {
-                        openNoteByName(noteName);
+                        openNoteByName(noteName, {
+                          scrollToLine: scannedTask?.lineNumber,
+                          highlightText: scannedTask?.content || activeDetailEvent.summary
+                        });
                         setActiveDetailEvent(null);
                       }}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition cursor-pointer shadow-md"

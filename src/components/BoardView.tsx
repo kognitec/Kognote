@@ -147,6 +147,42 @@ export const BoardView: React.FC = () => {
       });
   }, [noteCache, includeArchivedInScans]);
 
+  const [hoveredCard, setHoveredCard] = useState<{ card: BoardCard; rect: DOMRect } | null>(null);
+  const hoverTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const handleCardMouseEnter = (card: BoardCard, e: React.MouseEvent<HTMLDivElement>) => {
+    const targetEl = e.currentTarget;
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => {
+      const rect = targetEl.getBoundingClientRect();
+      setHoveredCard({ card, rect });
+    }, 140);
+  };
+
+  const handleCardMouseLeave = () => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => {
+      setHoveredCard(null);
+    }, 80);
+  };
+
+  const getCleanNoteSnippet = (card: BoardCard): string => {
+    const cached = noteCache[card.file.path];
+    const rawText = cached?.content || card.snippet || "";
+    if (!rawText) return "";
+
+    const clean = rawText
+      .replace(/---[\s\S]*?---/, "")
+      .replace(/^#+\s+/gm, "")
+      .replace(/!\[.*?\]\(.*?\)/g, "")
+      .replace(/\[\[(.*?)\]\]/g, "$1")
+      .replace(/[`*_~#]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    return clean.slice(0, 200);
+  };
+
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const [draggedCard, setDraggedCard] = useState<BoardCard | null>(null);
 
@@ -730,6 +766,8 @@ export const BoardView: React.FC = () => {
                       onDragEnter={(e) => handleDragEnter(e, col.name)}
                       onDrop={(e) => handleDrop(e, col.name)}
                       onClick={() => openFile(card.file)}
+                      onMouseEnter={(e) => handleCardMouseEnter(card, e)}
+                      onMouseLeave={handleCardMouseLeave}
                       className={`shrink-0 group flex flex-col gap-2.5 rounded-xl border p-3.5 transition-all duration-300 cursor-pointer relative glass-card overflow-hidden w-full bg-card text-foreground ${card.priority === "high"
                           ? "border-red-500/30 hover:border-red-500/50"
                           : card.priority === "medium"
@@ -834,7 +872,6 @@ export const BoardView: React.FC = () => {
                       <div className="w-full select-none pt-0.5">
                         <span
                           className="text-xs font-bold text-foreground leading-snug group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors line-clamp-2 wrap-break-word block"
-                          title={card.title}
                         >
                           {card.title}
                         </span>
@@ -893,6 +930,83 @@ export const BoardView: React.FC = () => {
           );
         })}
       </div>
+
+      {/* ── 🎴 Rich Note Preview Hover Popover Card ────────────────────────────── */}
+      {hoveredCard && (() => {
+        const { card, rect } = hoveredCard;
+        const snippet = getCleanNoteSnippet(card);
+        const totalTasks = card.todoTasks + card.completedTasks;
+        const isRightSide = rect.left > window.innerWidth / 2;
+        const isBottomSide = rect.top > window.innerHeight / 2;
+
+        const popoverWidth = 320;
+        let left = isRightSide ? rect.left - popoverWidth + 20 : rect.left + rect.width - 20;
+        let top = isBottomSide ? rect.top - 180 : rect.top + rect.height + 8;
+
+        left = Math.max(16, Math.min(left, window.innerWidth - popoverWidth - 16));
+        top = Math.max(16, Math.min(top, window.innerHeight - 200));
+
+        return (
+          <div
+            style={{ left: `${left}px`, top: `${top}px` }}
+            onMouseEnter={() => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); }}
+            onMouseLeave={handleCardMouseLeave}
+            className="fixed z-50 w-80 p-4 rounded-2xl bg-white/95 dark:bg-[#121420]/95 backdrop-blur-md border border-slate-300 dark:border-slate-800 shadow-2xl flex flex-col gap-2.5 text-xs text-slate-900 dark:text-slate-100 animate-fade-in pointer-events-auto"
+          >
+            {/* Header: Note Name + Type Badge */}
+            <div className="flex items-start justify-between gap-2 border-b border-slate-200 dark:border-slate-800/80 pb-2">
+              <div className="flex flex-col gap-0.5 min-w-0">
+                <span className="font-extrabold text-xs text-slate-900 dark:text-slate-100 truncate">
+                  {card.title}
+                </span>
+                <span className="text-[9.5px] text-slate-500 font-mono truncate">
+                  {card.file.path.replace(/\\/g, "/").split("/").slice(-2).join("/")}
+                </span>
+              </div>
+              <span className="px-2 py-0.5 rounded-full text-[8.5px] font-extrabold uppercase tracking-wider bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20 shrink-0">
+                {card.type || "Note"}
+              </span>
+            </div>
+
+            {/* Note Snippet */}
+            {snippet ? (
+              <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-4 font-sans select-none">
+                {snippet}...
+              </p>
+            ) : (
+              <span className="text-[10.5px] text-slate-400 italic">No body content</span>
+            )}
+
+            {/* Footer Metadata */}
+            <div className="flex items-center justify-between border-t border-slate-200 dark:border-slate-800/80 pt-2 text-[9.5px] text-slate-500 font-medium">
+              <div className="flex items-center gap-1 overflow-hidden">
+                {card.tags && card.tags.length > 0 ? (
+                  card.tags.slice(0, 3).map((t) => (
+                    <span key={t} className="text-[8.5px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20">
+                      #{t}
+                    </span>
+                  ))
+                ) : (
+                  <span>No tags</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {totalTasks > 0 && (
+                  <span className="font-extrabold text-emerald-600 dark:text-emerald-400">
+                    ☑️ {card.completedTasks}/{totalTasks} tasks
+                  </span>
+                )}
+                {card.priority !== "none" && (
+                  <span className="uppercase font-bold text-[8.5px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700">
+                    {card.priority}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
