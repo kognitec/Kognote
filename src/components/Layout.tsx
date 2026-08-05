@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useVault } from "../contexts/VaultContext";
 import { useSync } from "../contexts/SyncContext";
-import { store } from "../contexts/SettingsContext";
+import { store, useSettings } from "../contexts/SettingsContext";
+import { isModKey } from "../lib/keyboard-utils";
 import { FileTree } from "./FileTree";
 import { Editor } from "./Editor";
 import { Titlebar } from "./Titlebar";
@@ -92,8 +93,11 @@ export const Layout: React.FC = () => {
     closeFile,
     setActiveView,
     noteCache,
-    triggerNotesScan
+    triggerNotesScan,
+    openDailyNote,
+    setCreateFileModal
   } = useVault();
+  const { setVaultPath } = useSettings();
   const { triggerSync, registerSyncHandler, unregisterSyncHandler } = useSync();
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -318,6 +322,129 @@ export const Layout: React.FC = () => {
       unlistenMenu.then((f) => f());
     };
   }, [setActiveView]);
+
+  // Master Global App Actions & Cross-Platform Shortcuts Engine (Windows, macOS & Linux)
+  useEffect(() => {
+    const handleNewNote = () => setCreateFileModal({ isOpen: true, parentDir: null });
+    const handleNewDaily = () => {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      openDailyNote(todayStr);
+    };
+    const handleOpenVault = async () => {
+      try {
+        const { open } = await import("@tauri-apps/plugin-dialog");
+        const selected = await open({
+          directory: true,
+          multiple: false,
+          title: "Select or Create your Notes Vault Directory",
+        });
+        if (selected && typeof selected === "string") {
+          await setVaultPath(selected);
+        }
+      } catch (err) {
+        console.error("Error choosing vault folder:", err);
+      }
+    };
+    const handleSaveNote = () => {
+      window.dispatchEvent(new CustomEvent("trigger-save-active-note"));
+    };
+    const handleCloseNote = () => {
+      if (activeFile) closeFile(activeFile.path);
+    };
+    const handleRevealNote = () => {
+      if (activeFile) {
+        import("../lib/ipc").then(({ invokeIPC }) => {
+          invokeIPC("reveal_in_finder", { path: activeFile.path }).catch(console.error);
+        });
+      }
+    };
+
+    window.addEventListener("new-note-action", handleNewNote);
+    window.addEventListener("new-daily-action", handleNewDaily);
+    window.addEventListener("open-vault-action", handleOpenVault);
+    window.addEventListener("save-note-action", handleSaveNote);
+    window.addEventListener("close-note-action", handleCloseNote);
+    window.addEventListener("reveal-note-action", handleRevealNote);
+
+    // Master Global Keydown Listener for Cross-Platform Shortcuts
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (!isModKey(e)) return;
+
+      const key = e.key.toLowerCase();
+
+      // Shift combinations
+      if (e.shiftKey) {
+        if (key === "d") {
+          e.preventDefault();
+          handleNewDaily();
+        } else if (key === "r") {
+          e.preventDefault();
+          handleRevealNote();
+        } else if (key === "c") {
+          e.preventDefault();
+          setIsChatOpen((prev) => !prev);
+        }
+        return;
+      }
+
+      // Standard shortcuts
+      if (key === "n") {
+        e.preventDefault();
+        handleNewNote();
+      } else if (key === "o") {
+        e.preventDefault();
+        handleOpenVault();
+      } else if (key === "s") {
+        e.preventDefault();
+        handleSaveNote();
+      } else if (key === "w") {
+        e.preventDefault();
+        handleCloseNote();
+      } else if (key === "k") {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("open-command-palette"));
+      } else if (key === "\\") {
+        e.preventDefault();
+        setIsSidebarVisible((prev) => !prev);
+      } else if (key === ",") {
+        e.preventDefault();
+        setIsSettingsOpen(true);
+      } else if (key === "1") {
+        e.preventDefault();
+        setActiveView("editor");
+      } else if (key === "2") {
+        e.preventDefault();
+        setActiveView("canvas");
+      } else if (key === "3") {
+        e.preventDefault();
+        setActiveView("graph");
+      } else if (key === "4") {
+        e.preventDefault();
+        setActiveView("flashcards");
+      } else if (key === "5") {
+        e.preventDefault();
+        setActiveView("calendar");
+      } else if (key === "6") {
+        e.preventDefault();
+        setActiveView("tasks");
+      } else if (key === "7") {
+        e.preventDefault();
+        setActiveView("board");
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+
+    return () => {
+      window.removeEventListener("new-note-action", handleNewNote);
+      window.removeEventListener("new-daily-action", handleNewDaily);
+      window.removeEventListener("open-vault-action", handleOpenVault);
+      window.removeEventListener("save-note-action", handleSaveNote);
+      window.removeEventListener("close-note-action", handleCloseNote);
+      window.removeEventListener("reveal-note-action", handleRevealNote);
+      window.removeEventListener("keydown", handleGlobalKeyDown);
+    };
+  }, [activeFile, closeFile, openDailyNote, setCreateFileModal, setVaultPath, setActiveView]);
 
   // Register the file-system refresh as the first sync step
   useEffect(() => {
