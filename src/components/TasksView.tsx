@@ -727,7 +727,19 @@ export const TasksView: React.FC = () => {
               {loading && <RefreshCw className="h-3.5 w-3.5 text-indigo-400 animate-spin" />}
             </div>
             <p className="text-[9.5px] text-slate-500 mt-1 leading-normal">
-              Scans checklists (`- [ ]`) across notes in real-time ({userTimezone === "auto" ? "System Timezone" : userTimezone}).
+              Scans checklists (`- [ ]`) across notes in real-time ({(() => {
+                try {
+                  const targetTz = userTimezone === "auto" ? Intl.DateTimeFormat().resolvedOptions().timeZone : userTimezone;
+                  const now = new Date();
+                  const parts = new Intl.DateTimeFormat("en-US", { timeZone: targetTz, timeZoneName: "shortOffset" }).formatToParts(now);
+                  const tzPart = parts.find(p => p.type === "timeZoneName")?.value || "";
+                  let offset = tzPart.replace(/^GMT/, "UTC");
+                  if (offset === "UTC") offset = "UTC+00:00";
+                  return `${targetTz} - ${offset}`;
+                } catch {
+                  return userTimezone === "auto" ? "System Timezone" : userTimezone;
+                }
+              })()}).
             </p>
           </div>
 
