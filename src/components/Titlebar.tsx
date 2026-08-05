@@ -19,6 +19,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
   const { activeView, setActiveView } = useVault();
   const { isSyncing, lastSyncAt, triggerSync } = useSync();
   const { theme, toggleTheme } = useTheme();
+  const appWindow = getCurrentWindow();
   const [isMaximized, setIsMaximized] = useState(false);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const menuContainerRef = useRef<HTMLDivElement>(null);
