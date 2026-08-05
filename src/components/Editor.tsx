@@ -679,6 +679,112 @@ export const Editor: React.FC = () => {
     }
   };
 
+  // AI Suggest Links action
+  const handleSuggestLinks = async () => {
+    if (!activeFile || !content) return;
+    setIsFormatting(true);
+    try {
+      const allNoteTitles = Object.keys(noteCache).map((path) => {
+        const parts = path.replace(/\\/g, "/").split("/");
+        return parts[parts.length - 1].replace(/\.md$/, "");
+      });
+      const suggestions = await aiService.suggestLinks(content, allNoteTitles);
+      if (suggestions.length === 0) {
+        setToastMessage("No new wikilink connections suggested.");
+      } else {
+        let updated = content;
+        let count = 0;
+        for (const s of suggestions) {
+          if (s.originalText && s.linkTarget && updated.includes(s.originalText)) {
+            updated = updated.replace(s.originalText, `[[${s.linkTarget}]]`);
+            count++;
+          }
+        }
+        if (count > 0) {
+          handleContentChangeTyping(updated, activeFile.path);
+          setToastMessage(`Inserted ${count} AI wikilink connection(s)!`);
+        } else {
+          setToastMessage("No new wikilinks inserted.");
+        }
+      }
+      setTimeout(() => setToastMessage(null), 3000);
+    } catch (e: any) {
+      console.error("Suggest links failed:", e);
+      setToastMessage("Suggest links failed.");
+      setTimeout(() => setToastMessage(null), 3000);
+    } finally {
+      setIsFormatting(false);
+    }
+  };
+
+  // AI Continue Writing action
+  const handleContinueWriting = async () => {
+    if (!activeFile || !content) return;
+    setIsFormatting(true);
+    try {
+      const prompt = `Continue writing naturally from where the following text leaves off:\n\n${content.slice(-2000)}`;
+      const sysPrompt = "You are a creative co-writer. Continue the text seamlessly matching tone and style. Output ONLY the appended text.";
+      const continuation = await aiService.generateText(prompt, sysPrompt);
+      if (continuation) {
+        const updated = `${content}\n\n${continuation.trim()}`;
+        handleContentChangeTyping(updated, activeFile.path);
+        setToastMessage("AI continued writing!");
+        setTimeout(() => setToastMessage(null), 2500);
+      }
+    } catch (e: any) {
+      console.error("AI continue failed:", e);
+      setToastMessage("AI continue writing failed.");
+      setTimeout(() => setToastMessage(null), 3000);
+    } finally {
+      setIsFormatting(false);
+    }
+  };
+
+  // AI Rewrite Note action
+  const handleRewriteNote = async () => {
+    if (!activeFile || !content) return;
+    setIsFormatting(true);
+    try {
+      const prompt = `Rewrite and polish the following note content for clarity and elegance:\n\n${content}`;
+      const sysPrompt = "You are an expert technical editor. Polish the text maintaining Markdown structure. Output ONLY the rewritten text.";
+      const rewritten = await aiService.generateText(prompt, sysPrompt);
+      if (rewritten) {
+        handleContentChangeTyping(rewritten.trim(), activeFile.path);
+        setToastMessage("AI rewritten note!");
+        setTimeout(() => setToastMessage(null), 2500);
+      }
+    } catch (e: any) {
+      console.error("AI rewrite failed:", e);
+      setToastMessage("AI rewrite note failed.");
+      setTimeout(() => setToastMessage(null), 3000);
+    } finally {
+      setIsFormatting(false);
+    }
+  };
+
+  // Register command palette event listeners
+  useEffect(() => {
+    const onAiFormat = () => handleAiFormat();
+    const onInstantFormat = () => handleFastFormat();
+    const onSuggestLinks = () => handleSuggestLinks();
+    const onContinueWriting = () => handleContinueWriting();
+    const onRewrite = () => handleRewriteNote();
+
+    window.addEventListener("trigger-ai-format", onAiFormat);
+    window.addEventListener("trigger-instant-format", onInstantFormat);
+    window.addEventListener("trigger-suggest-links", onSuggestLinks);
+    window.addEventListener("trigger-continue-writing", onContinueWriting);
+    window.addEventListener("trigger-rewrite", onRewrite);
+
+    return () => {
+      window.removeEventListener("trigger-ai-format", onAiFormat);
+      window.removeEventListener("trigger-instant-format", onInstantFormat);
+      window.removeEventListener("trigger-suggest-links", onSuggestLinks);
+      window.removeEventListener("trigger-continue-writing", onContinueWriting);
+      window.removeEventListener("trigger-rewrite", onRewrite);
+    };
+  }, [content, activeFile, handleAiFormat, handleFastFormat]);
+
   // Merge Notes action
   const getMarkdownNotesList = useCallback(() => {
     const list: FileEntry[] = [];
