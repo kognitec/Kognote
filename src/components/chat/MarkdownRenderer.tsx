@@ -66,7 +66,7 @@ function parseInline(
           key={`wiki-${match.index}`}
           type="button"
           onClick={() => openNoteByName?.(target)}
-          className="inline-flex items-center gap-1 font-semibold text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 rounded text-[11px] transition-colors cursor-pointer my-0.5"
+          className="inline-flex items-center gap-1 font-semibold text-indigo-600 dark:text-indigo-300 hover:text-indigo-700 dark:hover:text-indigo-200 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 rounded text-[10.5px] transition-colors cursor-pointer my-0.5 break-all leading-snug max-w-full"
           title={`Open note "${target}"`}
         >
           <span>[[{label}]]</span>
@@ -189,13 +189,13 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     if (currentList) {
       if (currentList.type === "ul") {
         blocks.push(
-          <ul key={`ul-${blocks.length}`} className="list-disc list-inside space-y-1 my-1.5 text-slate-700 dark:text-slate-300 text-xs pl-1">
+          <ul key={`ul-${blocks.length}`} className="list-disc list-inside space-y-1 my-1.5 text-slate-800 dark:text-slate-200 text-[11px] pl-1">
             {currentList.items}
           </ul>
         );
       } else {
         blocks.push(
-          <ol key={`ol-${blocks.length}`} className="list-decimal list-inside space-y-1 my-1.5 text-slate-700 dark:text-slate-300 text-xs pl-1">
+          <ol key={`ol-${blocks.length}`} className="list-decimal list-inside space-y-1 my-1.5 text-slate-800 dark:text-slate-200 text-[11px] pl-1">
             {currentList.items}
           </ol>
         );
@@ -355,7 +355,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     // Standard Paragraph
     flushList();
     blocks.push(
-      <p key={`p-${i}`} className="text-xs text-slate-800 dark:text-slate-300 leading-relaxed my-1 select-text">
+      <p key={`p-${i}`} className="text-[11px] text-slate-800 dark:text-slate-300 leading-relaxed my-0.5 select-text">
         {parseInline(line, openNoteByName)}
       </p>
     );
