@@ -170,6 +170,23 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
     };
   }, [appWindow]);
 
+  const [isOptionPressed, setIsOptionPressed] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Alt" || e.altKey) setIsOptionPressed(true);
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (!e.altKey) setIsOptionPressed(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, []);
+
   const handleMinimize = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     try {
@@ -258,7 +275,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
               className="w-3 h-3 rounded-full bg-[#28c840] border border-[#1aab29] hover:bg-[#1aab29] flex items-center justify-center cursor-pointer relative transition-all shadow-xs"
               title="Click: Fullscreen | Option+Click: Zoom"
             >
-              <span className="absolute text-[7px] text-[#004d02] font-black opacity-0 group-hover/traffic:opacity-100 transition-opacity leading-none">⤢</span>
+              <span className="absolute text-[7px] text-[#004d02] font-black opacity-0 group-hover/traffic:opacity-100 transition-opacity leading-none">{isOptionPressed ? "+" : "⤢"}</span>
             </button>
           </div>
         )}
