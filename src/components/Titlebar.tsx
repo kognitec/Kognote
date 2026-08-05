@@ -569,7 +569,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
             <button
               onClick={handleMaximize}
               className="flex h-7 w-8.5 items-center justify-center rounded-md text-slate-400 hover:bg-white/10 hover:text-slate-100 transition-all cursor-pointer relative"
-              title={isMaximized ? "Restore Window" : "Maximize Window"}
+              title={isMaximized ? "Restore Window (Win+Z for Snap Layouts)" : "Maximize Window (Win+Z for Snap Layouts)"}
             >
               {isMaximized ? (
                 <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
