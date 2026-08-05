@@ -1486,28 +1486,28 @@ ${noteBody}
                                         {cell.flashcards > 0 && (
                                           <div
                                             style={{ width: `${(cell.flashcards / cell.total) * 100}%` }}
-                                            className="h-full bg-amber-400 dark:bg-amber-400 border-r border-black/20 dark:border-black/40 last:border-r-0 transition-all"
+                                            className="h-full bg-amber-500 dark:bg-amber-400 border-r border-black/20 dark:border-black/40 last:border-r-0 transition-all"
                                             title={`Flashcards: ${cell.flashcards}`}
                                           />
                                         )}
                                         {cell.noteEdits > 0 && (
                                           <div
                                             style={{ width: `${(cell.noteEdits / cell.total) * 100}%` }}
-                                            className="h-full bg-violet-500 dark:bg-violet-400 border-r border-black/20 dark:border-black/40 last:border-r-0 transition-all"
+                                            className="h-full bg-indigo-600 dark:bg-indigo-400 border-r border-black/20 dark:border-black/40 last:border-r-0 transition-all"
                                             title={`Notes: ${cell.noteEdits}`}
                                           />
                                         )}
                                         {cell.tasksCompleted > 0 && (
                                           <div
                                             style={{ width: `${(cell.tasksCompleted / cell.total) * 100}%` }}
-                                            className="h-full bg-teal-400 dark:bg-teal-400 border-r border-black/20 dark:border-black/40 last:border-r-0 transition-all"
+                                            className="h-full bg-emerald-500 dark:bg-emerald-400 border-r border-black/20 dark:border-black/40 last:border-r-0 transition-all"
                                             title={`Tasks: ${cell.tasksCompleted}`}
                                           />
                                         )}
                                         {cell.boardDone > 0 && (
                                           <div
                                             style={{ width: `${(cell.boardDone / cell.total) * 100}%` }}
-                                            className="h-full bg-orange-400 dark:bg-orange-400 border-r border-black/20 dark:border-black/40 last:border-r-0 transition-all"
+                                            className="h-full bg-slate-500 dark:bg-slate-400 border-r border-black/20 dark:border-black/40 last:border-r-0 transition-all"
                                             title={`Board Done: ${cell.boardDone}`}
                                           />
                                         )}
@@ -1526,25 +1526,25 @@ ${noteBody}
                                         <div className="flex flex-col gap-1 text-[10px]">
                                           {cell.flashcards > 0 && (
                                             <div className="flex items-center gap-2">
-                                              <div className="h-2 w-2 rounded-xs bg-amber-400 shrink-0" />
+                                              <div className="h-2 w-2 rounded-xs bg-amber-500 dark:bg-amber-400 shrink-0" />
                                               <span className="text-slate-300 font-medium">{cell.flashcards} Flashcards reviewed</span>
                                             </div>
                                           )}
                                           {cell.noteEdits > 0 && (
                                             <div className="flex items-center gap-2">
-                                              <div className="h-2 w-2 rounded-xs bg-violet-400 shrink-0" />
+                                              <div className="h-2 w-2 rounded-xs bg-indigo-500 dark:bg-indigo-400 shrink-0" />
                                               <span className="text-slate-300 font-medium">{cell.noteEdits} Notes updated</span>
                                             </div>
                                           )}
                                           {cell.tasksCompleted > 0 && (
                                             <div className="flex items-center gap-2">
-                                              <div className="h-2 w-2 rounded-xs bg-teal-400 shrink-0" />
+                                              <div className="h-2 w-2 rounded-xs bg-emerald-500 dark:bg-emerald-400 shrink-0" />
                                               <span className="text-slate-300 font-medium">{cell.tasksCompleted} Tasks completed</span>
                                             </div>
                                           )}
                                           {cell.boardDone > 0 && (
                                             <div className="flex items-center gap-2">
-                                              <div className="h-2 w-2 rounded-xs bg-orange-400 shrink-0" />
+                                              <div className="h-2 w-2 rounded-xs bg-slate-400 dark:bg-slate-300 shrink-0" />
                                               <span className="text-slate-300 font-medium">{cell.boardDone} Board items Done</span>
                                             </div>
                                           )}
@@ -1572,19 +1572,19 @@ ${noteBody}
                     <span>Total 12-week activity: <strong className="text-indigo-600 dark:text-indigo-400 font-bold">{streakStats.totalActivityCount} interactions</strong></span>
                     <div className="flex items-center gap-3">
                       <div className="flex items-center gap-1.5">
-                        <div className="h-2 w-2 rounded-xs bg-amber-400 shrink-0" />
+                        <div className="h-2 w-2 rounded-xs bg-amber-500 dark:bg-amber-400 shrink-0" />
                         <span className="text-slate-600 dark:text-slate-300 font-semibold">Flashcards</span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <div className="h-2 w-2 rounded-xs bg-violet-400 shrink-0" />
+                        <div className="h-2 w-2 rounded-xs bg-indigo-600 dark:bg-indigo-400 shrink-0" />
                         <span className="text-slate-600 dark:text-slate-300 font-semibold">Notes</span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <div className="h-2 w-2 rounded-xs bg-teal-400 shrink-0" />
+                        <div className="h-2 w-2 rounded-xs bg-emerald-500 dark:bg-emerald-400 shrink-0" />
                         <span className="text-slate-600 dark:text-slate-300 font-semibold">Tasks</span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <div className="h-2 w-2 rounded-xs bg-orange-400 shrink-0" />
+                        <div className="h-2 w-2 rounded-xs bg-slate-500 dark:bg-slate-400 shrink-0" />
                         <span className="text-slate-600 dark:text-slate-300 font-semibold">Kanban Done</span>
                       </div>
                     </div>
