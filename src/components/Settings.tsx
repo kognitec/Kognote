@@ -842,11 +842,11 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                     KogNote enforces standard metadata schemas across all notes to keep features in sync:
                   </p>
                   <ul className="text-[11px] font-mono text-slate-800 dark:text-slate-300 space-y-1.5 list-disc pl-4 bg-slate-100 dark:bg-black/40 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
-                    <li><strong>Tasks & Priorities</strong>: <code className="text-indigo-700 dark:text-indigo-300">- [ ] Task text @YYYY-MM-DD !!! #tag</code></li>
-                    <li><strong>Kanban Status & Priority</strong>: <code className="text-indigo-700 dark:text-indigo-300">status: backlog | todo | in-progress | in-review | done</code></li>
-                    <li><strong>WikiLinks & Tags</strong>: <code className="text-indigo-700 dark:text-indigo-300">[[Target Note Title]]</code> · <code className="text-indigo-700 dark:text-indigo-300">#tag-name</code></li>
-                    <li><strong>Flashcards Syntax</strong>: <code className="text-indigo-700 dark:text-indigo-300">@flashcard ( Question :: Answer )</code></li>
-                    <li><strong>AI Block Diffs</strong>: <code className="text-emerald-700 dark:text-emerald-400">&lt;&lt;&lt;&lt;&lt;&lt;&lt; SEARCH \n [existing] \n ======= \n [updated] \n &gt;&gt;&gt;&gt;&gt;&gt;&gt; REPLACE</code></li>
+                    <li><strong>Tasks & Priorities</strong>: <code className="text-emerald-600 dark:text-emerald-400 font-bold">- [ ] Task text @YYYY-MM-DD !!! #tag</code></li>
+                    <li><strong>Kanban Status & Priority</strong>: <code className="text-slate-600 dark:text-slate-300 font-bold">status: backlog | todo | in-progress | in-review | done</code></li>
+                    <li><strong>WikiLinks & Tags</strong>: <code className="text-sky-600 dark:text-sky-400 font-bold">[[Target Note Title]]</code> · <code className="text-sky-600 dark:text-sky-400 font-bold">#tag-name</code></li>
+                    <li><strong>Flashcards Syntax</strong>: <code className="text-amber-600 dark:text-amber-400 font-bold">@flashcard ( Question :: Answer )</code></li>
+                    <li><strong>AI Block Diffs</strong>: <code className="text-indigo-600 dark:text-indigo-400 font-bold">&lt;&lt;&lt;&lt;&lt;&lt;&lt; SEARCH \n [existing] \n ======= \n [updated] \n &gt;&gt;&gt;&gt;&gt;&gt;&gt; REPLACE</code></li>
                   </ul>
                 </div>
 
