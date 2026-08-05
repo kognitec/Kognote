@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { getCurrentWindow, primaryMonitor } from "@tauri-apps/api/window";
-import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useVault } from "../contexts/VaultContext";
 import {
   Settings as SettingsIcon, Minus, Square, X, Edit,
@@ -22,8 +21,6 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
   const { theme, toggleTheme } = useTheme();
   const appWindow = getCurrentWindow();
   const [isMaximized, setIsMaximized] = useState(false);
-  const [showSnapMenu, setShowSnapMenu] = useState(false);
-  const hoverTimeoutRef = useRef<any>(null);
 
   const [indicatorStyle, setIndicatorStyle] = useState({
     left: 0,
@@ -133,70 +130,6 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
 
   // Detect macOS client-side
   const isMac = typeof window !== "undefined" && /Mac|iPhone|iPod|iPad/i.test(navigator.userAgent || navigator.platform || "");
-
-  // Window Snapping Helper (Windows Snap Layouts / macOS Tile Options)
-  const snapWindow = async (layout: "left" | "right" | "center" | "maximize") => {
-    try {
-      if (layout === "maximize") {
-        await appWindow.maximize();
-        setIsMaximized(true);
-        return;
-      }
-
-      const monitor = await primaryMonitor();
-      if (!monitor) {
-        await appWindow.maximize();
-        return;
-      }
-
-      if (await appWindow.isMaximized()) {
-        await appWindow.unmaximize();
-        setIsMaximized(false);
-      }
-
-      const workArea = monitor.size;
-      const scaleFactor = monitor.scaleFactor || 1;
-      const screenW = Math.floor(workArea.width / scaleFactor);
-      const screenH = Math.floor(workArea.height / scaleFactor);
-
-      let w = screenW;
-      let h = screenH;
-      let x = 0;
-      let y = 0;
-
-      if (layout === "left") {
-        w = Math.floor(screenW / 2);
-        h = screenH;
-        x = 0;
-        y = 0;
-      } else if (layout === "right") {
-        w = Math.floor(screenW / 2);
-        h = screenH;
-        x = Math.floor(screenW / 2);
-        y = 0;
-      } else if (layout === "center") {
-        w = Math.floor(screenW * 0.8);
-        h = Math.floor(screenH * 0.85);
-        x = Math.floor((screenW - w) / 2);
-        y = Math.floor((screenH - h) / 2);
-      }
-
-      await appWindow.setSize(new LogicalSize(w, h));
-      await appWindow.setPosition(new LogicalPosition(x, y));
-    } catch (err) {
-      console.error("Failed to snap window:", err);
-    }
-  };
-
-  const handleMaximizeMouseEnter = () => {
-    hoverTimeoutRef.current = setTimeout(() => {
-      setShowSnapMenu(true);
-    }, 450);
-  };
-
-  const handleMaximizeMouseLeave = () => {
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-  };
 
   // Track window maximize / restore state
   useEffect(() => {
@@ -308,11 +241,8 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
             </button>
             <button
               onClick={handleMacGreenClick}
-              onMouseEnter={handleMaximizeMouseEnter}
-              onMouseLeave={handleMaximizeMouseLeave}
-              onContextMenu={(e) => { e.preventDefault(); setShowSnapMenu((prev) => !prev); }}
               className="w-3 h-3 rounded-full bg-[#28c840] border border-[#1aab29] hover:bg-[#1aab29] flex items-center justify-center cursor-pointer relative transition-all shadow-xs"
-              title="Click: Fullscreen | Option+Click: Zoom | Right-click/Hover: Tile options"
+              title="Click: Fullscreen | Option+Click: Zoom"
             >
               <span className="absolute text-[7px] text-[#004d02] font-black opacity-0 group-hover/traffic:opacity-100 transition-opacity leading-none">⤢</span>
             </button>
@@ -375,7 +305,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
             { id: "flashcards", label: "Review",   icon: GraduationCap, title: "Flashcards Dashboard",  iconColor: "text-amber-500 dark:text-amber-400" },
             { id: "calendar",   label: "Calendar", icon: Calendar,      title: "Calendar Timeline",      iconColor: "text-rose-500 dark:text-rose-400" },
             { id: "tasks",      label: "Tasks",    icon: CheckSquare,   title: "Tasks Board",            iconColor: "text-emerald-500 dark:text-emerald-400" },
-            { id: "board",      label: "Board",    icon: Columns,       title: "Kanban Board",           iconColor: "text-lime-600 dark:text-lime-400" },
+            { id: "board",      label: "Board",    icon: Columns,       title: "Kanban Board",           iconColor: "text-slate-600 dark:text-slate-300" },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeView === tab.id;
@@ -446,17 +376,14 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
             <button
               onClick={handleMinimize}
               className="flex h-7 w-8.5 items-center justify-center rounded-md text-slate-400 hover:bg-white/10 hover:text-slate-100 transition-all cursor-pointer"
-              title="Minimize (Win + Down)"
+              title="Minimize"
             >
               <Minus className="h-3.5 w-3.5 stroke-[1.5]" />
             </button>
             <button
               onClick={handleMaximize}
-              onMouseEnter={handleMaximizeMouseEnter}
-              onMouseLeave={handleMaximizeMouseLeave}
-              onContextMenu={(e) => { e.preventDefault(); setShowSnapMenu((prev) => !prev); }}
               className="flex h-7 w-8.5 items-center justify-center rounded-md text-slate-400 hover:bg-white/10 hover:text-slate-100 transition-all cursor-pointer relative"
-              title={isMaximized ? "Restore (Right-click or hover for Snap Layouts)" : "Maximize (Right-click or hover for Snap Layouts)"}
+              title={isMaximized ? "Restore Window" : "Maximize Window"}
             >
               {isMaximized ? (
                 <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
@@ -470,81 +397,13 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
             <button
               onClick={handleClose}
               className="flex h-7 w-8.5 items-center justify-center rounded-md text-slate-400 hover:bg-[#e81123] hover:text-white transition-all cursor-pointer"
-              title="Close (Alt + F4)"
+              title="Close"
             >
               <X className="h-3.5 w-3.5 stroke-[1.5]" />
             </button>
           </div>
         )}
       </div>
-
-      {/* Snap Layouts & Tile Options Floating Menu */}
-      {showSnapMenu && (
-        <div
-          className={`absolute top-10 ${isMac ? "left-12" : "right-8"} z-50 p-2.5 rounded-xl bg-card border border-card-border shadow-2xl flex flex-col gap-2 animate-fade-in text-foreground select-none w-56`}
-          onMouseEnter={() => { if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current); }}
-          onMouseLeave={() => setShowSnapMenu(false)}
-        >
-          <div className="flex items-center justify-between px-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-            <span>{isMac ? "Tile & Snap Options" : "Snap Layouts"}</span>
-            <span className="text-[9px] font-normal text-slate-500 font-mono">
-              {isMac ? "Option + Green" : "Win + Z"}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            {/* Left Half */}
-            <button
-              onClick={() => { snapWindow("left"); setShowSnapMenu(false); }}
-              className="flex flex-col items-center gap-1.5 p-2 rounded-lg bg-sidebar hover:bg-card-hover border border-card-border hover:border-indigo-400/40 transition-all cursor-pointer group"
-              title="Snap to Left Half (50%)"
-            >
-              <div className="w-12 h-8 rounded border border-slate-400 dark:border-slate-500 group-hover:border-indigo-400 flex p-0.5 gap-0.5">
-                <div className="w-1/2 h-full bg-indigo-500 rounded-xs" />
-                <div className="w-1/2 h-full bg-slate-300 dark:bg-slate-700/50 rounded-xs" />
-              </div>
-              <span className="text-[10px] font-semibold text-foreground group-hover:text-indigo-500 dark:group-hover:text-indigo-300">Left Half</span>
-            </button>
-
-            {/* Right Half */}
-            <button
-              onClick={() => { snapWindow("right"); setShowSnapMenu(false); }}
-              className="flex flex-col items-center gap-1.5 p-2 rounded-lg bg-sidebar hover:bg-card-hover border border-card-border hover:border-indigo-400/40 transition-all cursor-pointer group"
-              title="Snap to Right Half (50%)"
-            >
-              <div className="w-12 h-8 rounded border border-slate-400 dark:border-slate-500 group-hover:border-indigo-400 flex p-0.5 gap-0.5">
-                <div className="w-1/2 h-full bg-slate-300 dark:bg-slate-700/50 rounded-xs" />
-                <div className="w-1/2 h-full bg-indigo-500 rounded-xs" />
-              </div>
-              <span className="text-[10px] font-semibold text-foreground group-hover:text-indigo-500 dark:group-hover:text-indigo-300">Right Half</span>
-            </button>
-
-            {/* Centered */}
-            <button
-              onClick={() => { snapWindow("center"); setShowSnapMenu(false); }}
-              className="flex flex-col items-center gap-1.5 p-2 rounded-lg bg-sidebar hover:bg-card-hover border border-card-border hover:border-indigo-400/40 transition-all cursor-pointer group"
-              title="Focus Centered Window (80%)"
-            >
-              <div className="w-12 h-8 rounded border border-slate-400 dark:border-slate-500 group-hover:border-indigo-400 flex items-center justify-center p-1">
-                <div className="w-8 h-5 bg-indigo-500 rounded-xs" />
-              </div>
-              <span className="text-[10px] font-semibold text-foreground group-hover:text-indigo-500 dark:group-hover:text-indigo-300">Centered</span>
-            </button>
-
-            {/* Full Screen */}
-            <button
-              onClick={() => { snapWindow("maximize"); setShowSnapMenu(false); }}
-              className="flex flex-col items-center gap-1.5 p-2 rounded-lg bg-sidebar hover:bg-card-hover border border-card-border hover:border-indigo-400/40 transition-all cursor-pointer group"
-              title="Full Screen / Maximize (100%)"
-            >
-              <div className="w-12 h-8 rounded border border-slate-400 dark:border-slate-500 group-hover:border-indigo-400 p-0.5">
-                <div className="w-full h-full bg-indigo-500 rounded-xs" />
-              </div>
-              <span className="text-[10px] font-semibold text-foreground group-hover:text-indigo-500 dark:group-hover:text-indigo-300">Full Screen</span>
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
