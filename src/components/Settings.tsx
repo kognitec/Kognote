@@ -912,12 +912,12 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                   <button
                     type="button"
                     onClick={() => handleOpenWebsite("https://github.com/kognitec/Kognote?tab=readme-ov-file")}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-semibold text-xs transition-all active:scale-95 cursor-pointer shadow-md shrink-0 border border-slate-700/50"
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-black dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-semibold text-xs transition-all active:scale-95 cursor-pointer shadow-md shrink-0 border border-slate-700/50"
                     title="Open KogNote GitHub Repository & README"
                   >
-                    <GithubIcon className="h-4 w-4 text-white" />
-                    <span>View on GitHub</span>
-                    <ExternalLink className="h-3 w-3 text-slate-400" />
+                    <GithubIcon className="h-4 w-4 text-white shrink-0" />
+                    <span className="text-white font-bold">View on GitHub</span>
+                    <ExternalLink className="h-3.5 w-3.5 text-slate-300 shrink-0" />
                   </button>
                 </div>
 
@@ -1002,7 +1002,7 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                         <GraduationCap className="h-3.5 w-3.5 text-indigo-500" /> Note ➔ Flashcard Review
                       </span>
                       <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                        Writing <code className="text-indigo-500 font-mono">Q: Question / A: Answer</code> blocks in notes parses flashcard decks automatically. Reviews use SuperMemo SM-2 algorithm to schedule retention.
+                        Writing <code className="text-indigo-500 font-mono font-bold">@flashcard ( Question :: Answer )</code> or <code className="text-indigo-500 font-mono font-bold">Q: Question / A: Answer</code> in notes parses flashcards automatically into SM-2 review decks.
                       </p>
                     </div>
 
@@ -1040,30 +1040,30 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                     </div>
 
                     <div className="p-3 rounded-lg bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 flex flex-col gap-1">
-                      <span className="font-bold text-amber-600 dark:text-amber-400">3. Inline AI Action Floating Toolbar</span>
+                      <span className="font-bold text-amber-600 dark:text-amber-400">3. Natural Language Date & Time Auto-Conversion</span>
                       <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                        Highlighting any text snippet inside the editor reveals an AI action bar: <strong>Format</strong>, <strong>Continue Writing</strong>, <strong>Rewrite</strong>, and <strong>Suggest Links</strong>.
+                        Type text dates like <code className="text-amber-500 font-mono">@today</code>, <code className="text-amber-500 font-mono">@tomorrow</code>, <code className="text-amber-500 font-mono">@next monday</code>, or <code className="text-amber-500 font-mono">@friday 3pm</code>. KogNote automatically parses and converts them into standardized <code className="text-amber-500 font-mono font-bold">@YYYY-MM-DD HH:mm</code> dates linked to the Calendar Timeline!
                       </p>
                     </div>
 
                     <div className="p-3 rounded-lg bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 flex flex-col gap-1">
-                      <span className="font-bold text-emerald-600 dark:text-emerald-400">4. YAML Frontmatter Metadata Block</span>
+                      <span className="font-bold text-indigo-600 dark:text-indigo-400">4. Flexible Flashcard Syntaxes</span>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                        Create flashcards inline using <code className="text-indigo-500 font-mono font-bold">@flashcard ( Question :: Answer )</code> or line-by-line <code className="text-indigo-500 font-mono font-bold">Q: Question / A: Answer</code> syntax. Both populate your Spaced Repetition deck.
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 flex flex-col gap-1">
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400">5. YAML Frontmatter Metadata Block</span>
                       <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
                         The top block <code className="text-emerald-500 font-mono">--- ... ---</code> contains tags, priorities, due dates, and aliases. It stays structured without cluttering your rich text content.
                       </p>
                     </div>
 
                     <div className="p-3 rounded-lg bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 flex flex-col gap-1">
-                      <span className="font-bold text-sky-600 dark:text-sky-400">5. Seamless Attachment Drag & Drop</span>
+                      <span className="font-bold text-sky-600 dark:text-sky-400">6. Seamless Attachment Drag & Drop</span>
                       <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
                         Drag images, audio, video, or PDFs directly into the editor. Files automatically save to <code className="text-sky-500 font-mono">attachments/</code> and embed natively.
-                      </p>
-                    </div>
-
-                    <div className="p-3 rounded-lg bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 flex flex-col gap-1">
-                      <span className="font-bold text-rose-600 dark:text-rose-400">6. Trash Recovery & Archive Isolation</span>
-                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                        Archived notes move to <code className="text-rose-500 font-mono">Archive/</code> to clean up active scans. Deleted files go to soft Trash and can be restored at any time.
                       </p>
                     </div>
                   </div>
