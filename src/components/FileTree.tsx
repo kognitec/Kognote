@@ -586,6 +586,7 @@ export const FileTree: React.FC = () => {
     let archivedCount = 0;
     let trashCount = 0;
     let templatesCount = 0;
+    let clippingsCount = 0;
 
     const countEntries = (entries: FileEntry[]) => {
       entries.forEach((e) => {
@@ -602,6 +603,7 @@ export const FileTree: React.FC = () => {
             const pathLower = e.path.replace(/\\/g, "/").toLowerCase();
             const cache = noteCache[e.path] || Object.values(noteCache).find(c => c.path === e.path || c.path.replace(/\\/g, "/").toLowerCase() === pathLower);
             const storage = cache?.meta?.storage?.toLowerCase();
+            const cacheType = cache?.meta?.type?.toLowerCase();
 
             if (pathLower.includes("/trash/") || storage === "deleted") {
               trashCount++;
@@ -611,6 +613,10 @@ export const FileTree: React.FC = () => {
               templatesCount++;
             } else {
               activeNotes++;
+            }
+
+            if (pathLower.includes("/clippings/") || pathLower.includes("/clipping/") || cacheType === "clipping" || cacheType === "clippings") {
+              clippingsCount++;
             }
           }
         }
@@ -626,6 +632,7 @@ export const FileTree: React.FC = () => {
       archivedCount,
       trashCount,
       templatesCount,
+      clippingsCount,
     };
   }, [files, noteCache, starredNotes]);
 
@@ -1386,10 +1393,14 @@ export const FileTree: React.FC = () => {
                 <span className="font-semibold text-amber-600 dark:text-amber-500">{vaultStats.bookmarkedCount}</span>
               </div>
               <div className="flex items-center justify-between px-2 py-1 rounded dark:bg-[#151724] bg-white border dark:border-card-border border-slate-300">
+                <span className="text-slate-500 dark:text-slate-400">Clippings</span>
+                <span className="font-semibold text-teal-600 dark:text-teal-400">{vaultStats.clippingsCount}</span>
+              </div>
+              <div className="flex items-center justify-between px-2 py-1 rounded dark:bg-[#151724] bg-white border dark:border-card-border border-slate-300">
                 <span className="text-slate-500 dark:text-slate-400">Archived</span>
                 <span className="font-semibold text-sky-600 dark:text-sky-400">{vaultStats.archivedCount}</span>
               </div>
-              <div className="flex items-center justify-between px-2 py-1 rounded dark:bg-[#151724] bg-white border dark:border-card-border border-slate-300 col-span-2">
+              <div className="flex items-center justify-between px-2 py-1 rounded dark:bg-[#151724] bg-white border dark:border-card-border border-slate-300">
                 <span className="text-slate-500 dark:text-slate-400">Trash</span>
                 <span className="font-semibold text-rose-600 dark:text-rose-400">{vaultStats.trashCount}</span>
               </div>
