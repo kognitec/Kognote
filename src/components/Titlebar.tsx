@@ -322,7 +322,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
           <img
             src={logoImg}
             alt="Kognote Logo"
-            className="h-8 w-8 object-contain transition-all duration-300 group-hover:scale-110"
+            className="h-7 w-7 object-contain transition-all duration-300 group-hover:scale-110"
             style={{
               filter: theme === "dark"
                 ? "drop-shadow(0 0 6px rgba(139,92,246,0.7)) drop-shadow(0 0 12px rgba(249,115,22,0.4))"
