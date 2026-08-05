@@ -7,6 +7,12 @@ env.allowRemoteModels = false;   // Enforce offline-only: only use the bundled m
 (env as any).localModelPath = "/models/";
 (env as any).localURL = "/models/";
 
+// Point ONNX WebAssembly engine to local public/wasm/ binaries (100% offline-proof)
+if (env.backends?.onnx?.wasm) {
+  env.backends.onnx.wasm.wasmPaths = "/wasm/";
+  env.backends.onnx.wasm.numThreads = 1;
+}
+
 let pipelineInstance: any = null;
 
 async function getPipeline() {
