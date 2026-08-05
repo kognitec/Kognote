@@ -5,6 +5,7 @@ import { pipeline, env } from "@huggingface/transformers";
 env.allowLocalModels = true;
 env.allowRemoteModels = false;   // Enforce offline-only: only use the bundled model
 (env as any).localModelPath = "/models/";
+(env as any).localURL = "/models/";
 
 let pipelineInstance: any = null;
 
