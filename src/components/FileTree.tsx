@@ -945,9 +945,9 @@ export const FileTree: React.FC = () => {
                       onDragEnd={() => {
                         clearDragState();
                       }}
-                      className="flex items-center gap-1.5 w-full px-2 py-px rounded-md text-[11.5px] text-slate-700 dark:text-slate-300 hover:bg-card-hover hover:text-foreground transition-colors text-left truncate cursor-pointer group"
+                      className="flex items-center gap-1.5 w-full px-2 py-px rounded-md text-[12px] text-slate-700 dark:text-slate-300 hover:bg-card-hover hover:text-foreground transition-colors text-left truncate cursor-pointer group"
                     >
-                      {getFileIcon(note, noteCache, { className: "h-3.5 w-3.5 shrink-0 text-amber-500" })}
+                      {getFileIcon(note, noteCache, { className: "h-4 w-4 shrink-0 text-amber-500" })}
                       <span className="truncate" title={note.name.replace(/\.md$/, "")}>{note.name.replace(/\.md$/, "")}</span>
                     </button>
                   ))}
@@ -1676,7 +1676,7 @@ const TreeItem: React.FC<TreeItemProps> = ({ item, depth, isOpen, onToggleFolder
             }
           }}
           style={{ paddingLeft: `${depth * 7 + 4}px` }}
-          className={`group flex items-center justify-between py-px px-1.5 rounded-md mx-0.5 my-0 cursor-pointer transition-all duration-150 text-[11px] ${isDragOverFolder
+          className={`group flex items-center justify-between py-px px-1.5 rounded-md mx-0.5 my-0 cursor-pointer transition-all duration-150 text-[12px] ${isDragOverFolder
               ? "bg-indigo-600/30 border border-indigo-500 text-white shadow-xs"
               : isActive
                 ? item.name.endsWith(".excalidraw")
@@ -1689,12 +1689,12 @@ const TreeItem: React.FC<TreeItemProps> = ({ item, depth, isOpen, onToggleFolder
             {item.is_dir ? (
               <span className="text-slate-400 shrink-0">
                 <ChevronRight
-                  className={`h-3 w-3 transform transition-transform duration-150 ${isOpen ? "rotate-90 text-indigo-500 dark:text-indigo-400" : ""}`}
+                  className={`h-3.5 w-3.5 transform transition-transform duration-150 ${isOpen ? "rotate-90 text-indigo-500 dark:text-indigo-400" : ""}`}
                 />
               </span>
             ) : null}
 
-            {getFileIcon(item, noteCache, { className: "h-3.5 w-3.5 shrink-0", isOpenFolder: isOpen })}
+            {getFileIcon(item, noteCache, { className: "h-4 w-4 shrink-0", isOpenFolder: isOpen })}
 
             <span className="truncate" title={getDisplayName(item.name)}>
               {getDisplayName(item.name)}
