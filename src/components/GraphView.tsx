@@ -95,19 +95,20 @@ export const GraphView: React.FC = () => {
     { id: "tags", label: "Tags", checked: true, color: "text-slate-400/50" },
     { id: "dailyNotes", label: "Daily Notes", checked: true, color: "text-[#38bdf8]" },
     { id: "backlinks", label: "Backlinks", checked: true, color: "text-[#22d3ee]" },
-    { id: "semanticLinks", label: "Semantic AI Links", checked: false, color: "text-[#818cf8]" },
     { id: "urls", label: "URLs", checked: true, color: "text-[#f43f5e]" },
     { id: "attachments", label: "Attachments", checked: true, color: "text-[#a855f7]" },
     { id: "folders", label: "Folders", checked: true, color: "text-[#fbbf24]" },
     { id: "orphans", label: "Show Orphans", checked: true, color: "text-[#d946ef]" },
     { id: "bookmarks", label: "Bookmarks Only", checked: false, color: "text-[#f59e0b]" },
   ]);
+  const [isConnectionFiltersOpen, setIsConnectionFiltersOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [colorScheme, setColorScheme] = useState<"category" | "priority" | "status">("category");
 
   // Semantic AI Settings
-  const [semanticThreshold, setSemanticThreshold] = useState(0.70);
-  const [maxSemanticLinksPerNote, setMaxSemanticLinksPerNote] = useState(3);
+  const [isSemanticEnabled, setIsSemanticEnabled] = useState(true);
+  const [semanticThreshold, setSemanticThreshold] = useState(0.55);
+  const [maxSemanticLinksPerNote, setMaxSemanticLinksPerNote] = useState(5);
 
   // Physics customization
   const [repulsion, setRepulsion] = useState(2200);
@@ -181,6 +182,7 @@ export const GraphView: React.FC = () => {
   const linkThicknessRef = useRef(linkThickness);
   const semanticThresholdRef = useRef(semanticThreshold);
   const maxSemanticLinksPerNoteRef = useRef(maxSemanticLinksPerNote);
+  const isSemanticEnabledRef = useRef(isSemanticEnabled);
 
   useEffect(() => { filtersRef.current = filters; wakeUpSimulation(1.0); }, [filters, wakeUpSimulation]);
   useEffect(() => { searchQueryRef.current = searchQuery; wakeUpSimulation(0.3); }, [searchQuery, wakeUpSimulation]);
@@ -195,6 +197,7 @@ export const GraphView: React.FC = () => {
   useEffect(() => { linkDistanceRef.current = linkDistance; wakeUpSimulation(1.0); }, [linkDistance, wakeUpSimulation]);
   useEffect(() => { collisionRadiusRef.current = collisionRadius; wakeUpSimulation(1.0); }, [collisionRadius, wakeUpSimulation]);
   useEffect(() => { linkThicknessRef.current = linkThickness; wakeUpSimulation(0.2); }, [linkThickness, wakeUpSimulation]);
+  useEffect(() => { isSemanticEnabledRef.current = isSemanticEnabled; wakeUpSimulation(1.0); }, [isSemanticEnabled, wakeUpSimulation]);
   useEffect(() => { semanticThresholdRef.current = semanticThreshold; wakeUpSimulation(1.0); }, [semanticThreshold, wakeUpSimulation]);
   useEffect(() => { maxSemanticLinksPerNoteRef.current = maxSemanticLinksPerNote; wakeUpSimulation(1.0); }, [maxSemanticLinksPerNote, wakeUpSimulation]);
   useEffect(() => { linksRef.current = links; wakeUpSimulation(0.3); }, [links, wakeUpSimulation]);
@@ -558,19 +561,29 @@ export const GraphView: React.FC = () => {
       });
 
       // Fetch semantic AI vector connections if enabled
-      const semanticFilter = filtersRef.current.find(f => f.id === "semanticLinks");
-      if (semanticFilter?.checked) {
+      if (isSemanticEnabledRef.current) {
         try {
           const rawSemanticLinks = await searchEngine.getSemanticConnections(semanticThresholdRef.current);
           const semanticCounts: Record<string, number> = {};
           const noteNodes = extractedNodes.filter(n => n.type === "note");
 
           for (const simLink of rawSemanticLinks) {
-            const normSrc = simLink.source.replace(/\\/g, "/");
-            const normTgt = simLink.target.replace(/\\/g, "/");
+            const rawSrc = simLink.source.replace(/\\/g, "/").toLowerCase();
+            const rawTgt = simLink.target.replace(/\\/g, "/").toLowerCase();
+            const srcName = rawSrc.split("/").pop()?.replace(/\.md$/, "") || "";
+            const tgtName = rawTgt.split("/").pop()?.replace(/\.md$/, "") || "";
 
-            const srcNode = noteNodes.find(n => n.path && n.path.replace(/\\/g, "/") === normSrc);
-            const tgtNode = noteNodes.find(n => n.path && n.path.replace(/\\/g, "/") === normTgt);
+            const srcNode = noteNodes.find(n => {
+              if (!n.path) return false;
+              const p = n.path.replace(/\\/g, "/").toLowerCase();
+              return p === rawSrc || p.endsWith("/" + rawSrc) || rawSrc.endsWith("/" + p) || n.label.toLowerCase() === srcName;
+            });
+
+            const tgtNode = noteNodes.find(n => {
+              if (!n.path) return false;
+              const p = n.path.replace(/\\/g, "/").toLowerCase();
+              return p === rawTgt || p.endsWith("/" + rawTgt) || rawTgt.endsWith("/" + p) || n.label.toLowerCase() === tgtName;
+            });
 
             if (srcNode && tgtNode && srcNode.id !== tgtNode.id) {
               const srcCount = semanticCounts[srcNode.id] || 0;
@@ -709,7 +722,7 @@ export const GraphView: React.FC = () => {
     }
   };
 
-  useEffect(() => { loadGraphData(); }, [files, noteCache]);
+  useEffect(() => { loadGraphData(); }, [files, noteCache, isSemanticEnabled, semanticThreshold, maxSemanticLinksPerNote]);
 
   useEffect(() => {
     registerSyncHandler("graph-reload", loadGraphData, "Reload graph");
@@ -1784,80 +1797,112 @@ export const GraphView: React.FC = () => {
 
         {/* Connection Filters */}
         <div className="flex flex-col gap-2 border-t border-card-border pt-3">
-          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-            <Layers className="h-3.5 w-3.5 text-slate-500" /> Connection Filters
-          </span>
-          <div className="flex flex-col gap-0.5 bg-card rounded-lg border border-card-border p-1 max-h-48 overflow-y-auto custom-scrollbar">
-            {filters.map((filter, index) => (
-              <div
-                key={filter.id}
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData("text/plain", String(index));
-                  e.dataTransfer.effectAllowed = "all";
-                }}
-                onDragEnter={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (e.dataTransfer) {
-                    e.dataTransfer.dropEffect = "move";
-                  }
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const fromIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
-                  if (isNaN(fromIndex) || fromIndex === index) return;
-                  setFilters((prev) => {
-                    const updated = [...prev];
-                    const [moved] = updated.splice(fromIndex, 1);
-                    updated.splice(index, 0, moved);
-                    return updated;
-                  });
-                  alphaRef.current = 1.0;
-                }}
-                className="flex items-center justify-between p-1.5 rounded-md hover:bg-card-hover transition-colors group cursor-grab active:cursor-grabbing border border-transparent hover:border-card-border"
-              >
-                <div className="flex items-center gap-2 select-none min-w-0 flex-1">
-                  <GripVertical className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-300 cursor-grab shrink-0" />
-                  <input
-                    type="checkbox"
-                    checked={filter.checked}
-                    onChange={(e) => {
-                      const updated = filters.map(f => f.id === filter.id ? { ...f, checked: e.target.checked } : f);
-                      setFilters(updated);
-                      alphaRef.current = 1.0;
-                    }}
-                    className="accent-indigo-600 h-3.5 w-3.5 rounded-sm shrink-0 cursor-pointer"
-                  />
-                  <span className="flex items-center gap-1.5 text-[11px] text-foreground font-medium min-w-0 truncate">
-                    {getFilterIcon(filter.id)}
-                    <span className="truncate">{filter.label}</span>
-                  </span>
-                </div>
-                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                  <button disabled={index === 0} onClick={() => moveItem(index, "up")} className="p-0.5 rounded text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 disabled:opacity-30 disabled:pointer-events-none cursor-pointer">
-                    <ChevronUp className="h-3 w-3" />
-                  </button>
-                  <button disabled={index === filters.length - 1} onClick={() => moveItem(index, "down")} className="p-0.5 rounded text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 disabled:opacity-30 disabled:pointer-events-none cursor-pointer">
-                    <ChevronDown className="h-3 w-3" />
-                  </button>
-                </div>
-              </div>
-            ))}
+          <div
+            onClick={() => setIsConnectionFiltersOpen(!isConnectionFiltersOpen)}
+            className="flex items-center justify-between cursor-pointer select-none group"
+          >
+            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5 group-hover:text-slate-700 dark:group-hover:text-slate-300 transition-colors">
+              <Layers className="h-3.5 w-3.5 text-slate-500" /> Connection Filters
+            </span>
+            <button
+              type="button"
+              className="text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-300 transition-colors p-0.5 cursor-pointer"
+            >
+              {isConnectionFiltersOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
           </div>
+
+          {isConnectionFiltersOpen && (
+            <div className="flex flex-col gap-0.5 bg-card rounded-lg border border-card-border p-1">
+              {filters.map((filter, index) => (
+                <div
+                  key={filter.id}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("text/plain", String(index));
+                    e.dataTransfer.effectAllowed = "all";
+                  }}
+                  onDragEnter={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (e.dataTransfer) {
+                      e.dataTransfer.dropEffect = "move";
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const fromIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
+                    if (isNaN(fromIndex) || fromIndex === index) return;
+                    setFilters((prev) => {
+                      const updated = [...prev];
+                      const [moved] = updated.splice(fromIndex, 1);
+                      updated.splice(index, 0, moved);
+                      return updated;
+                    });
+                    alphaRef.current = 1.0;
+                  }}
+                  className="flex items-center justify-between p-1.5 rounded-md hover:bg-card-hover transition-colors group cursor-grab active:cursor-grabbing border border-transparent hover:border-card-border"
+                >
+                  <div className="flex items-center gap-2 select-none min-w-0 flex-1">
+                    <GripVertical className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-300 cursor-grab shrink-0" />
+                    <input
+                      type="checkbox"
+                      checked={filter.checked}
+                      onChange={(e) => {
+                        const updated = filters.map(f => f.id === filter.id ? { ...f, checked: e.target.checked } : f);
+                        setFilters(updated);
+                        alphaRef.current = 1.0;
+                      }}
+                      className="accent-indigo-600 h-3.5 w-3.5 rounded-sm shrink-0 cursor-pointer"
+                    />
+                    <span className="flex items-center gap-1.5 text-[11px] text-foreground font-medium min-w-0 truncate">
+                      {getFilterIcon(filter.id)}
+                      <span className="truncate">{filter.label}</span>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <button disabled={index === 0} onClick={() => moveItem(index, "up")} className="p-0.5 rounded text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 disabled:opacity-30 disabled:pointer-events-none cursor-pointer">
+                      <ChevronUp className="h-3 w-3" />
+                    </button>
+                    <button disabled={index === filters.length - 1} onClick={() => moveItem(index, "down")} className="p-0.5 rounded text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 disabled:opacity-30 disabled:pointer-events-none cursor-pointer">
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Semantic AI Connections Settings */}
-        {filters.find((f) => f.id === "semanticLinks")?.checked && (
-          <div className="flex flex-col gap-2.5 pt-3 bg-indigo-500/5 dark:bg-indigo-500/10 p-2.5 rounded-xl border border-indigo-500/20 animate-fade-in">
-            <span className="text-[9.5px] font-bold text-indigo-500 dark:text-indigo-400 tracking-wider uppercase flex items-center gap-1.5">
-              <Sparkles className="h-3.5 w-3.5 text-indigo-400" /> Semantic AI Controls
+        {/* Semantic AI Connections Settings Card */}
+        <div className={`flex flex-col gap-2.5 pt-3 bg-indigo-500/5 dark:bg-indigo-500/10 p-2.5 rounded-xl border border-indigo-500/20 transition-all ${
+          isSemanticEnabled ? "" : "opacity-60"
+        }`}>
+          <div className="flex items-center justify-between">
+            <span className="text-[9.5px] font-bold text-indigo-500 dark:text-indigo-400 tracking-wider uppercase flex items-center gap-1.5 select-none">
+              <Sparkles className={`h-3.5 w-3.5 text-indigo-400 ${isSemanticEnabled ? "animate-pulse" : ""}`} /> Semantic AI Controls
             </span>
+            {/* Toggle Switch */}
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isSemanticEnabled}
+                onChange={(e) => {
+                  setIsSemanticEnabled(e.target.checked);
+                  alphaRef.current = 1.0;
+                }}
+                className="sr-only peer"
+              />
+              <div className="w-7 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
+          </div>
+
+          <div className={`flex flex-col gap-2.5 transition-opacity ${isSemanticEnabled ? "" : "pointer-events-none opacity-50"}`}>
             <div className="flex flex-col gap-1 text-xs">
               <div className="flex justify-between text-[10px] text-slate-500 font-medium">
                 <span>Similarity Threshold</span>
@@ -1865,15 +1910,16 @@ export const GraphView: React.FC = () => {
               </div>
               <input
                 type="range"
-                min="0.50"
+                min="0.45"
                 max="0.95"
                 step="0.05"
+                disabled={!isSemanticEnabled}
                 value={semanticThreshold}
                 onChange={(e) => {
                   setSemanticThreshold(parseFloat(e.target.value));
                   alphaRef.current = 1.0;
                 }}
-                className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500 disabled:cursor-not-allowed"
               />
             </div>
             <div className="flex flex-col gap-1 text-xs">
@@ -1886,16 +1932,17 @@ export const GraphView: React.FC = () => {
                 min="1"
                 max="10"
                 step="1"
+                disabled={!isSemanticEnabled}
                 value={maxSemanticLinksPerNote}
                 onChange={(e) => {
                   setMaxSemanticLinksPerNote(parseInt(e.target.value, 10));
                   alphaRef.current = 1.0;
                 }}
-                className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500 disabled:cursor-not-allowed"
               />
             </div>
           </div>
-        )}
+        </div>
 
         {/* Physics Presets & Sliders */}
         <div className="flex flex-col gap-3 border-t dark:border-[#1e2335]/70 border-slate-300 pt-3">
