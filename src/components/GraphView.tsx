@@ -1894,7 +1894,7 @@ export const GraphView: React.FC = () => {
         }`}>
           <div className="flex items-center justify-between">
             <span className="text-[9.5px] font-bold text-indigo-500 dark:text-indigo-400 tracking-wider uppercase flex items-center gap-1.5 select-none">
-              <Sparkles className={`h-3.5 w-3.5 text-indigo-400 ${isSemanticEnabled ? "animate-pulse" : ""}`} /> Semantic AI Controls
+              <Sparkles className="h-3.5 w-3.5 text-indigo-400" /> Semantic AI Controls
             </span>
             {/* Toggle Switch */}
             <label className="relative inline-flex items-center cursor-pointer">
