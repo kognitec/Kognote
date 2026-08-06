@@ -271,7 +271,7 @@ pub fn run() {
                 #[cfg(target_os = "linux")]
                 {
                     // Linux GTK transparency / dark window fallback
-                    let _ = window.set_background_color(Some(tauri::image::Color::Rgba(9, 10, 15, 255)));
+                    let _ = window.set_background_color(Some(tauri::utils::color::Color::Rgba(9, 10, 15, 255)));
                 }
             }
 
@@ -357,7 +357,8 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| match event {
             tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
-                let state = app_handle.state::<Arc<LlmState>>().inner().clone();
+                let tauri_state = app_handle.state::<Arc<LlmState>>();
+                let state = tauri_state.inner().clone();
                 if let Ok(mut guard) = state.server_process.lock() {
                     if let Some(mut child) = guard.take() {
                         let _ = child.kill();

@@ -113,15 +113,16 @@ jobs:
           unzip -o llama-download.zip -d llama-extracted || tar -xzf llama-download.zip -C llama-extracted
 
           echo "==> Locating llama-server binary..."
-          BINARY=$(find llama-extracted -iname "llama-server" -type f | head -1)
+          BINARY=$(find llama-extracted -type f \( -iname "llama-server" -o -iname "llama-server.exe" \) -print | head -n 1 || true)
 
           if [ -z "$BINARY" ]; then
             echo "ERROR: llama-server binary not found in archive!"
-            ls -la llama-extracted/ || true
-            find llama-extracted -type f | head -50
+            echo "Contents of llama-extracted (up to 200 lines):"
+            find llama-extracted -ls | sed -n '1,200p' || true
             exit 1
           fi
 
+          echo "==> Found llama-server at: $BINARY"
           echo "==> Copying $BINARY → src-tauri/bin/$BIN_NAME"
           cp "$BINARY" "src-tauri/bin/$BIN_NAME"
           chmod +x "src-tauri/bin/$BIN_NAME"
