@@ -116,7 +116,7 @@ export const GraphView: React.FC = () => {
   const [linkStrength, setLinkStrength] = useState(0.35);
   const [gravity, setGravity] = useState(0.05);
   const [collisionRadius, setCollisionRadius] = useState(28);
-  const [linkThickness, setLinkThickness] = useState(1.0);
+  const [linkThickness, setLinkThickness] = useState(1.2);
 
   // States
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -1991,7 +1991,7 @@ export const GraphView: React.FC = () => {
             { label: "Link Strength", value: linkStrength, min: 0.01, max: 1.00, step: 0.01, set: setLinkStrength },
             { label: "Gravity", value: gravity, min: 0.001, max: 0.300, step: 0.005, set: setGravity },
             { label: "Collision Padding", value: collisionRadius, min: 0, max: 80, step: 2, set: setCollisionRadius },
-            { label: "Connector Thickness", value: linkThickness, min: 0.3, max: 5.0, step: 0.1, set: setLinkThickness },
+            { label: "Connector Thickness", value: linkThickness, min: 0.5, max: 5.2, step: 0.1, set: setLinkThickness },
           ].map(({ label, value, min, max, step, set }) => (
             <div key={label} className="flex flex-col gap-1">
               <div className="flex justify-between text-[10px]">
