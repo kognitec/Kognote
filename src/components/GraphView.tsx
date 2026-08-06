@@ -34,6 +34,9 @@ import {
   Palette,
   Globe,
   Paperclip,
+  Save,
+  RotateCcw,
+  Check,
 } from "lucide-react";
 
 interface Node {
@@ -84,6 +87,27 @@ interface TooltipInfo {
   connections: number;
 }
 
+const DEFAULT_FILTERS: FilterItem[] = [
+  { id: "tags", label: "Tags", checked: true, color: "text-slate-400/50" },
+  { id: "dailyNotes", label: "Daily Notes", checked: true, color: "text-[#38bdf8]" },
+  { id: "backlinks", label: "Backlinks", checked: true, color: "text-[#22d3ee]" },
+  { id: "urls", label: "URLs", checked: true, color: "text-[#f43f5e]" },
+  { id: "attachments", label: "Attachments", checked: true, color: "text-[#a855f7]" },
+  { id: "folders", label: "Folders", checked: true, color: "text-[#fbbf24]" },
+  { id: "orphans", label: "Show Orphans", checked: true, color: "text-[#d946ef]" },
+  { id: "bookmarks", label: "Bookmarks Only", checked: false, color: "text-[#f59e0b]" },
+];
+
+const getInitialGraphSettings = () => {
+  try {
+    const saved = localStorage.getItem("kognote_graph_settings");
+    if (saved) return JSON.parse(saved);
+  } catch (e) {
+    console.error("Failed to parse saved graph settings:", e);
+  }
+  return null;
+};
+
 export const GraphView: React.FC = () => {
   const { files, noteCache, openFile, activeFile } = useVault();
   const { includeArchivedInScans } = useSettings();
@@ -91,32 +115,62 @@ export const GraphView: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const minimapCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const [filters, setFilters] = useState<FilterItem[]>([
-    { id: "tags", label: "Tags", checked: true, color: "text-slate-400/50" },
-    { id: "dailyNotes", label: "Daily Notes", checked: true, color: "text-[#38bdf8]" },
-    { id: "backlinks", label: "Backlinks", checked: true, color: "text-[#22d3ee]" },
-    { id: "urls", label: "URLs", checked: true, color: "text-[#f43f5e]" },
-    { id: "attachments", label: "Attachments", checked: true, color: "text-[#a855f7]" },
-    { id: "folders", label: "Folders", checked: true, color: "text-[#fbbf24]" },
-    { id: "orphans", label: "Show Orphans", checked: true, color: "text-[#d946ef]" },
-    { id: "bookmarks", label: "Bookmarks Only", checked: false, color: "text-[#f59e0b]" },
-  ]);
+  const initialSettings = getInitialGraphSettings();
+
+  const [filters, setFilters] = useState<FilterItem[]>(initialSettings?.filters || DEFAULT_FILTERS);
   const [isConnectionFiltersOpen, setIsConnectionFiltersOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [colorScheme, setColorScheme] = useState<"category" | "priority" | "status">("category");
+  const [colorScheme, setColorScheme] = useState<"category" | "priority" | "status">(initialSettings?.colorScheme || "category");
 
   // Semantic AI Settings
-  const [isSemanticEnabled, setIsSemanticEnabled] = useState(true);
-  const [semanticThreshold, setSemanticThreshold] = useState(0.55);
-  const [maxSemanticLinksPerNote, setMaxSemanticLinksPerNote] = useState(5);
+  const [isSemanticEnabled, setIsSemanticEnabled] = useState(initialSettings?.isSemanticEnabled ?? true);
+  const [semanticThreshold, setSemanticThreshold] = useState(initialSettings?.semanticThreshold ?? 0.55);
+  const [maxSemanticLinksPerNote, setMaxSemanticLinksPerNote] = useState(initialSettings?.maxSemanticLinksPerNote ?? 5);
 
   // Physics customization
-  const [repulsion, setRepulsion] = useState(2200);
-  const [linkDistance, setLinkDistance] = useState(180);
-  const [linkStrength, setLinkStrength] = useState(0.35);
-  const [gravity, setGravity] = useState(0.05);
-  const [collisionRadius, setCollisionRadius] = useState(28);
-  const [linkThickness, setLinkThickness] = useState(1.2);
+  const [repulsion, setRepulsion] = useState(initialSettings?.repulsion ?? 2200);
+  const [linkDistance, setLinkDistance] = useState(initialSettings?.linkDistance ?? 180);
+  const [linkStrength, setLinkStrength] = useState(initialSettings?.linkStrength ?? 0.35);
+  const [gravity, setGravity] = useState(initialSettings?.gravity ?? 0.05);
+  const [collisionRadius, setCollisionRadius] = useState(initialSettings?.collisionRadius ?? 28);
+  const [linkThickness, setLinkThickness] = useState(initialSettings?.linkThickness ?? 1.2);
+
+  const [isSaveSuccess, setIsSaveSuccess] = useState(false);
+
+  const handleSaveSettings = () => {
+    const settingsToSave = {
+      filters,
+      colorScheme,
+      isSemanticEnabled,
+      semanticThreshold,
+      maxSemanticLinksPerNote,
+      repulsion,
+      linkDistance,
+      linkStrength,
+      gravity,
+      collisionRadius,
+      linkThickness,
+    };
+    localStorage.setItem("kognote_graph_settings", JSON.stringify(settingsToSave));
+    setIsSaveSuccess(true);
+    setTimeout(() => setIsSaveSuccess(false), 2000);
+  };
+
+  const handleResetDefaults = () => {
+    localStorage.removeItem("kognote_graph_settings");
+    setFilters(DEFAULT_FILTERS);
+    setColorScheme("category");
+    setIsSemanticEnabled(true);
+    setSemanticThreshold(0.55);
+    setMaxSemanticLinksPerNote(5);
+    setRepulsion(2200);
+    setLinkDistance(180);
+    setLinkStrength(0.35);
+    setGravity(0.05);
+    setCollisionRadius(28);
+    setLinkThickness(1.2);
+    alphaRef.current = 1.0;
+  };
 
   // States
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -1702,11 +1756,32 @@ export const GraphView: React.FC = () => {
       {/* Sidebar */}
       <div className="w-72 border-r dark:border-[#1e2335] border-slate-200 dark:bg-sidebar/95 bg-slate-50/95 backdrop-blur-md p-4 flex flex-col gap-4 shrink-0 overflow-y-auto z-10 custom-scrollbar">
         {/* Header */}
-        <div>
-          <span className="text-[10px] font-bold text-sky-500 dark:text-sky-400 tracking-widest uppercase flex items-center gap-1.5">
-            <Waypoints className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400" /> Knowledge Graph
-          </span>
-          <p className="text-[9.5px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-bold text-sky-500 dark:text-sky-400 tracking-widest uppercase flex items-center gap-1.5">
+              <Waypoints className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400" /> Knowledge Graph
+            </span>
+            {/* Action Buttons: Save & Reset */}
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={handleSaveSettings}
+                title="Save all graph selections & settings"
+                className="flex items-center gap-1 px-2 py-0.5 text-[9.5px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded transition-all cursor-pointer active:scale-95"
+              >
+                {isSaveSuccess ? <Check className="h-3 w-3 text-emerald-500" /> : <Save className="h-3 w-3" />}
+                <span>{isSaveSuccess ? "Saved!" : "Save"}</span>
+              </button>
+              <button
+                onClick={handleResetDefaults}
+                title="Reset all graph settings to defaults"
+                className="flex items-center gap-1 px-2 py-0.5 text-[9.5px] font-semibold text-slate-600 dark:text-slate-400 bg-slate-500/10 hover:bg-slate-500/20 border border-slate-500/30 rounded transition-all cursor-pointer active:scale-95"
+              >
+                <RotateCcw className="h-3 w-3" />
+                <span>Reset</span>
+              </button>
+            </div>
+          </div>
+          <p className="text-[9.5px] text-slate-500 dark:text-slate-400 leading-relaxed">
             Drag nodes to reposition · Scroll to zoom · Double-click to open
           </p>
         </div>
