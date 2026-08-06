@@ -612,21 +612,27 @@ pub async fn vector_get_semantic_connections(
     threshold: f64,
 ) -> Result<Vec<VectorLinkResult>, String> {
     with_conn(&state, |conn| {
-        // Optimised: select max similarity grouped by file_path pair
+        // High Performance Optimization for 10k+ note vaults:
+        // Group by primary file embedding and sort by top cosine similarity
         let mut stmt = conn
             .prepare(
-                "SELECT 
-                    m1.file_path, 
-                    m2.file_path, 
-                    MAX(1.0 - vec_distance_cosine(v1.embedding, v2.embedding)) as similarity
-                 FROM vec_embeddings v1
-                 JOIN vec_embeddings v2 ON v1.id < v2.id
-                 JOIN embeddings_metadata m1 ON v1.id = m1.id
-                 JOIN embeddings_metadata m2 ON v2.id = m2.id
-                 WHERE m1.file_path < m2.file_path
-                 GROUP BY m1.file_path, m2.file_path
-                 HAVING similarity >= ?1
-                 LIMIT 200",
+                "WITH note_heads AS (
+                    SELECT MIN(id) as id, file_path
+                    FROM embeddings_metadata
+                    GROUP BY file_path
+                    LIMIT 1200
+                 )
+                 SELECT 
+                    n1.file_path, 
+                    n2.file_path, 
+                    (1.0 - vec_distance_cosine(v1.embedding, v2.embedding)) as similarity
+                 FROM note_heads n1
+                 JOIN vec_embeddings v1 ON n1.id = v1.id
+                 JOIN note_heads n2 ON n1.id < n2.id
+                 JOIN vec_embeddings v2 ON n2.id = v2.id
+                 WHERE (1.0 - vec_distance_cosine(v1.embedding, v2.embedding)) >= ?1
+                 ORDER BY similarity DESC
+                 LIMIT 250",
             )
             .map_err(|e| format!("Failed to prepare semantic connections query: {e}"))?;
 
