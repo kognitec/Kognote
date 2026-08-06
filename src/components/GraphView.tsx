@@ -124,7 +124,7 @@ export const GraphView: React.FC = () => {
 
   // Semantic AI Settings
   const [isSemanticEnabled, setIsSemanticEnabled] = useState(initialSettings?.isSemanticEnabled ?? false);
-  const [semanticThreshold, setSemanticThreshold] = useState(initialSettings?.semanticThreshold ?? 0.55);
+  const [semanticThreshold, setSemanticThreshold] = useState(initialSettings?.semanticThreshold ?? 0.80);
   const [maxSemanticLinksPerNote, setMaxSemanticLinksPerNote] = useState(initialSettings?.maxSemanticLinksPerNote ?? 5);
 
   // Physics customization
@@ -161,7 +161,7 @@ export const GraphView: React.FC = () => {
     setFilters(DEFAULT_FILTERS);
     setColorScheme("category");
     setIsSemanticEnabled(false);
-    setSemanticThreshold(0.55);
+    setSemanticThreshold(0.80);
     setMaxSemanticLinksPerNote(5);
     setRepulsion(2200);
     setLinkDistance(180);
