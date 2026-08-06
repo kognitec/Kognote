@@ -1500,7 +1500,7 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                       <div className="flex items-center gap-2">
                         <h3 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">KogNote</h3>
                         <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-500/10 border border-indigo-300 dark:border-indigo-500/20 px-2 py-0.5 rounded-full">
-                          v0.1.5
+                          v0.1.6
                         </span>
                       </div>
                       <p className="text-xs text-slate-600 dark:text-slate-400">
