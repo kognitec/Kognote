@@ -83,7 +83,7 @@ pub const MODELS: &[ModelInfo] = &[
         ram_required: "5.5 GB RAM",
         speed_rating: "🧠 High Intelligence (50+ tok/s on Metal)",
         description: "High-tier coding & RAG context. Recommended for Apple Silicon M-Series (M1–M4) & 16GB+ PCs.",
-        gpu_layers: 28,
+        gpu_layers: 99,
         ctx_size: 16384,
         sha256: None,
     },
@@ -839,6 +839,18 @@ pub async fn llm_load_model(
 
     let threads = num_cpus();
 
+    let mut sys = sysinfo::System::new_all();
+    sys.refresh_memory();
+    let total_ram_gb = sys.total_memory() as f64 / (1024.0 * 1024.0 * 1024.0);
+
+    let effective_ctx_size = if total_ram_gb < 7.5 {
+        info.ctx_size.min(4096)
+    } else if total_ram_gb < 15.0 {
+        info.ctx_size.min(8192)
+    } else {
+        info.ctx_size
+    };
+
     let mut cmd = Command::new(&server_bin);
     if let Some(parent) = server_bin.parent() {
         cmd.current_dir(parent);
@@ -848,7 +860,7 @@ pub async fn llm_load_model(
        .arg("--port")
        .arg(port.to_string())
        .arg("--ctx-size")
-       .arg(info.ctx_size.to_string())
+       .arg(effective_ctx_size.to_string())
        .arg("--threads")
        .arg(threads.to_string())
        .arg("-ngl")
