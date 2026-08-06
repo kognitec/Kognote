@@ -123,7 +123,7 @@ export const GraphView: React.FC = () => {
   const [colorScheme, setColorScheme] = useState<"category" | "priority" | "status">(initialSettings?.colorScheme || "category");
 
   // Semantic AI Settings
-  const [isSemanticEnabled, setIsSemanticEnabled] = useState(initialSettings?.isSemanticEnabled ?? true);
+  const [isSemanticEnabled, setIsSemanticEnabled] = useState(initialSettings?.isSemanticEnabled ?? false);
   const [semanticThreshold, setSemanticThreshold] = useState(initialSettings?.semanticThreshold ?? 0.55);
   const [maxSemanticLinksPerNote, setMaxSemanticLinksPerNote] = useState(initialSettings?.maxSemanticLinksPerNote ?? 5);
 
@@ -160,7 +160,7 @@ export const GraphView: React.FC = () => {
     localStorage.removeItem("kognote_graph_settings");
     setFilters(DEFAULT_FILTERS);
     setColorScheme("category");
-    setIsSemanticEnabled(true);
+    setIsSemanticEnabled(false);
     setSemanticThreshold(0.55);
     setMaxSemanticLinksPerNote(5);
     setRepulsion(2200);
