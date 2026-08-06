@@ -60,11 +60,12 @@ interface Node {
 interface Link {
   source: string;
   target: string;
-  type: "folder" | "tag-in-notes" | "backlink" | "url" | "attachment";
+  type: "folder" | "tag-in-notes" | "backlink" | "url" | "attachment" | "semantic";
+  similarity?: number;
 }
 
 interface FilterItem {
-  id: "folders" | "tags" | "backlinks" | "urls" | "attachments" | "orphans" | "dailyNotes" | "bookmarks";
+  id: "folders" | "tags" | "backlinks" | "urls" | "attachments" | "orphans" | "dailyNotes" | "bookmarks" | "semanticLinks";
   label: string;
   checked: boolean;
   color: string;
@@ -94,6 +95,7 @@ export const GraphView: React.FC = () => {
     { id: "tags", label: "Tags", checked: true, color: "text-slate-400/50" },
     { id: "dailyNotes", label: "Daily Notes", checked: true, color: "text-[#38bdf8]" },
     { id: "backlinks", label: "Backlinks", checked: true, color: "text-[#22d3ee]" },
+    { id: "semanticLinks", label: "Semantic AI Links", checked: false, color: "text-[#818cf8]" },
     { id: "urls", label: "URLs", checked: true, color: "text-[#f43f5e]" },
     { id: "attachments", label: "Attachments", checked: true, color: "text-[#a855f7]" },
     { id: "folders", label: "Folders", checked: true, color: "text-[#fbbf24]" },
@@ -102,6 +104,10 @@ export const GraphView: React.FC = () => {
   ]);
   const [searchQuery, setSearchQuery] = useState("");
   const [colorScheme, setColorScheme] = useState<"category" | "priority" | "status">("category");
+
+  // Semantic AI Settings
+  const [semanticThreshold, setSemanticThreshold] = useState(0.70);
+  const [maxSemanticLinksPerNote, setMaxSemanticLinksPerNote] = useState(3);
 
   // Physics customization
   const [repulsion, setRepulsion] = useState(2200);
@@ -173,6 +179,8 @@ export const GraphView: React.FC = () => {
   const linkDistanceRef = useRef(linkDistance);
   const collisionRadiusRef = useRef(collisionRadius);
   const linkThicknessRef = useRef(linkThickness);
+  const semanticThresholdRef = useRef(semanticThreshold);
+  const maxSemanticLinksPerNoteRef = useRef(maxSemanticLinksPerNote);
 
   useEffect(() => { filtersRef.current = filters; wakeUpSimulation(1.0); }, [filters, wakeUpSimulation]);
   useEffect(() => { searchQueryRef.current = searchQuery; wakeUpSimulation(0.3); }, [searchQuery, wakeUpSimulation]);
@@ -187,6 +195,8 @@ export const GraphView: React.FC = () => {
   useEffect(() => { linkDistanceRef.current = linkDistance; wakeUpSimulation(1.0); }, [linkDistance, wakeUpSimulation]);
   useEffect(() => { collisionRadiusRef.current = collisionRadius; wakeUpSimulation(1.0); }, [collisionRadius, wakeUpSimulation]);
   useEffect(() => { linkThicknessRef.current = linkThickness; wakeUpSimulation(0.2); }, [linkThickness, wakeUpSimulation]);
+  useEffect(() => { semanticThresholdRef.current = semanticThreshold; wakeUpSimulation(1.0); }, [semanticThreshold, wakeUpSimulation]);
+  useEffect(() => { maxSemanticLinksPerNoteRef.current = maxSemanticLinksPerNote; wakeUpSimulation(1.0); }, [maxSemanticLinksPerNote, wakeUpSimulation]);
   useEffect(() => { linksRef.current = links; wakeUpSimulation(0.3); }, [links, wakeUpSimulation]);
 
   // Drag reordering using inline filter drag handlers below
@@ -204,6 +214,7 @@ export const GraphView: React.FC = () => {
       case "folders": return <Folder className="h-3.5 w-3.5 text-[#fbbf24]" />;
       case "tags": return <Tag className="h-3.5 w-3.5 text-[#94a3b8]/50" />;
       case "backlinks": return <Layers className="h-3.5 w-3.5 text-[#22d3ee]" />;
+      case "semanticLinks": return <Sparkles className="h-3.5 w-3.5 text-[#818cf8]" />;
       case "urls": return <Globe className="h-3.5 w-3.5 text-[#f43f5e]" />;
       case "attachments": return <Paperclip className="h-3.5 w-3.5 text-[#a855f7]" />;
       case "orphans": return <EyeOff className="h-3.5 w-3.5 text-[#d946ef]" />;
@@ -545,6 +556,48 @@ export const GraphView: React.FC = () => {
           extractedLinks.push({ source: noteId, target: attId, type: "attachment" });
         }
       });
+
+      // Fetch semantic AI vector connections if enabled
+      const semanticFilter = filtersRef.current.find(f => f.id === "semanticLinks");
+      if (semanticFilter?.checked) {
+        try {
+          const rawSemanticLinks = await searchEngine.getSemanticConnections(semanticThresholdRef.current);
+          const semanticCounts: Record<string, number> = {};
+          const noteNodes = extractedNodes.filter(n => n.type === "note");
+
+          for (const simLink of rawSemanticLinks) {
+            const normSrc = simLink.source.replace(/\\/g, "/");
+            const normTgt = simLink.target.replace(/\\/g, "/");
+
+            const srcNode = noteNodes.find(n => n.path && n.path.replace(/\\/g, "/") === normSrc);
+            const tgtNode = noteNodes.find(n => n.path && n.path.replace(/\\/g, "/") === normTgt);
+
+            if (srcNode && tgtNode && srcNode.id !== tgtNode.id) {
+              const srcCount = semanticCounts[srcNode.id] || 0;
+              const tgtCount = semanticCounts[tgtNode.id] || 0;
+
+              if (srcCount < maxSemanticLinksPerNoteRef.current && tgtCount < maxSemanticLinksPerNoteRef.current) {
+                const existing = extractedLinks.some(l =>
+                  (l.source === srcNode.id && l.target === tgtNode.id) ||
+                  (l.source === tgtNode.id && l.target === srcNode.id)
+                );
+                if (!existing) {
+                  extractedLinks.push({
+                    source: srcNode.id,
+                    target: tgtNode.id,
+                    type: "semantic",
+                    similarity: simLink.similarity,
+                  });
+                  semanticCounts[srcNode.id] = srcCount + 1;
+                  semanticCounts[tgtNode.id] = tgtCount + 1;
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Failed to query semantic links:", err);
+        }
+      }
 
       // Compute degree for each node
       const degreeCounter: Record<string, number> = {};
@@ -1125,6 +1178,8 @@ export const GraphView: React.FC = () => {
           lineColor = isHighlighted ? "rgba(244, 63, 94, 0.85)" : isFaded ? "rgba(244, 63, 94, 0.03)" : "rgba(244, 63, 94, 0.2)";
         } else if (link.type === "attachment") {
           lineColor = isHighlighted ? "rgba(168, 85, 247, 0.85)" : isFaded ? "rgba(168, 85, 247, 0.03)" : "rgba(168, 85, 247, 0.2)";
+        } else if (link.type === "semantic") {
+          lineColor = isHighlighted ? "rgba(129, 140, 248, 0.95)" : isFaded ? "rgba(129, 140, 248, 0.04)" : "rgba(129, 140, 248, 0.45)";
         } else {
           lineColor = isHighlighted ? "rgba(34, 211, 238, 0.9)" : isFaded ? "rgba(34, 211, 238, 0.03)" : "rgba(34, 211, 238, 0.22)";
         }
@@ -1134,7 +1189,13 @@ export const GraphView: React.FC = () => {
         ctx.lineTo(targetNode.x, targetNode.y);
         ctx.strokeStyle = lineColor;
         ctx.lineWidth = isHighlighted ? linkThicknessRef.current * 2.0 : linkThicknessRef.current;
+        if (link.type === "semantic") {
+          ctx.setLineDash([5, 4]);
+        } else {
+          ctx.setLineDash([]);
+        }
         ctx.stroke();
+        ctx.setLineDash([]);
 
         if (link.type === "backlink" && isHighlighted) {
           drawArrow(ctx, sourceNode.x, sourceNode.y, targetNode.x, targetNode.y, targetNode.radius, lineColor);
@@ -1790,6 +1851,51 @@ export const GraphView: React.FC = () => {
             ))}
           </div>
         </div>
+
+        {/* Semantic AI Connections Settings */}
+        {filters.find((f) => f.id === "semanticLinks")?.checked && (
+          <div className="flex flex-col gap-2.5 border-t border-card-border pt-3 bg-indigo-500/5 dark:bg-indigo-500/10 p-2.5 rounded-xl border border-indigo-500/20 animate-fade-in">
+            <span className="text-[9.5px] font-bold text-indigo-500 dark:text-indigo-400 tracking-wider uppercase flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-indigo-400" /> Semantic AI Controls
+            </span>
+            <div className="flex flex-col gap-1 text-xs">
+              <div className="flex justify-between text-[10px] text-slate-500 font-medium">
+                <span>Similarity Threshold</span>
+                <span className="font-mono text-indigo-400 font-bold">{Math.round(semanticThreshold * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0.50"
+                max="0.95"
+                step="0.05"
+                value={semanticThreshold}
+                onChange={(e) => {
+                  setSemanticThreshold(parseFloat(e.target.value));
+                  alphaRef.current = 1.0;
+                }}
+                className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+            </div>
+            <div className="flex flex-col gap-1 text-xs">
+              <div className="flex justify-between text-[10px] text-slate-500 font-medium">
+                <span>Max Links Per Note</span>
+                <span className="font-mono text-indigo-400 font-bold">{maxSemanticLinksPerNote}</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="10"
+                step="1"
+                value={maxSemanticLinksPerNote}
+                onChange={(e) => {
+                  setMaxSemanticLinksPerNote(parseInt(e.target.value, 10));
+                  alphaRef.current = 1.0;
+                }}
+                className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+            </div>
+          </div>
+        )}
 
         {/* Physics Presets & Sliders */}
         <div className="flex flex-col gap-3 border-t dark:border-[#1e2335]/70 border-slate-300 pt-3">
