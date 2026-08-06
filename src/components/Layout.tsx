@@ -594,7 +594,7 @@ export const Layout: React.FC = () => {
                   title="Close other tabs"
                   className={`mb-1 p-1 rounded-md transition-all cursor-pointer shrink-0 ml-1.5 flex items-center justify-center ${
                     isTabsSquished
-                      ? "bg-rose-500/20 text-rose-400 border border-rose-500/40 shadow-[0_0_12px_rgba(244,63,94,0.4)] animate-pulse hover:bg-rose-500/30 hover:shadow-[0_0_16px_rgba(244,63,94,0.6)]"
+                      ? "bg-rose-500/20 text-rose-400 border border-rose-500/40 hover:bg-rose-500/30 hover:text-rose-300"
                       : "text-slate-500 hover:text-rose-400 hover:bg-slate-800/80 border border-transparent"
                   }`}
                 >
