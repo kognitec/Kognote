@@ -358,13 +358,12 @@ pub fn run() {
         .run(|app_handle, event| match event {
             tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
                 let tauri_state = app_handle.state::<Arc<LlmState>>();
-                let state = tauri_state.inner().clone();
-                if let Ok(mut guard) = state.server_process.lock() {
+                if let Ok(mut guard) = tauri_state.server_process.lock() {
                     if let Some(mut child) = guard.take() {
                         let _ = child.kill();
                         let _ = child.wait();
                     }
-                }
+                };
                 #[cfg(target_os = "windows")]
                 {
                     use std::os::windows::process::CommandExt;
