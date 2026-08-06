@@ -1037,6 +1037,9 @@ export const GraphView: React.FC = () => {
           let targetDist = baseDistance;
           if (link.type === "tag-in-notes") targetDist = baseDistance * 1.25;
           if (link.type === "folder") targetDist = baseDistance * 0.85;
+          if (link.type === "semantic" && link.similarity) {
+            targetDist = baseDistance * (1.3 - link.similarity * 0.6);
+          }
           const force = (dist - targetDist) * springStrength * 0.12 * alpha;
           const factor = force / dist;
           if (!sourceNode.pinned && !pinnedNodesRef.current.has(sourceNode.id)) {
@@ -1192,7 +1195,9 @@ export const GraphView: React.FC = () => {
         } else if (link.type === "attachment") {
           lineColor = isHighlighted ? "rgba(168, 85, 247, 0.85)" : isFaded ? "rgba(168, 85, 247, 0.03)" : "rgba(168, 85, 247, 0.2)";
         } else if (link.type === "semantic") {
-          lineColor = isHighlighted ? "rgba(129, 140, 248, 0.95)" : isFaded ? "rgba(129, 140, 248, 0.04)" : "rgba(129, 140, 248, 0.45)";
+          const sim = link.similarity || 0.5;
+          const alpha = Math.min(0.95, Math.max(0.18, sim * 0.85));
+          lineColor = isHighlighted ? "rgba(129, 140, 248, 0.95)" : isFaded ? "rgba(129, 140, 248, 0.04)" : `rgba(129, 140, 248, ${alpha.toFixed(2)})`;
         } else {
           lineColor = isHighlighted ? "rgba(34, 211, 238, 0.9)" : isFaded ? "rgba(34, 211, 238, 0.03)" : "rgba(34, 211, 238, 0.22)";
         }
@@ -1201,7 +1206,11 @@ export const GraphView: React.FC = () => {
         ctx.moveTo(sourceNode.x, sourceNode.y);
         ctx.lineTo(targetNode.x, targetNode.y);
         ctx.strokeStyle = lineColor;
-        ctx.lineWidth = isHighlighted ? linkThicknessRef.current * 2.0 : linkThicknessRef.current;
+        ctx.lineWidth = isHighlighted
+          ? linkThicknessRef.current * 2.0
+          : link.type === "semantic" && link.similarity
+            ? linkThicknessRef.current * (0.6 + link.similarity * 0.8)
+            : linkThicknessRef.current;
         if (link.type === "semantic") {
           ctx.setLineDash([5, 4]);
         } else {
