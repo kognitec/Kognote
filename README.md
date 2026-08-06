@@ -4,7 +4,7 @@
 [![React 19](https://img.shields.io/badge/React-19.0-61dafb.svg?logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178c6.svg?logo=typescript)](https://www.typescriptlang.org/)
 [![Rust](https://img.shields.io/badge/Rust-1.80+-orange.svg?logo=rust)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-All%20Rights%20Reserved-red.svg)](LICENSE)
 
 > **KogNote** is a local-first, privacy-focused, cross-platform personal knowledge management (PKM) application. Built with **Tauri v2, Rust, React 19, and Vite**, KogNote seamlessly unifies dual-mode Markdown editing, bidirectional WikiLinks, an interactive 2D knowledge graph, task management, spaced-repetition flashcards, web clippings, and a dual-engine AI Copilot with RAG vector search (supporting offline local GGUF models via `llama.cpp` and cloud providers).
 
@@ -169,7 +169,11 @@ Kognote/
 
 ---
 
-## 📄 License & Author
+## 📄 License & Copyright
+
+Copyright © 2026 **Kognitec** / **Jeevan**. All Rights Reserved.
+
+This software and associated documentation files are proprietary and confidential. Unauthorized copying, distribution, modification, or public display of this repository or any portion thereof is strictly prohibited.
 
 - **Author**: Jeevan ([`contact@kognitec.com`](mailto:contact@kognitec.com))
 - **Organization**: [Kognitec](https://github.com/kognitec)
