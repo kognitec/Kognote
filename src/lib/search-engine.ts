@@ -179,8 +179,9 @@ class EmbeddingWorkerClient {
 
   async isModelCached(): Promise<boolean> {
     try {
-      const res = await fetch("/models/nomic-embed-text-v1.5/config.json", { method: "HEAD" });
-      if (res.ok) return true;
+      const res = await fetch("/models/nomic-embed-text-v1.5/config.json", { method: "GET" });
+      const contentType = res.headers.get("content-type") || "";
+      if (res.ok && contentType.includes("application/json")) return true;
     } catch {}
 
     if (typeof caches === "undefined") return false;

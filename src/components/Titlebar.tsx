@@ -305,177 +305,168 @@ export const Titlebar: React.FC<TitlebarProps> = ({ onOpenSettings }) => {
           </span>
         </div>
 
-        {/* Inline App Dropdown Menus (File, Edit, View, Help) */}
-        <div ref={menuContainerRef} className="flex items-center gap-0.5 ml-1 sm:ml-2" data-tauri-drag-region={false}>
-          {[
-            {
-              id: "file",
-              label: "File",
-              items: [
-                {
-                  label: "New...",
-                  submenu: [
-                    { label: "New Note", shortcut: isMac ? "⌘N" : "Ctrl+N", action: () => window.dispatchEvent(new CustomEvent("new-note-action")) },
-                    { label: "New Daily Log", shortcut: isMac ? "⇧⌘D" : "Ctrl+Shift+D", action: () => window.dispatchEvent(new CustomEvent("new-daily-action")) },
-                    { label: "New Whiteboard Canvas", action: () => setActiveView("canvas") },
-                  ]
-                },
-                { label: "Open Vault...", shortcut: isMac ? "⌘O" : "Ctrl+O", action: () => window.dispatchEvent(new CustomEvent("open-vault-action")) },
-                { label: "Sync Vault Data", action: triggerSync },
-                { separator: true },
-                { label: "Save Active Note", shortcut: isMac ? "⌘S" : "Ctrl+S", action: () => window.dispatchEvent(new CustomEvent("save-note-action")) },
-                { label: "Close Active Note", shortcut: isMac ? "⌘W" : "Ctrl+W", action: () => window.dispatchEvent(new CustomEvent("close-note-action")) },
-                { separator: true },
-                { label: "Reveal in Explorer / Finder", shortcut: isMac ? "⇧⌘R" : "Ctrl+Shift+R", action: () => window.dispatchEvent(new CustomEvent("reveal-note-action")) },
-                { separator: true },
-                { label: "Exit KogNote", shortcut: isMac ? "⌘Q" : "Alt+F4", action: handleClose },
-              ]
-            },
-            {
-              id: "edit",
-              label: "Edit",
-              items: [
-                { label: "Undo", shortcut: isMac ? "⌘Z" : "Ctrl+Z", action: () => document.execCommand("undo") },
-                { label: "Redo", shortcut: isMac ? "⇧⌘Z" : "Ctrl+Y", action: () => document.execCommand("redo") },
-                { separator: true },
-                { label: "Cut", shortcut: isMac ? "⌘X" : "Ctrl+X", action: () => document.execCommand("cut") },
-                { label: "Copy", shortcut: isMac ? "⌘C" : "Ctrl+C", action: () => document.execCommand("copy") },
-                { label: "Paste", shortcut: isMac ? "⌘V" : "Ctrl+V", action: () => document.execCommand("paste") },
-                { separator: true },
-                { label: "Command Palette...", shortcut: isMac ? "⌘K" : "Ctrl+K", action: () => window.dispatchEvent(new CustomEvent("open-command-palette")) },
-                {
-                  label: "AI Smart Actions",
-                  submenu: [
-                    { label: "AI Clean & Format", action: () => window.dispatchEvent(new CustomEvent("trigger-ai-format")) },
-                    { label: "AI Continue Writing", action: () => window.dispatchEvent(new CustomEvent("trigger-continue-writing")) },
-                    { label: "AI Rewrite & Polish", action: () => window.dispatchEvent(new CustomEvent("trigger-rewrite")) },
-                    { label: "Suggest WikiLinks", action: () => window.dispatchEvent(new CustomEvent("trigger-suggest-links")) },
-                    { label: "Instant Markdown Format", action: () => window.dispatchEvent(new CustomEvent("trigger-instant-format")) },
-                  ]
-                }
-              ]
-            },
-            {
-              id: "view",
-              label: "View",
-              items: [
-                {
-                  label: "Switch View",
-                  submenu: [
-                    { label: "Markdown Editor", shortcut: isMac ? "⌘1" : "Ctrl+1", action: () => setActiveView("editor") },
-                    { label: "Whiteboard Canvas", shortcut: isMac ? "⌘2" : "Ctrl+2", action: () => setActiveView("canvas") },
-                    { label: "Knowledge Graph", shortcut: isMac ? "⌘3" : "Ctrl+3", action: () => setActiveView("graph") },
-                    { label: "Flashcard Review", shortcut: isMac ? "⌘4" : "Ctrl+4", action: () => setActiveView("flashcards") },
-                    { label: "Calendar Timeline", shortcut: isMac ? "⌘5" : "Ctrl+5", action: () => setActiveView("calendar") },
-                    { label: "Task Manager", shortcut: isMac ? "⌘6" : "Ctrl+6", action: () => setActiveView("tasks") },
-                    { label: "Kanban Board", shortcut: isMac ? "⌘7" : "Ctrl+7", action: () => setActiveView("board") },
-                  ]
-                },
-                { separator: true },
-                { label: "Toggle Sidebar", shortcut: isMac ? "⌘\\" : "Ctrl+\\", action: () => window.dispatchEvent(new CustomEvent("trigger-toggle-sidebar")) },
-                { label: "Toggle KogNote AI Chat", shortcut: isMac ? "⇧⌘C" : "Ctrl+Shift+C", action: () => window.dispatchEvent(new CustomEvent("open-ai-chat-with-prompt", { detail: "" })) },
-                { separator: true },
-                { label: `Switch to ${theme === "dark" ? "Light" : "Dark"} Mode`, action: (e?: any) => toggleTheme(e) },
-              ]
-            },
-            {
-              id: "help",
-              label: "Help",
-              items: [
-                { label: "KogNote Documentation", action: () => onOpenSettings("docs") },
-                { label: "System Preferences / Settings", action: () => onOpenSettings("vault") },
-                { label: "AI Operating Rules (AGENTS.md)", action: () => onOpenSettings("agents") },
-                { separator: true },
-                { label: "About KogNote BETA", action: () => onOpenSettings("about") },
-              ]
-            }
-          ].map((menu) => (
-            <div key={menu.id} className="relative">
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveMenu(activeMenu === menu.id ? null : menu.id);
-                  setActiveSubmenu(null);
-                }}
-                onMouseEnter={() => {
-                  if (activeMenu) {
-                    setActiveMenu(menu.id);
+        {/* Inline App Dropdown Menus (File, Edit, View, Help) - Windows/Linux only (macOS uses native menu bar) */}
+        {!isMac && (
+          <div ref={menuContainerRef} className="flex items-center gap-0.5 ml-1 sm:ml-2" data-tauri-drag-region={false}>
+            {[
+              {
+                id: "file",
+                label: "File",
+                items: [
+                  {
+                    label: "New...",
+                    submenu: [
+                      { label: "New Note", shortcut: isMac ? "⌘N" : "Ctrl+N", action: () => window.dispatchEvent(new CustomEvent("new-note-action")) },
+                      { label: "New Daily Log", shortcut: isMac ? "⇧⌘D" : "Ctrl+Shift+D", action: () => window.dispatchEvent(new CustomEvent("new-daily-action")) },
+                      { label: "New Whiteboard Canvas", action: () => setActiveView("canvas") },
+                    ]
+                  },
+                  { label: "Open Vault...", shortcut: isMac ? "⌘O" : "Ctrl+O", action: () => window.dispatchEvent(new CustomEvent("open-vault-action")) },
+                  { label: "Sync Vault Data", action: triggerSync },
+                  { separator: true },
+                  { label: "Save Active Note", shortcut: isMac ? "⌘S" : "Ctrl+S", action: () => window.dispatchEvent(new CustomEvent("save-note-action")) },
+                  { label: "Close Active Note", shortcut: isMac ? "⌘W" : "Ctrl+W", action: () => window.dispatchEvent(new CustomEvent("close-note-action")) },
+                  { separator: true },
+                  { label: "Reveal in Explorer / Finder", shortcut: isMac ? "⇧⌘R" : "Ctrl+Shift+R", action: () => window.dispatchEvent(new CustomEvent("reveal-note-action")) },
+                  { separator: true },
+                  { label: "Exit KogNote", shortcut: isMac ? "⌘Q" : "Alt+F4", action: handleClose },
+                ]
+              },
+              {
+                id: "edit",
+                label: "Edit",
+                items: [
+                  { label: "Undo", shortcut: isMac ? "⌘Z" : "Ctrl+Z", action: () => document.execCommand("undo") },
+                  { label: "Redo", shortcut: isMac ? "⇧⌘Z" : "Ctrl+Y", action: () => document.execCommand("redo") },
+                  { separator: true },
+                  { label: "Cut", shortcut: isMac ? "⌘X" : "Ctrl+X", action: () => document.execCommand("cut") },
+                  { label: "Copy", shortcut: isMac ? "⌘C" : "Ctrl+C", action: () => document.execCommand("copy") },
+                  { label: "Paste", shortcut: isMac ? "⌘V" : "Ctrl+V", action: () => document.execCommand("paste") },
+                  { separator: true },
+                  { label: "Command Palette...", shortcut: isMac ? "⌘K" : "Ctrl+K", action: () => window.dispatchEvent(new CustomEvent("open-command-palette")) },
+                  {
+                    label: "AI Smart Actions",
+                    submenu: [
+                      { label: "AI Clean & Format", action: () => window.dispatchEvent(new CustomEvent("trigger-ai-format")) },
+                      { label: "AI Continue Writing", action: () => window.dispatchEvent(new CustomEvent("trigger-continue-writing")) },
+                      { label: "AI Summarize Note", action: () => window.dispatchEvent(new CustomEvent("trigger-ai-summarize")) },
+                      { label: "AI Extract Action Items", action: () => window.dispatchEvent(new CustomEvent("trigger-ai-tasks")) },
+                    ]
+                  },
+                ]
+              },
+              {
+                id: "view",
+                label: "View",
+                items: [
+                  { label: "Editor", shortcut: isMac ? "⌘1" : "Ctrl+1", action: () => setActiveView("editor") },
+                  { label: "Whiteboard Canvas", shortcut: isMac ? "⌘2" : "Ctrl+2", action: () => setActiveView("canvas") },
+                  { label: "Knowledge Graph", shortcut: isMac ? "⌘3" : "Ctrl+3", action: () => setActiveView("graph") },
+                  { label: "Calendar Timeline", shortcut: isMac ? "⌘4" : "Ctrl+4", action: () => setActiveView("calendar") },
+                  { label: "Task Manager", shortcut: isMac ? "⌘5" : "Ctrl+5", action: () => setActiveView("tasks") },
+                  { label: "Kanban Board", shortcut: isMac ? "⌘6" : "Ctrl+6", action: () => setActiveView("board") },
+                  { label: "Flashcards", shortcut: isMac ? "⌘7" : "Ctrl+7", action: () => setActiveView("flashcards") },
+                  { separator: true },
+                  { label: "Toggle KogNote AI Chat", shortcut: isMac ? "⇧⌘C" : "Ctrl+Shift+C", action: () => window.dispatchEvent(new CustomEvent("toggle-ai-chat")) },
+                  { label: "Toggle Left Sidebar", shortcut: isMac ? "⌘\\" : "Ctrl+\\", action: () => window.dispatchEvent(new CustomEvent("toggle-left-sidebar")) },
+                  { separator: true },
+                  { label: "Toggle Theme (Light/Dark)", action: toggleTheme },
+                ]
+              },
+              {
+                id: "help",
+                label: "Help",
+                items: [
+                  { label: "Open Settings & Preferences...", shortcut: isMac ? "⌘," : "Ctrl+,", action: () => onOpenSettings("vault") },
+                  { label: "System Info & Diagnostic Logs", action: () => onOpenSettings("sysinfo") },
+                  { label: "Documentation & User Guide", action: () => onOpenSettings("docs") },
+                  { separator: true },
+                  { label: "About KogNote", action: () => onOpenSettings("about") },
+                ]
+              }
+            ].map((menu) => (
+              <div key={menu.id} className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveMenu(activeMenu === menu.id ? null : menu.id);
                     setActiveSubmenu(null);
-                  }
-                }}
-                className={`px-2 py-0.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer select-none ${
-                  activeMenu === menu.id
-                    ? "bg-slate-200 dark:bg-slate-800 text-foreground font-bold"
-                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground"
-                }`}
-              >
-                {menu.label}
-              </button>
+                  }}
+                  className={`px-2 py-1 rounded-md text-xs font-medium cursor-pointer transition-colors ${
+                    activeMenu === menu.id
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                  }`}
+                >
+                  {menu.label}
+                </button>
 
-              {activeMenu === menu.id && (
-                <div className="absolute left-0 top-full mt-1 z-200 min-w-52 py-1 rounded-xl bg-card border border-card-border shadow-2xl backdrop-blur-xl animate-fade-in text-xs">
-                  {menu.items.map((item: any, idx: number) => (
-                    item.separator ? (
-                      <div key={idx} className="my-1 border-t border-card-border" />
-                    ) : item.submenu ? (
-                      <div
-                        key={idx}
-                        className="relative group/sub"
-                        onMouseEnter={() => setActiveSubmenu(item.label)}
-                      >
+                {/* Dropdown Menu */}
+                {activeMenu === menu.id && (
+                  <div className="absolute left-0 top-full mt-1 min-w-56 py-1 rounded-xl bg-card border border-card-border shadow-2xl backdrop-blur-xl animate-fade-in text-xs z-200">
+                    {menu.items.map((item: any, idx: number) => (
+                      item.separator ? (
+                        <div key={idx} className="my-1 border-t border-card-border" />
+                      ) : item.submenu ? (
+                        <div
+                          key={idx}
+                          className="relative group/sub"
+                          onMouseEnter={() => setActiveSubmenu(item.label)}
+                        >
+                          <button
+                            type="button"
+                            className="w-full px-3 py-1.5 text-xs text-left text-foreground hover:bg-indigo-600 hover:text-white flex items-center justify-between transition-colors cursor-pointer group"
+                          >
+                            <span>{item.label}</span>
+                            <ChevronRight className="h-3.5 w-3.5 text-slate-400 group-hover/sub:text-white ml-2" />
+                          </button>
+
+                          {activeSubmenu === item.label && (
+                            <div className="absolute left-full top-0 ml-1 min-w-48 py-1 rounded-xl bg-card border border-card-border shadow-2xl backdrop-blur-xl animate-fade-in text-xs z-200">
+                              {item.submenu.map((subItem: any, subIdx: number) => (
+                                <button
+                                  key={subIdx}
+                                  type="button"
+                                  onClick={() => {
+                                    subItem.action?.();
+                                    setActiveMenu(null);
+                                    setActiveSubmenu(null);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-xs text-left text-foreground hover:bg-indigo-600 hover:text-white flex items-center justify-between transition-colors cursor-pointer group"
+                                >
+                                  <span>{subItem.label}</span>
+                                  {subItem.shortcut && (
+                                    <span className="text-[10px] text-slate-400 group-hover:text-white/80 font-mono ml-3">{subItem.shortcut}</span>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
                         <button
+                          key={idx}
                           type="button"
-                          className="w-full px-3 py-1.5 text-xs text-left text-foreground hover:bg-indigo-600 hover:text-white flex items-center justify-between transition-colors cursor-pointer"
+                          onClick={() => {
+                            item.action?.();
+                            setActiveMenu(null);
+                            setActiveSubmenu(null);
+                          }}
+                          className="w-full px-3 py-1.5 text-xs text-left text-foreground hover:bg-indigo-600 hover:text-white flex items-center justify-between transition-colors cursor-pointer group"
                         >
                           <span>{item.label}</span>
-                          <ChevronRight className="h-3.5 w-3.5 text-slate-400 group-hover/sub:text-white ml-2" />
+                          {item.shortcut && (
+                            <span className="text-[10px] text-slate-400 group-hover:text-white/80 font-mono ml-3">{item.shortcut}</span>
+                          )}
                         </button>
-
-                        {activeSubmenu === item.label && (
-                          <div className="absolute left-full top-0 ml-1 min-w-48 py-1 rounded-xl bg-card border border-card-border shadow-2xl backdrop-blur-xl animate-fade-in text-xs z-200">
-                            {item.submenu.map((subItem: any, subIdx: number) => (
-                              <button
-                                key={subIdx}
-                                type="button"
-                                onClick={() => {
-                                  subItem.action?.();
-                                  setActiveMenu(null);
-                                  setActiveSubmenu(null);
-                                }}
-                                className="w-full px-3 py-1.5 text-xs text-left text-foreground hover:bg-indigo-600 hover:text-white flex items-center justify-between transition-colors cursor-pointer group"
-                              >
-                                <span>{subItem.label}</span>
-                                {subItem.shortcut && (
-                                  <span className="text-[10px] text-slate-400 group-hover:text-white/80 font-mono ml-3">{subItem.shortcut}</span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => {
-                          item.action?.();
-                          setActiveMenu(null);
-                          setActiveSubmenu(null);
-                        }}
-                        className="w-full px-3 py-1.5 text-xs text-left text-foreground hover:bg-indigo-600 hover:text-white flex items-center justify-between transition-colors cursor-pointer group"
-                      >
-                        <span>{item.label}</span>
-                        {item.shortcut && (
-                          <span className="text-[10px] text-slate-400 group-hover:text-white/80 font-mono ml-3">{item.shortcut}</span>
-                        )}
-                      </button>
-                    )
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+                      )
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Center section: Switcher Capsule Pills with Fluid Moving Indicator */}

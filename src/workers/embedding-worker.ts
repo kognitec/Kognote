@@ -35,6 +35,12 @@ async function getPipeline(maxRetries = 3) {
   // 1. Try loading from local bundled asset path (/models/nomic-embed-text-v1.5/) for 100% offline first boot
   try {
     console.log("[Embedding Worker] Checking for local bundled model in /models/nomic-embed-text-v1.5/...");
+    const checkRes = await fetch("/models/nomic-embed-text-v1.5/config.json");
+    const checkType = checkRes.headers.get("content-type") || "";
+    if (!checkRes.ok || !checkType.includes("application/json")) {
+      throw new Error("Bundled model config not found or invalid response");
+    }
+
     pipelineInstance = await (pipeline as any)(
       "feature-extraction",
       "/models/nomic-embed-text-v1.5/",
@@ -44,7 +50,7 @@ async function getPipeline(maxRetries = 3) {
     self.postMessage({ type: "ready" });
     return pipelineInstance;
   } catch (localErr) {
-    console.log("[Embedding Worker] Local bundled model files not present. Proceeding with remote CDN fetching...");
+    console.log("[Embedding Worker] Local bundled model files not present or invalid. Proceeding with remote CDN fetching...");
   }
 
   let lastError: any = null;

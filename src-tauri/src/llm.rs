@@ -749,6 +749,13 @@ pub async fn ensure_llama_server(app: &AppHandle) -> Result<PathBuf, String> {
                 std::fs::set_permissions(&outpath, std::fs::Permissions::from_mode(0o755)).ok();
             }
         }
+
+        #[cfg(target_os = "macos")]
+        {
+            let _ = std::process::Command::new("xattr")
+                .args(&["-d", "com.apple.quarantine", &outpath.to_string_lossy()])
+                .status();
+        }
     }
 
     app.emit("llm_download_progress", serde_json::json!({
