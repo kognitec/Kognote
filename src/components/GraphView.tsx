@@ -1854,7 +1854,7 @@ export const GraphView: React.FC = () => {
 
         {/* Semantic AI Connections Settings */}
         {filters.find((f) => f.id === "semanticLinks")?.checked && (
-          <div className="flex flex-col gap-2.5 border-t border-card-border pt-3 bg-indigo-500/5 dark:bg-indigo-500/10 p-2.5 rounded-xl border border-indigo-500/20 animate-fade-in">
+          <div className="flex flex-col gap-2.5 pt-3 bg-indigo-500/5 dark:bg-indigo-500/10 p-2.5 rounded-xl border border-indigo-500/20 animate-fade-in">
             <span className="text-[9.5px] font-bold text-indigo-500 dark:text-indigo-400 tracking-wider uppercase flex items-center gap-1.5">
               <Sparkles className="h-3.5 w-3.5 text-indigo-400" /> Semantic AI Controls
             </span>
