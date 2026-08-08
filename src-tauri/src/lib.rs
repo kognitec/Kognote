@@ -271,7 +271,7 @@ pub fn run() {
                 #[cfg(target_os = "linux")]
                 {
                     // Linux GTK transparency / dark window fallback
-                    let _ = window.set_background_color(Some(tauri::image::Color(9, 10, 15, 255)));
+                    let _ = window.set_background_color(Some(tauri::Color(9, 10, 15, 255)));
                 }
 
                 let _ = window.show();
