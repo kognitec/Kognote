@@ -27,7 +27,8 @@ const IMPERATIVE_DO_VERBS = [
   "add", "insert", "delete", "remove", "rewrite", "replace", "update", 
   "modify", "refactor", "create", "append", "format", "fix", "change", 
   "make", "set", "rename", "move", "convert", "translate", "strip", 
-  "clean", "extract", "organize", "reorder", "sort", "populate"
+  "clean", "extract", "organize", "reorder", "sort", "populate",
+  "mark", "check", "uncheck", "complete", "finish", "toggle", "tick", "clear"
 ];
 
 const DO_VERB_REGEX = new RegExp(`\\b(${IMPERATIVE_DO_VERBS.join("|")})\\b`, "i");

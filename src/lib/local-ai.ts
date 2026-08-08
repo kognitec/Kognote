@@ -13,8 +13,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export interface AISettings {
-  provider: "local" | "anthropic" | "gemini" | "openai" | "api";
+  provider: "local" | "custom_local" | "anthropic" | "gemini" | "openai" | "api";
   localModel: string;
+  customLocalUrl?: string;
+  customLocalModel?: string;
   apiUrl: string;
   apiKey: string;
   apiModel: string;
@@ -112,21 +114,50 @@ export async function streamFetchSSE(
 
 class AIService {
   private inactivityTimeout: any = null;
+  private isChatOpen: boolean = false;
+  private isGenerating: boolean = false;
   private settings: AISettings = {
     provider: "local",
     localModel: "qwen2.5-coder-3b",
+    customLocalUrl: "http://localhost:11434/v1",
+    customLocalModel: "qwen2.5-coder",
     apiUrl: "https://api.openai.com/v1",
     apiKey: "",
     apiModel: "gpt-4o-mini",
     inactivityTimeoutSeconds: 300,
   };
 
+  /** Call when AI Chat drawer/panel opens or closes */
+  setChatOpen(isOpen: boolean) {
+    this.isChatOpen = isOpen;
+    this.scheduleInactivityUnload();
+  }
+
+  /** Centralized unload scheduling logic */
+  scheduleInactivityUnload() {
+    if (this.settings.provider !== "local") return;
+    if (this.inactivityTimeout) {
+      clearTimeout(this.inactivityTimeout);
+      this.inactivityTimeout = null;
+    }
+
+    if (this.isGenerating) return;
+
+    // If chat panel is closed (and AI is idle), enforce a strict 30-second unload override
+    const configuredSeconds = Math.max(30, Math.min(300, this.settings.inactivityTimeoutSeconds ?? 300));
+    const effectiveSeconds = !this.isChatOpen ? 30 : configuredSeconds;
+
+    this.inactivityTimeout = setTimeout(() => {
+      this.unloadModel().catch(console.error);
+    }, effectiveSeconds * 1000);
+  }
+
   /** Auto-detect system hardware on first launch to select optimal default timeout */
   async autoDetectDefaultTimeout(): Promise<number> {
     try {
       const info = await this.getSystemInfo();
-      // Low memory systems (<12 GB RAM) use aggressive 15s unload; 12GB+ systems use 300s (5m)
-      const defaultTimeout = info.total_ram_gb < 12 ? 15 : 300;
+      // Low memory systems (<12 GB RAM) use 30s unload; 12GB+ systems use 300s (5m)
+      const defaultTimeout = info.total_ram_gb < 12 ? 30 : 300;
       if (this.settings.inactivityTimeoutSeconds === undefined) {
         this.settings.inactivityTimeoutSeconds = defaultTimeout;
       }
@@ -209,9 +240,20 @@ class AIService {
     await invoke("llm_load_model", { modelId });
   }
 
+  private lastUnloadedAt: number = 0;
+
+  /** Get the timestamp (ms) when the model was last unloaded */
+  getLastUnloadedAt(): number {
+    return this.lastUnloadedAt;
+  }
+
   /** Stop the running model server and free memory. */
   async unloadModel(): Promise<void> {
     await invoke("llm_unload_model");
+    this.lastUnloadedAt = Date.now();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("kognote-local-ai-unloaded"));
+    }
   }
 
   /** Get the currently loaded model ID (or null if server is stopped/unhealthy). */
@@ -254,6 +296,25 @@ class AIService {
         return { ok: false, message: "Local AI server ready (click Boot Model to load)" };
       } catch (err: any) {
         return { ok: false, message: err?.message || "Local server connection failed" };
+      }
+    }
+
+    if (provider === "custom_local") {
+      const localUrl = (overrideApiUrl || this.settings.customLocalUrl || "http://localhost:11434/v1").trim().replace(/\/+$/, "");
+      const targetModel = overrideApiModel || this.settings.customLocalModel || "qwen2.5-coder";
+      try {
+        const available = await this.fetchExternalLocalModels(localUrl);
+        if (available.length > 0) {
+          return { ok: true, message: `Connected to external local server! Detected ${available.length} model(s): ${available.slice(0, 3).join(", ")}` };
+        }
+        // Fallback test endpoint
+        const testRes = await fetch(`${localUrl}/models`, { method: "GET" }).catch(() => null);
+        if (testRes && testRes.ok) {
+          return { ok: true, message: `Connected successfully to local server (${targetModel})` };
+        }
+        return { ok: false, message: `Connection refused at ${localUrl}. Ensure Ollama, LM Studio, or LocalAI is running.` };
+      } catch (err: any) {
+        return { ok: false, message: err?.message || `Failed to connect to local server at ${localUrl}` };
       }
     }
 
@@ -338,6 +399,57 @@ class AIService {
     return true;
   }
 
+  /** Fetch models available on an external local server (Ollama, LM Studio, LocalAI, etc.) */
+  async fetchExternalLocalModels(customUrl?: string): Promise<string[]> {
+    const baseUrl = (customUrl || this.settings.customLocalUrl || "http://localhost:11434/v1").trim().replace(/\/+$/, "");
+    
+    // 1. Try OpenAI-compatible /v1/models
+    try {
+      const res = await fetch(`${baseUrl}/models`, { method: "GET" });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data?.data)) {
+          return data.data.map((m: any) => m.id || m.name).filter(Boolean);
+        }
+      }
+    } catch {}
+
+    // 2. Try Ollama-native /api/tags
+    try {
+      const ollamaRoot = baseUrl.replace(/\/v1\/?$/, "");
+      const res = await fetch(`${ollamaRoot}/api/tags`, { method: "GET" });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data?.models)) {
+          return data.models.map((m: any) => m.name || m.model).filter(Boolean);
+        }
+      }
+    } catch {}
+
+    return [];
+  }
+
+  /** Fetch available models from a remote OpenAI-compatible API endpoint (OpenRouter, Groq, DeepSeek, etc.) */
+  async fetchCustomApiModels(apiUrl?: string, apiKey?: string): Promise<string[]> {
+    const url = (apiUrl || this.settings.apiUrl || "https://api.openai.com/v1").trim().replace(/\/+$/, "");
+    const key = (apiKey !== undefined ? apiKey : this.settings.apiKey || "").trim();
+
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (key) headers["Authorization"] = `Bearer ${key}`;
+      const res = await fetch(`${url}/models`, { method: "GET", headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data?.data)) {
+          return data.data.map((m: any) => m.id).filter(Boolean);
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to fetch models from custom API:", e);
+    }
+    return [];
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Core text generation
   // ─────────────────────────────────────────────────────────────────────────
@@ -406,6 +518,38 @@ class AIService {
       );
     }
 
+    if (this.settings.provider === "custom_local") {
+      const baseUrl = (this.settings.customLocalUrl || "http://localhost:11434/v1").trim().replace(/\/+$/, "");
+      const messages: { role: string; content: any }[] = [];
+      if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
+      let userContent: any = prompt;
+      if (options?.imageBase64) {
+        userContent = [
+          { type: "text", text: prompt },
+          { type: "image_url", image_url: { url: `data:${options.imageMimeType || "image/jpeg"};base64,${options.imageBase64}` } }
+        ];
+      }
+      messages.push({ role: "user", content: userContent });
+
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (cleanApiKey) headers["Authorization"] = `Bearer ${cleanApiKey}`;
+
+      const url = `${baseUrl}/chat/completions`;
+      return streamFetchSSE(
+        url,
+        headers,
+        {
+          model: this.settings.customLocalModel || "qwen2.5-coder",
+          messages,
+          temperature: options?.temperature ?? 0.3,
+          stream: true,
+        },
+        onToken,
+        (data) => data.choices?.[0]?.delta?.content ?? null,
+        options?.abortSignal
+      );
+    }
+
     if (this.settings.provider !== "local") {
       if (!cleanApiKey) throw new Error("API key is missing. Configure it in Settings.");
       const messages: { role: string; content: any }[] = [];
@@ -436,6 +580,12 @@ class AIService {
         (data) => data.choices?.[0]?.delta?.content ?? null,
         options?.abortSignal
       );
+    }
+
+    this.isGenerating = true;
+    if (this.inactivityTimeout) {
+      clearTimeout(this.inactivityTimeout);
+      this.inactivityTimeout = null;
     }
 
     try {
@@ -496,24 +646,10 @@ class AIService {
         unlistenDone();
       }
 
-      if (this.settings.provider === "local") {
-        if (this.inactivityTimeout) clearTimeout(this.inactivityTimeout);
-        const timeoutMs = (this.settings.inactivityTimeoutSeconds ?? 300) * 1000;
-        this.inactivityTimeout = setTimeout(() => {
-          this.unloadModel().catch(console.error);
-        }, timeoutMs);
-      }
-
       return accumulated;
-    } catch (err: any) {
-      if (this.settings.provider === "local") {
-        if (this.inactivityTimeout) clearTimeout(this.inactivityTimeout);
-        const timeoutMs = (this.settings.inactivityTimeoutSeconds ?? 300) * 1000;
-        this.inactivityTimeout = setTimeout(() => {
-          this.unloadModel().catch(console.error);
-        }, timeoutMs);
-      }
-      throw err;
+    } finally {
+      this.isGenerating = false;
+      this.scheduleInactivityUnload();
     }
   }
 
@@ -522,6 +658,7 @@ class AIService {
     systemPrompt?: string,
     options?: { imageBase64?: string; imageMimeType?: string; temperature?: number; tools?: any }
   ): Promise<string> {
+    this.isGenerating = true;
     if (this.inactivityTimeout) {
       clearTimeout(this.inactivityTimeout);
       this.inactivityTimeout = null;
@@ -548,12 +685,6 @@ class AIService {
           temperature: options?.temperature ?? null,
           tools: options?.tools ?? null,
         });
-
-        // Auto-unload after 15 seconds of inactivity to free system RAM
-        if (this.inactivityTimeout) clearTimeout(this.inactivityTimeout);
-        this.inactivityTimeout = setTimeout(() => {
-          this.unloadModel().catch(console.error);
-        }, 15000);
 
         return result;
       } else if (this.settings.provider === "anthropic") {
@@ -678,14 +809,9 @@ class AIService {
         const data = await res.json();
         return data.choices?.[0]?.message?.content ?? "";
       }
-    } catch (err: any) {
-      if (this.settings.provider === "local") {
-        if (this.inactivityTimeout) clearTimeout(this.inactivityTimeout);
-        this.inactivityTimeout = setTimeout(() => {
-          this.unloadModel().catch(console.error);
-        }, 15000);
-      }
-      throw err;
+    } finally {
+      this.isGenerating = false;
+      this.scheduleInactivityUnload();
     }
   }
 

@@ -148,10 +148,68 @@ export function applyDiffBlocks(originalContent: string, diffBlocks: DiffBlock[]
       contentLines.splice(foundIndex, searchLines.length, ...replaceLinesSplit);
       content = contentLines.join("\n");
       appliedCount++;
+      continue;
+    }
+
+    // Tier 4: Fuzzy String Similarity Match (85% similarity threshold)
+    // Forgives minor AI typos, extra spaces, or missing punctuation in SEARCH blocks
+    let bestSimilarity = 0;
+    let bestIndex = -1;
+    const searchLen = searchLines.length;
+
+    for (let i = 0; i <= contentLines.length - searchLen; i++) {
+      const candidateChunk = contentLines.slice(i, i + searchLen).join("\n");
+      const sim = calculateStringSimilarity(candidateChunk, trimmedSearch);
+      if (sim > bestSimilarity) {
+        bestSimilarity = sim;
+        bestIndex = i;
+      }
+    }
+
+    if (bestIndex !== -1 && bestSimilarity >= 0.85) {
+      const replaceLinesSplit = cleanReplace.split("\n");
+      contentLines.splice(bestIndex, searchLen, ...replaceLinesSplit);
+      content = contentLines.join("\n");
+      appliedCount++;
     }
   }
 
   return { updatedContent: content, appliedCount };
+}
+
+/**
+ * Fast Levenshtein distance similarity calculation (0.0 to 1.0)
+ */
+export function calculateStringSimilarity(str1: string, str2: string): number {
+  const s1 = str1.trim().toLowerCase();
+  const s2 = str2.trim().toLowerCase();
+  if (s1 === s2) return 1.0;
+  if (!s1 || !s2) return 0.0;
+
+  const len1 = s1.length;
+  const len2 = s2.length;
+
+  const matrix: number[][] = [];
+  for (let i = 0; i <= len1; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= len2; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i <= len1; i++) {
+    for (let j = 1; j <= len2; j++) {
+      const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  const maxLen = Math.max(len1, len2);
+  return 1 - matrix[len1][len2] / maxLen;
 }
 
 export function applyBlockDiff(original: string, search: string, replace: string): string {

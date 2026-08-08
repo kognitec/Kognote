@@ -56,6 +56,10 @@ class EmbeddingWorkerClient {
         window.dispatchEvent(new CustomEvent("embedding-ready"));
         return;
       }
+      if (type === "error") {
+        window.dispatchEvent(new CustomEvent("embedding-error", { detail: { error: e.data.error } }));
+        return;
+      }
 
       if (!id) return;
 
@@ -178,20 +182,14 @@ class EmbeddingWorkerClient {
   }
 
   async isModelCached(): Promise<boolean> {
-    try {
-      const res = await fetch("/models/nomic-embed-text-v1.5/config.json", { method: "GET" });
-      const contentType = res.headers.get("content-type") || "";
-      if (res.ok && contentType.includes("application/json")) return true;
-    } catch {}
-
     if (typeof caches === "undefined") return false;
     try {
       const keys = await caches.keys();
       for (const key of keys) {
-        if (key.includes("transformers") || key.includes("huggingface") || key.includes("onnx")) {
+        if (key.includes("transformers") || key.includes("huggingface") || key.includes("onnx") || key.includes("nomic")) {
           const cache = await caches.open(key);
           const requests = await cache.keys();
-          if (requests.some((req) => req.url.includes("model_quantized.onnx") || req.url.includes("onnx"))) {
+          if (requests.some((req) => req.url.includes("onnx") || req.url.includes("nomic"))) {
             return true;
           }
         }
@@ -340,6 +338,15 @@ export class SearchEngine {
     } catch (err) {
       console.error(`Failed to query backlink file paths for ${targetNoteName}:`, err);
       return [];
+    }
+  }
+
+  async getAllBacklinksBatch(includeTrash: boolean = false): Promise<Record<string, string[]>> {
+    try {
+      return await invoke<Record<string, string[]>>("db_get_all_backlinks_batch", { includeTrash });
+    } catch (err) {
+      console.error("Failed to query batch backlinks:", err);
+      return {};
     }
   }
 

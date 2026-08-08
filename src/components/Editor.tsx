@@ -7,7 +7,7 @@ import { invokeIPC } from "../lib/ipc";
 import { aiService } from "../lib/local-ai";
 import {
   Eye, FileCode, MoreVertical, List, Sparkles, Paintbrush,
-  ChevronDown, Search, X, Tag, Clock, CheckSquare, FileText, Paperclip,
+  ChevronDown, ChevronUp, ChevronRight, Replace, Search, X, Tag, Clock, CheckSquare, FileText, Paperclip,
   Globe, Bookmark, Archive, Trash2, LayoutTemplate, RotateCcw, GraduationCap, RotateCw,
   ArrowUpRight, ArrowDownLeft, Copy, ExternalLink, FolderOpen, CopyCheck,
   Layers, GitMerge
@@ -90,10 +90,15 @@ export const Editor: React.FC = () => {
 
   // Find & Replace states & refs
   const [showFindReplace, setShowFindReplace] = useState<boolean>(false);
+  const [showReplaceRow, setShowReplaceRow] = useState<boolean>(false);
   const [findText, setFindText] = useState<string>("");
   const [replaceText, setReplaceText] = useState<string>("");
+  const [isMatchCase, setIsMatchCase] = useState<boolean>(false);
+  const [isWholeWord, setIsWholeWord] = useState<boolean>(false);
+  const [isRegex, setIsRegex] = useState<boolean>(false);
+  const [isRegexError, setIsRegexError] = useState<boolean>(false);
   const [findMatchIndex, setFindMatchIndex] = useState<number>(0);
-  const [findMatchesCount, setFindMatchesCount] = useState<number>(0);
+  const [matchesList, setMatchesList] = useState<{ index: number; length: number }[]>([]);
   const findInputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
 
@@ -118,6 +123,7 @@ export const Editor: React.FC = () => {
       } else if (isCmdOrCtrl && keyLower === "h") {
         e.preventDefault();
         setShowFindReplace(true);
+        setShowReplaceRow(true);
         setTimeout(() => replaceInputRef.current?.focus(), 50);
       } else if (e.key === "Escape" && showFindReplace) {
         setShowFindReplace(false);
@@ -844,49 +850,102 @@ export const Editor: React.FC = () => {
     }
   };
 
-  // Find & Replace matches search
+  // Scroll active match into view inside editor canvas
+  const scrollToMatch = useCallback((matchOffset: number) => {
+    const container = document.getElementById("editor-workspace-container");
+    if (!container) return;
+
+    const textBefore = content.slice(0, matchOffset);
+    const lineNum = textBefore.split("\n").length - 1;
+
+    if (editMode === "preview") {
+      const elements = container.querySelectorAll("p, h1, h2, h3, h4, h5, h6, li, pre, div");
+      if (elements[lineNum]) {
+        elements[lineNum].scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    } else {
+      const cmLines = container.querySelectorAll(".cm-line");
+      if (cmLines[lineNum]) {
+        cmLines[lineNum].scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+  }, [content, editMode]);
+
+  // Find & Replace matches search logic
   useEffect(() => {
     if (!findText) {
-      setFindMatchesCount(0);
+      setMatchesList([]);
       setFindMatchIndex(0);
+      setIsRegexError(false);
       return;
     }
 
-    const regex = new RegExp(findText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
-    const matches = content.match(regex);
-    if (matches) {
-      setFindMatchesCount(matches.length);
-      setFindMatchIndex(1);
-    } else {
-      setFindMatchesCount(0);
+    try {
+      let pattern = isRegex ? findText : findText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (isWholeWord) {
+        pattern = `\\b${pattern}\\b`;
+      }
+      const flags = isMatchCase ? "g" : "gi";
+      const regex = new RegExp(pattern, flags);
+      setIsRegexError(false);
+
+      const list: { index: number; length: number }[] = [];
+      let match;
+      while ((match = regex.exec(content)) !== null) {
+        list.push({ index: match.index, length: match[0].length });
+        if (match.index === regex.lastIndex) regex.lastIndex++;
+      }
+
+      setMatchesList(list);
+      setFindMatchIndex((prev) => (list.length > 0 ? Math.min(prev, list.length - 1) : 0));
+    } catch {
+      setIsRegexError(true);
+      setMatchesList([]);
       setFindMatchIndex(0);
     }
-  }, [findText, content]);
+  }, [findText, content, isMatchCase, isWholeWord, isRegex]);
 
   const handleFindNext = () => {
-    if (findMatchesCount > 0) {
-      setFindMatchIndex((prev) => (prev % findMatchesCount) + 1);
-    }
+    if (matchesList.length === 0) return;
+    const nextIdx = (findMatchIndex + 1) % matchesList.length;
+    setFindMatchIndex(nextIdx);
+    scrollToMatch(matchesList[nextIdx].index);
   };
 
   const handleFindPrev = () => {
-    if (findMatchesCount > 0) {
-      setFindMatchIndex((prev) => (prev - 2 + findMatchesCount) % findMatchesCount + 1);
-    }
+    if (matchesList.length === 0) return;
+    const prevIdx = (findMatchIndex - 1 + matchesList.length) % matchesList.length;
+    setFindMatchIndex(prevIdx);
+    scrollToMatch(matchesList[prevIdx].index);
   };
 
   const handleReplaceNext = () => {
-    if (!activeFile || !findText || findMatchesCount === 0) return;
-    const regex = new RegExp(findText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-    const updated = content.replace(regex, replaceText);
+    if (!activeFile || !findText || matchesList.length === 0) return;
+    const curMatch = matchesList[findMatchIndex];
+    if (!curMatch) return;
+
+    const before = content.slice(0, curMatch.index);
+    const after = content.slice(curMatch.index + curMatch.length);
+    const updated = before + replaceText + after;
     handleContentChangeTyping(updated, activeFile.path);
   };
 
   const handleReplaceAll = () => {
-    if (!activeFile || !findText || findMatchesCount === 0) return;
-    const regex = new RegExp(findText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
-    const updated = content.replace(regex, replaceText);
-    handleContentChangeTyping(updated, activeFile.path);
+    if (!activeFile || !findText || matchesList.length === 0) return;
+    try {
+      let pattern = isRegex ? findText : findText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (isWholeWord) {
+        pattern = `\\b${pattern}\\b`;
+      }
+      const flags = isMatchCase ? "g" : "gi";
+      const regex = new RegExp(pattern, flags);
+      const updated = content.replace(regex, replaceText);
+      handleContentChangeTyping(updated, activeFile.path);
+      setToastMessage(`Replaced ${matchesList.length} occurrence(s)`);
+      setTimeout(() => setToastMessage(null), 2500);
+    } catch (e) {
+      console.error("Replace All failed:", e);
+    }
   };
 
   if (!activeFile) {
@@ -1395,102 +1454,167 @@ export const Editor: React.FC = () => {
           />
         )}
 
-        {/* Find & Replace Panel */}
-        {showFindReplace && (
-          <div className="flex flex-col gap-2 border-b border-card-border bg-[#0c0d15] p-3 shrink-0 animate-fade-in text-xs">
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-500" />
-                <input
-                  ref={findInputRef}
-                  type="text"
-                  placeholder="Find text..."
-                  value={findText}
-                  onChange={(e) => setFindText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      if (e.shiftKey) handleFindPrev();
-                      else handleFindNext();
-                    } else if (e.key === "Escape") {
-                      setShowFindReplace(false);
-                    }
-                  }}
-                  className="w-full rounded-md border border-card-border bg-[#161825] py-1.5 pl-8 pr-20 text-[11px] text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:outline-none"
-                  autoFocus
-                />
-                {findText && (
-                  <span className="absolute right-2.5 top-2 text-[9px] text-slate-500 font-bold select-none">
-                    {findMatchesCount > 0 ? `${findMatchIndex} of ${findMatchesCount}` : "0 matches"}
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={handleFindPrev}
-                disabled={!findText || findMatchesCount === 0}
-                className="px-2.5 py-1.5 rounded-md bg-[#161825] border border-slate-800 text-[10px] font-bold text-slate-400 hover:text-slate-200 disabled:opacity-40 cursor-pointer"
-              >
-                Previous
-              </button>
-              <button
-                onClick={handleFindNext}
-                disabled={!findText || findMatchesCount === 0}
-                className="px-2.5 py-1.5 rounded-md bg-[#161825] border border-slate-800 text-[10px] font-bold text-slate-400 hover:text-slate-200 disabled:opacity-40 cursor-pointer"
-              >
-                Next
-              </button>
-              <button
-                onClick={() => {
-                  setShowFindReplace(false);
-                  setFindText("");
-                  setReplaceText("");
-                }}
-                className="p-1 rounded text-slate-500 hover:text-slate-300 cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {!isLogFile && (
-              <div className="flex items-center gap-2">
-                <input
-                  ref={replaceInputRef}
-                  type="text"
-                  placeholder="Replace with..."
-                  value={replaceText}
-                  onChange={(e) => setReplaceText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      if (e.metaKey || e.ctrlKey) handleReplaceAll();
-                      else handleReplaceNext();
-                    } else if (e.key === "Escape") {
-                      setShowFindReplace(false);
-                    }
-                  }}
-                  className="flex-1 rounded-md border border-card-border bg-[#161825] py-1.5 px-3 text-[11px] text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:outline-none"
-                />
-                <button
-                  onClick={handleReplaceNext}
-                  disabled={!findText || findMatchesCount === 0}
-                  className="px-2.5 py-1.5 rounded-md bg-indigo-600/20 border border-indigo-500/30 text-[10px] font-bold text-indigo-300 hover:bg-indigo-600/30 disabled:opacity-40 cursor-pointer"
-                >
-                  Replace
-                </button>
-                <button
-                  onClick={handleReplaceAll}
-                  disabled={!findText || findMatchesCount === 0}
-                  className="px-2.5 py-1.5 rounded-md bg-indigo-600 border border-indigo-500 text-[10px] font-bold text-slate-100 hover:bg-indigo-500 disabled:opacity-40 cursor-pointer"
-                >
-                  Replace All
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Main Editor Pane: Preview (WYSIWYG) vs Source (Read-only CodeMirror) */}
         <div id="editor-workspace-container" className="flex-1 overflow-hidden relative flex bg-background">
+          {/* Sleek Floating Find & Replace Widget */}
+          {showFindReplace && (
+            <div className="absolute top-3 right-5 z-40 flex flex-col gap-1.5 w-96 max-w-[calc(100vw-3rem)] rounded-xl border border-indigo-500/25 bg-[#0d0e17]/95 dark:bg-[#0c0d16]/95 p-2 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150 text-xs select-none">
+              {/* Find Row */}
+              <div className="flex items-center gap-1.5">
+                {/* Toggle Expand Replace Drawer button */}
+                {!isLogFile && (
+                  <button
+                    onClick={() => setShowReplaceRow(!showReplaceRow)}
+                    title={showReplaceRow ? "Hide Replace Drawer" : "Toggle Replace Drawer (Ctrl+H)"}
+                    className={`p-1 rounded-md transition-colors cursor-pointer shrink-0 ${
+                      showReplaceRow
+                        ? "bg-indigo-600/30 text-indigo-300 border border-indigo-500/40"
+                        : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                    }`}
+                  >
+                    <ChevronRight className={`h-3.5 w-3.5 transition-transform duration-150 ${showReplaceRow ? "rotate-90" : ""}`} />
+                  </button>
+                )}
+
+                {/* Find Input with Integrated Match Counter & Badges */}
+                <div className="relative flex-1 flex items-center min-w-0">
+                  <Search className="absolute left-2.5 h-3.5 w-3.5 text-slate-400 shrink-0 pointer-events-none" />
+                  <input
+                    ref={findInputRef}
+                    type="text"
+                    placeholder="Find in note..."
+                    value={findText}
+                    onChange={(e) => setFindText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (e.shiftKey) handleFindPrev();
+                        else handleFindNext();
+                      } else if (e.key === "Escape") {
+                        setShowFindReplace(false);
+                      }
+                    }}
+                    className={`w-full rounded-lg border bg-[#141522] py-1 pl-8 pr-16 text-[11.5px] text-slate-100 placeholder-slate-500 focus:outline-none transition-colors ${
+                      isRegexError ? "border-rose-500/60 focus:border-rose-500" : "border-slate-800 focus:border-indigo-500/70"
+                    }`}
+                    autoFocus
+                  />
+                  {/* Match Count Badge */}
+                  {findText && (
+                    <span className={`absolute right-2 text-[9.5px] font-bold tabular-nums select-none ${
+                      matchesList.length > 0 ? "text-indigo-400" : "text-rose-400"
+                    }`}>
+                      {matchesList.length > 0 ? `${findMatchIndex + 1}/${matchesList.length}` : "0 matches"}
+                    </span>
+                  )}
+                </div>
+
+                {/* Search Modifier Toggles: Match Case, Match Whole Word, Regex */}
+                <div className="flex items-center gap-0.5 bg-[#141522] border border-slate-800 rounded-lg p-0.5 shrink-0">
+                  <button
+                    onClick={() => setIsMatchCase(!isMatchCase)}
+                    title="Match Case (Alt+C)"
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold font-mono transition-colors cursor-pointer ${
+                      isMatchCase ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                    }`}
+                  >
+                    Aa
+                  </button>
+                  <button
+                    onClick={() => setIsWholeWord(!isWholeWord)}
+                    title="Match Whole Word (Alt+W)"
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold font-mono transition-colors cursor-pointer ${
+                      isWholeWord ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                    }`}
+                  >
+                    \b
+                  </button>
+                  <button
+                    onClick={() => setIsRegex(!isRegex)}
+                    title="Use Regular Expression (Alt+R)"
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold font-mono transition-colors cursor-pointer ${
+                      isRegex ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                    }`}
+                  >
+                    .*
+                  </button>
+                </div>
+
+                {/* Navigation Buttons: Previous (Up Arrow), Next (Down Arrow), Close */}
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button
+                    onClick={handleFindPrev}
+                    disabled={!findText || matchesList.length === 0}
+                    title="Previous Match (Shift+Enter)"
+                    className="p-1 rounded-md text-slate-400 hover:bg-slate-800 hover:text-slate-200 disabled:opacity-30 cursor-pointer"
+                  >
+                    <ChevronUp className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={handleFindNext}
+                    disabled={!findText || matchesList.length === 0}
+                    title="Next Match (Enter)"
+                    className="p-1 rounded-md text-slate-400 hover:bg-slate-800 hover:text-slate-200 disabled:opacity-30 cursor-pointer"
+                  >
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowFindReplace(false);
+                      setFindText("");
+                      setReplaceText("");
+                    }}
+                    title="Close (Esc)"
+                    className="p-1 rounded-md text-slate-400 hover:bg-rose-500/20 hover:text-rose-300 cursor-pointer ml-0.5"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Expandable Replace Row */}
+              {showReplaceRow && !isLogFile && (
+                <div className="flex items-center gap-1.5 pt-1 border-t border-slate-800/80 animate-in fade-in slide-in-from-top-1 duration-150">
+                  <div className="relative flex-1 flex items-center min-w-0">
+                    <Replace className="absolute left-2.5 h-3.5 w-3.5 text-slate-400 shrink-0 pointer-events-none" />
+                    <input
+                      ref={replaceInputRef}
+                      type="text"
+                      placeholder="Replace with..."
+                      value={replaceText}
+                      onChange={(e) => setReplaceText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          if (e.metaKey || e.ctrlKey) handleReplaceAll();
+                          else handleReplaceNext();
+                        } else if (e.key === "Escape") {
+                          setShowFindReplace(false);
+                        }
+                      }}
+                      className="w-full rounded-lg border border-slate-800 bg-[#141522] py-1 pl-8 pr-3 text-[11.5px] text-slate-100 placeholder-slate-500 focus:border-indigo-500/70 focus:outline-none"
+                    />
+                  </div>
+                  <button
+                    onClick={handleReplaceNext}
+                    disabled={!findText || matchesList.length === 0}
+                    title="Replace Current Match"
+                    className="px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-[10.5px] font-semibold text-indigo-300 disabled:opacity-30 cursor-pointer shrink-0"
+                  >
+                    Replace
+                  </button>
+                  <button
+                    onClick={handleReplaceAll}
+                    disabled={!findText || matchesList.length === 0}
+                    title="Replace All Occurrences (Ctrl+Enter)"
+                    className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-[10.5px] font-semibold text-white disabled:opacity-30 cursor-pointer shrink-0 shadow-sm shadow-indigo-600/30"
+                  >
+                    Replace All
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {editMode === "preview" ? (
             <div className="flex-1 h-full overflow-hidden relative">
               <WysiwygEditor

@@ -177,7 +177,7 @@ updated: "2026-08-05T00:00:00"
 ---
 
 ## 🏷️ Related Notes & Links
-- See related topic: [[00 - Welcome to KogNote]]
+- See related topic: [[Welcome to KogNote - Complete Guide & Feature Showcase]]
 `,
   },
 ];

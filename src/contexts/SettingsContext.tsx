@@ -8,8 +8,10 @@ export const store = new LazyStore(".settings.json");
 
 interface SettingsContextType {
   vaultPath: string | null;
-  aiProvider: "local" | "anthropic" | "gemini" | "openai" | "api";
+  aiProvider: "local" | "custom_local" | "anthropic" | "gemini" | "openai" | "api";
   aiLocalModel: string;
+  customLocalUrl: string;
+  customLocalModel: string;
   aiApiUrl: string;
   aiApiKey: string;
   openaiApiKey: string;
@@ -22,8 +24,10 @@ interface SettingsContextType {
   includeArchivedInScans: boolean;
   includeTrashInScans: boolean;
   setVaultPath: (path: string | null) => Promise<void>;
-  setAiProvider: (provider: "local" | "anthropic" | "gemini" | "openai" | "api") => Promise<void>;
+  setAiProvider: (provider: "local" | "custom_local" | "anthropic" | "gemini" | "openai" | "api") => Promise<void>;
   setAiLocalModel: (model: string) => Promise<void>;
+  setCustomLocalUrl: (url: string) => Promise<void>;
+  setCustomLocalModel: (model: string) => Promise<void>;
   setAiApiUrl: (url: string) => Promise<void>;
   setAiApiKey: (key: string) => Promise<void>;
   setOpenaiApiKey: (key: string) => Promise<void>;
@@ -42,8 +46,10 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [vaultPath, _setVaultPathState] = useState<string | null>(null);
-  const [aiProvider, _setAiProviderState] = useState<"local" | "anthropic" | "gemini" | "openai" | "api">("local");
+  const [aiProvider, _setAiProviderState] = useState<"local" | "custom_local" | "anthropic" | "gemini" | "openai" | "api">("local");
   const [aiLocalModel, _setAiLocalModelState] = useState<string>("qwen2.5-coder-3b");
+  const [customLocalUrl, _setCustomLocalUrlState] = useState<string>("http://localhost:11434/v1");
+  const [customLocalModel, _setCustomLocalModelState] = useState<string>("qwen2.5-coder");
   const [aiApiUrl, _setAiApiUrlState] = useState<string>("https://api.openai.com/v1");
   const [openaiApiKey, _setOpenaiApiKeyState] = useState<string>("");
   const [anthropicApiKey, _setAnthropicApiKeyState] = useState<string>("");
@@ -75,6 +81,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           savedVault,
           savedAiProvider,
           savedAiLocalModel,
+          savedCustomLocalUrl,
+          savedCustomLocalModel,
           savedAiApiUrl,
           savedAiApiModel,
           savedInactivityTimeout,
@@ -82,8 +90,10 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           savedIncludeArchived,
         ] = await Promise.all([
           store.get<string>("vaultPath"),
-          store.get<"local" | "anthropic" | "gemini" | "openai" | "api">("aiProvider"),
+          store.get<"local" | "custom_local" | "anthropic" | "gemini" | "openai" | "api">("aiProvider"),
           store.get<string>("aiLocalModel"),
+          store.get<string>("customLocalUrl"),
+          store.get<string>("customLocalModel"),
           store.get<string>("aiApiUrl"),
           store.get<string>("aiApiModel"),
           store.get<number>("aiInactivityTimeoutSeconds"),
@@ -94,15 +104,19 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (savedVault) _setVaultPathState(savedVault);
         if (savedAiProvider) _setAiProviderState(savedAiProvider);
         if (savedAiLocalModel) _setAiLocalModelState(savedAiLocalModel);
+        if (savedCustomLocalUrl) _setCustomLocalUrlState(savedCustomLocalUrl);
+        if (savedCustomLocalModel) _setCustomLocalModelState(savedCustomLocalModel);
         if (savedAiApiUrl) _setAiApiUrlState(savedAiApiUrl);
         if (savedAiApiModel) _setAiApiModelState(savedAiApiModel);
 
         if (savedInactivityTimeout !== null && savedInactivityTimeout !== undefined) {
-          _setAiInactivityTimeoutSecondsState(savedInactivityTimeout);
+          const clamped = Math.min(300, Math.max(30, savedInactivityTimeout));
+          _setAiInactivityTimeoutSecondsState(clamped);
         } else {
-          // Auto-detect based on hardware RAM (15s for <12GB RAM, 300s for 12GB+ RAM)
+          // Auto-detect based on hardware RAM (30s for <12GB RAM, 300s for 12GB+ RAM)
           const autoTimeout = await aiService.autoDetectDefaultTimeout();
-          _setAiInactivityTimeoutSecondsState(autoTimeout);
+          const clamped = Math.min(300, Math.max(30, autoTimeout));
+          _setAiInactivityTimeoutSecondsState(clamped);
         }
 
         if (savedTimezone) _setUserTimezoneState(savedTimezone);
@@ -141,12 +155,14 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     aiService.updateSettings({
       provider: aiProvider,
       localModel: aiLocalModel,
+      customLocalUrl: customLocalUrl,
+      customLocalModel: customLocalModel,
       apiUrl: aiApiUrl,
       apiKey: aiApiKey,
       apiModel: aiApiModel,
       inactivityTimeoutSeconds: aiInactivityTimeoutSeconds,
     });
-  }, [aiProvider, aiLocalModel, aiApiUrl, aiApiKey, aiApiModel, aiInactivityTimeoutSeconds]);
+  }, [aiProvider, aiLocalModel, customLocalUrl, customLocalModel, aiApiUrl, aiApiKey, aiApiModel, aiInactivityTimeoutSeconds]);
 
   const setVaultPath = async (path: string | null) => {
     _setVaultPathState(path);
@@ -158,7 +174,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     await store.save();
   };
 
-  const setAiProvider = async (val: "local" | "anthropic" | "gemini" | "openai" | "api") => {
+  const setAiProvider = async (val: "local" | "custom_local" | "anthropic" | "gemini" | "openai" | "api") => {
     _setAiProviderState(val);
     await store.set("aiProvider", val);
     await store.save();
@@ -167,6 +183,18 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const setAiLocalModel = async (val: string) => {
     _setAiLocalModelState(val);
     await store.set("aiLocalModel", val);
+    await store.save();
+  };
+
+  const setCustomLocalUrl = async (val: string) => {
+    _setCustomLocalUrlState(val);
+    await store.set("customLocalUrl", val);
+    await store.save();
+  };
+
+  const setCustomLocalModel = async (val: string) => {
+    _setCustomLocalModelState(val);
+    await store.set("customLocalModel", val);
     await store.save();
   };
 
@@ -214,8 +242,9 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const setAiInactivityTimeoutSeconds = async (val: number) => {
-    _setAiInactivityTimeoutSecondsState(val);
-    await store.set("aiInactivityTimeoutSeconds", val);
+    const clamped = Math.min(300, Math.max(30, val));
+    _setAiInactivityTimeoutSecondsState(clamped);
+    await store.set("aiInactivityTimeoutSeconds", clamped);
     await store.save();
   };
 
@@ -245,6 +274,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         vaultPath,
         aiProvider,
         aiLocalModel,
+        customLocalUrl,
+        customLocalModel,
         aiApiUrl,
         aiApiKey,
         openaiApiKey,
@@ -259,6 +290,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setVaultPath,
         setAiProvider,
         setAiLocalModel,
+        setCustomLocalUrl,
+        setCustomLocalModel,
         setAiApiUrl,
         setAiApiKey,
         setOpenaiApiKey,

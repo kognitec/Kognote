@@ -273,6 +273,9 @@ pub fn run() {
                     // Linux GTK transparency / dark window fallback
                     let _ = window.set_background_color(Some(tauri::Color(9, 10, 15, 255)));
                 }
+
+                let _ = window.show();
+                let _ = window.set_focus();
             }
 
             let db_state = handle.state::<DbState>();
@@ -345,6 +348,7 @@ pub fn run() {
             db_sync_note_links,
             db_get_backlinks,
             db_get_backlink_file_paths,
+            db::db_get_all_backlinks_batch,
             db::db_save_fsrs_state,
             db::db_get_fsrs_states,
             db::db_get_pending_ai_suggestions,

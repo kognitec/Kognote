@@ -1,8 +1,43 @@
 use serde::{Serialize, Deserialize};
 use std::collections::HashSet;
+use std::sync::OnceLock;
 use regex::Regex;
 use pulldown_cmark::{Parser, Event, Tag, TagEnd};
 use rand::Rng;
+
+static BLOCK_COMMENT_RE: OnceLock<Regex> = OnceLock::new();
+static FULL_COMMENT_RE: OnceLock<Regex> = OnceLock::new();
+static FRONTMATTER_ID_RE: OnceLock<Regex> = OnceLock::new();
+static CHECKBOX_RE: OnceLock<Regex> = OnceLock::new();
+static DATE_RE: OnceLock<Regex> = OnceLock::new();
+static TAG_RE: OnceLock<Regex> = OnceLock::new();
+static WIKILINK_RE: OnceLock<Regex> = OnceLock::new();
+static URL_RE: OnceLock<Regex> = OnceLock::new();
+
+fn get_block_comment_re() -> &'static Regex {
+    BLOCK_COMMENT_RE.get_or_init(|| Regex::new(r"\s*<!--\s*id:\s*[a-f0-9]{8}.*?-->").unwrap())
+}
+fn get_frontmatter_id_re() -> &'static Regex {
+    FRONTMATTER_ID_RE.get_or_init(|| Regex::new(r"<!--\s*id:\s*([a-f0-9]{8}).*?-->").unwrap())
+}
+fn get_full_comment_re() -> &'static Regex {
+    FULL_COMMENT_RE.get_or_init(|| Regex::new(r"<!--\s*id:\s*([a-f0-9]{8})\s*(?:type:\s*(\w+))?\s*(?:status:\s*([\w\s-]+))?\s*(?:due:\s*([\d-]+))?\s*-->").unwrap())
+}
+fn get_checkbox_re() -> &'static Regex {
+    CHECKBOX_RE.get_or_init(|| Regex::new(r"^\s*[-*]\s*\[([ xX])\]\s+(.+)$").unwrap())
+}
+fn get_date_re() -> &'static Regex {
+    DATE_RE.get_or_init(|| Regex::new(r"(?:@due:?|@|due:\s*)?\b(20\d{2})[-/](0[1-9]|1[0-2])[-/](0[1-9]|[12]\d|3[01])\b").unwrap())
+}
+fn get_tag_re() -> &'static Regex {
+    TAG_RE.get_or_init(|| Regex::new(r"(?:^|\s|\\)#([a-zA-Z0-9_\-\/]+)").unwrap())
+}
+fn get_wikilink_re() -> &'static Regex {
+    WIKILINK_RE.get_or_init(|| Regex::new(r"(?:\\?\[){2}(.*?)(?:\\?\]){2}").unwrap())
+}
+fn get_url_re() -> &'static Regex {
+    URL_RE.get_or_init(|| Regex::new(r"https?://[^\s)\x22\x27<]+").unwrap())
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ParsedTask {
@@ -142,8 +177,7 @@ fn parse_frontmatter(content: &str) -> (Option<String>, Option<String>, Vec<Stri
 }
 
 pub fn update_block_markdown(block: &mut Block) {
-    let comment_regex = Regex::new(r"\s*<!--\s*id:\s*[a-f0-9]{8}.*?-->").unwrap();
-    block.raw_markdown = comment_regex.replace_all(&block.raw_markdown, "").to_string();
+    block.raw_markdown = get_block_comment_re().replace_all(&block.raw_markdown, "").to_string();
 }
 
 pub fn parse_markdown_to_blocks(file_path: &str, raw_content: &str) -> Vec<Block> {
@@ -160,14 +194,13 @@ pub fn parse_markdown_to_blocks(file_path: &str, raw_content: &str) -> Vec<Block
             let actual_end = end_idx + 3;
             let frontmatter_block = &content[0..actual_end + 3];
             
-            let comment_regex = Regex::new(r"<!--\s*id:\s*([a-f0-9]{8}).*?-->").unwrap();
-            let block_id = if let Some(caps) = comment_regex.captures(frontmatter_block) {
+            let block_id = if let Some(caps) = get_frontmatter_id_re().captures(frontmatter_block) {
                 caps[1].to_string()
             } else {
                 generate_block_id()
             };
 
-            let clean_frontmatter = comment_regex.replace_all(frontmatter_block, "").trim().to_string();
+            let clean_frontmatter = get_frontmatter_id_re().replace_all(frontmatter_block, "").trim().to_string();
 
             blocks.push(Block {
                 block_id,
@@ -217,9 +250,9 @@ pub fn parse_markdown_to_blocks(file_path: &str, raw_content: &str) -> Vec<Block
     }
 
     // Process each block range
-    let comment_regex = Regex::new(r"<!--\s*id:\s*([a-f0-9]{8})\s*(?:type:\s*(\w+))?\s*(?:status:\s*([\w\s-]+))?\s*(?:due:\s*([\d-]+))?\s*-->").unwrap();
-    let checkbox_regex = Regex::new(r"^\s*[-*]\s*\[([ xX])\]\s+(.+)$").unwrap();
-    let date_regex = Regex::new(r"(?:@due:?|@|due:\s*)?\b(20\d{2})[-/](0[1-9]|1[0-2])[-/](0[1-9]|[12]\d|3[01])\b").unwrap();
+    let checkbox_re = get_checkbox_re();
+    let date_re = get_date_re();
+    let comment_re = get_full_comment_re();
 
     for range in ranges {
         let block_raw = &body_text[range];
@@ -232,7 +265,7 @@ pub fn parse_markdown_to_blocks(file_path: &str, raw_content: &str) -> Vec<Block
         let mut status = None;
         let mut due_date = None;
 
-        if let Some(caps) = comment_regex.captures(block_raw) {
+        if let Some(caps) = comment_re.captures(block_raw) {
             block_id = caps[1].to_string();
             if let Some(s) = caps.get(3) {
                 status = Some(s.as_str().to_string());
@@ -242,22 +275,22 @@ pub fn parse_markdown_to_blocks(file_path: &str, raw_content: &str) -> Vec<Block
             }
         }
 
-        let clean_block = comment_regex.replace_all(block_raw, "").trim().to_string();
+        let clean_block = comment_re.replace_all(block_raw, "").trim().to_string();
         
         // Determine block type and default properties
         let mut block_type = "paragraph".to_string();
         if clean_block.starts_with('#') {
             block_type = "heading".to_string();
-        } else if checkbox_regex.is_match(&clean_block) {
+        } else if checkbox_re.is_match(&clean_block) {
             block_type = "task".to_string();
             if status.is_none() {
-                if let Some(caps) = checkbox_regex.captures(&clean_block) {
+                if let Some(caps) = checkbox_re.captures(&clean_block) {
                     let completed = &caps[1] == "x" || &caps[1] == "X";
                     status = Some(if completed { "Done".to_string() } else { "Todo".to_string() });
                 }
             }
             if due_date.is_none() {
-                if let Some(date_caps) = date_regex.captures(&clean_block) {
+                if let Some(date_caps) = date_re.captures(&clean_block) {
                     due_date = Some(date_caps[1].replace('/', "-"));
                 }
             }
@@ -299,11 +332,11 @@ pub fn parse_markdown(content: &str) -> ParsedMetadata {
     let mut word_count = 0;
     let mut clean_snippet_lines = Vec::new();
 
-    let tag_regex = Regex::new(r"(?:^|\s|\\)#([a-zA-Z0-9_\-\/]+)").unwrap();
-    let wikilink_regex = Regex::new(r"(?:\\?\[){2}(.*?)(?:\\?\]){2}").unwrap();
-    let url_regex = Regex::new(r"https?://[^\s)\x22\x27<]+").unwrap();
-    let date_regex = Regex::new(r"(?:@due:?|@|due:\s*)?\b(20\d{2})[-/](0[1-9]|1[0-2])[-/](0[1-9]|[12]\d|3[01])\b").unwrap();
-    let checkbox_regex = Regex::new(r"^\s*[-*]\s*\[([ xX])\]\s+(.+)$").unwrap();
+    let tag_re = get_tag_re();
+    let wikilink_re = get_wikilink_re();
+    let url_re = get_url_re();
+    let date_re = get_date_re();
+    let checkbox_re = get_checkbox_re();
 
     for block in &blocks {
         if block.block_type == "frontmatter" {
@@ -335,7 +368,7 @@ pub fn parse_markdown(content: &str) -> ParsedMetadata {
 
         // Extract inline tags (skip code blocks)
         if block.block_type != "code" {
-            for cap in tag_regex.captures_iter(&block.content) {
+            for cap in tag_re.captures_iter(&block.content) {
                 let t = cap[1].to_lowercase();
                 if is_valid_tag(&t) {
                     tags_set.insert(t);
@@ -345,7 +378,7 @@ pub fn parse_markdown(content: &str) -> ParsedMetadata {
 
         // Extract date references & snippet lines
         if block.block_type != "task" {
-            for cap in date_regex.captures_iter(&block.content) {
+            for cap in date_re.captures_iter(&block.content) {
                 let date = cap[1].replace('/', "-");
                 let context = block.content.replace('[', "").replace(']', "").trim().to_string();
                 date_refs.push(ParsedDateRef {
@@ -360,7 +393,7 @@ pub fn parse_markdown(content: &str) -> ParsedMetadata {
         }
 
         // Extract wikilinks
-        for cap in wikilink_regex.captures_iter(&block.content) {
+        for cap in wikilink_re.captures_iter(&block.content) {
             let link_name = cap[1].replace('\\', "").trim().to_string();
             if !link_name.is_empty() && link_name.to_lowercase() != "none" {
                 links_set.insert(link_name);
@@ -368,7 +401,7 @@ pub fn parse_markdown(content: &str) -> ParsedMetadata {
         }
 
         // Extract URLs
-        for cap in url_regex.captures_iter(&block.content) {
+        for cap in url_re.captures_iter(&block.content) {
             let url = cap[0].trim().to_string();
             if !url.is_empty() {
                 urls_set.insert(url);
@@ -378,38 +411,38 @@ pub fn parse_markdown(content: &str) -> ParsedMetadata {
 
     // Extract tasks line-by-line for 100% accurate file line numbers
     for (line_idx, line) in content.lines().enumerate() {
-            if let Some(caps) = checkbox_regex.captures(line) {
-                let completed = &caps[1] == "x" || &caps[1] == "X";
-                let raw_content = &caps[2];
+        if let Some(caps) = checkbox_re.captures(line) {
+            let completed = &caps[1] == "x" || &caps[1] == "X";
+            let raw_content = &caps[2];
 
-                let mut task_tags = Vec::new();
-                for cap in tag_regex.captures_iter(raw_content) {
-                    let t = cap[1].to_lowercase();
-                    if is_valid_tag(&t) {
-                        task_tags.push(t);
-                    }
+            let mut task_tags = Vec::new();
+            for cap in tag_re.captures_iter(raw_content) {
+                let t = cap[1].to_lowercase();
+                if is_valid_tag(&t) {
+                    task_tags.push(t);
                 }
-
-                let mut due_date = None;
-                if let Some(date_caps) = date_regex.captures(raw_content) {
-                    due_date = Some(date_caps[1].replace('/', "-"));
-                }
-
-                let clean_content = tag_regex.replace_all(raw_content, "")
-                    .replace("due:", "")
-                    .trim()
-                    .to_string();
-
-                tasks.push(ParsedTask {
-                    id: format!("line:{}", line_idx),
-                    content: if clean_content.is_empty() { raw_content.trim().to_string() } else { clean_content },
-                    completed,
-                    line_number: line_idx,
-                    due_date,
-                    tags: task_tags,
-                });
             }
+
+            let mut due_date = None;
+            if let Some(date_caps) = date_re.captures(raw_content) {
+                due_date = Some(date_caps[1].replace('/', "-"));
+            }
+
+            let clean_content = tag_re.replace_all(raw_content, "")
+                .replace("due:", "")
+                .trim()
+                .to_string();
+
+            tasks.push(ParsedTask {
+                id: format!("line:{}", line_idx),
+                content: if clean_content.is_empty() { raw_content.trim().to_string() } else { clean_content },
+                completed,
+                line_number: line_idx,
+                due_date,
+                tags: task_tags,
+            });
         }
+    }
 
     let raw_snippet = clean_snippet_lines.join(" ");
     let snippet = if raw_snippet.len() > 100 {

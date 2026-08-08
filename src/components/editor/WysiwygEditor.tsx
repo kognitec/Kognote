@@ -237,74 +237,6 @@ const imageResolverPlugin = new Plugin({
   }
 });
 
-const yamlFrontmatterPlugin = new Plugin({
-  state: {
-    init(_, instance) {
-      return getYamlDecorations(instance.doc);
-    },
-    apply(tr, oldState) {
-      if (!tr.docChanged) return oldState;
-      return getYamlDecorations(tr.doc);
-    }
-  },
-  props: {
-    decorations(state) {
-      return this.getState(state);
-    }
-  }
-});
-
-function getYamlDecorations(doc: any): DecorationSet {
-  const decorations: Decoration[] = [];
-  let inFrontmatter = false;
-  let hasStarted = false;
-  let closingFound = false;
-
-  const nodesToHide: { pos: number; endPos: number }[] = [];
-
-  doc.descendants((node: any, pos: number) => {
-    if (closingFound) return false;
-    if (pos > 1500) return false;
-
-    if (node.isBlock && node.type.name !== "doc") {
-      const text = (node.textContent || "").trim();
-      const nodeTypeName = node.type.name;
-
-      const isDivider = nodeTypeName === "hr" || nodeTypeName === "thematic_break" || text === "---";
-
-      if (!hasStarted) {
-        if (isDivider) {
-          hasStarted = true;
-          inFrontmatter = true;
-          nodesToHide.push({ pos, endPos: pos + node.nodeSize });
-          return false;
-        } else {
-          return false;
-        }
-      }
-
-      if (inFrontmatter) {
-        nodesToHide.push({ pos, endPos: pos + node.nodeSize });
-        if (isDivider) {
-          inFrontmatter = false;
-          closingFound = true;
-        }
-      }
-    }
-  });
-
-  if (hasStarted && closingFound) {
-    nodesToHide.forEach(({ pos, endPos }) => {
-      decorations.push(
-        Decoration.node(pos, endPos, {
-          class: "yaml-frontmatter-hidden"
-        })
-      );
-    });
-  }
-
-  return DecorationSet.create(doc, decorations);
-}
 
 const isImageFile = (name: string): boolean => {
   const nameLower = name.toLowerCase();
@@ -644,7 +576,7 @@ const WysiwygEditorInner: React.FC<WysiwygEditorProps> = ({
     });
 
     crepe.editor.config((ctx) => {
-      ctx.update(prosePluginsCtx, (prev) => [...prev, highlightPlugin, queryWidgetPlugin, yamlFrontmatterPlugin, datePillPlugin, imageResolverPlugin]);
+      ctx.update(prosePluginsCtx, (prev) => [...prev, highlightPlugin, queryWidgetPlugin, datePillPlugin, imageResolverPlugin]);
     });
     crepe.editor.use(diagram);
 

@@ -35,13 +35,6 @@ jobs:
             llama_asset: 'llama-{VERSION}-bin-macos-arm64.zip'
             llama_bin_name: 'llama-server-aarch64-apple-darwin'
 
-          # ─── macOS Intel ───────────────────────────────────────────────────
-          - platform: macos-latest
-            target: x86_64-apple-darwin
-            label: 'macOS (Intel)'
-            llama_asset: 'llama-{VERSION}-bin-macos-x64.zip'
-            llama_bin_name: 'llama-server-x86_64-apple-darwin'
-
           # ─── Windows x64 ──────────────────────────────────────────────────
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
@@ -163,7 +156,7 @@ jobs:
             |----------|------|
             | Windows  | `Kognote_*_x64-setup.exe` (NSIS installer) |
             | macOS ARM | `Kognote_*_aarch64.dmg` (Apple Silicon M1/M2/M3) |
-            | macOS Intel | `Kognote_*_x64.dmg` (Intel Mac) |
+            | Linux     | `Kognote_*_amd64.AppImage` / `.deb` |
 
             ### What's New
             See [CHANGELOG.md](CHANGELOG.md) for details.

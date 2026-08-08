@@ -18,7 +18,6 @@ import {
   EyeOff,
   ChevronUp,
   ChevronDown,
-  GripVertical,
   Pin,
   PinOff,
   Focus,
@@ -94,7 +93,7 @@ const DEFAULT_FILTERS: FilterItem[] = [
   { id: "urls", label: "URLs", checked: true, color: "text-[#f43f5e]" },
   { id: "attachments", label: "Attachments", checked: true, color: "text-[#a855f7]" },
   { id: "folders", label: "Folders", checked: true, color: "text-[#fbbf24]" },
-  { id: "orphans", label: "Show Orphans", checked: true, color: "text-[#d946ef]" },
+  { id: "orphans", label: "Show Orphans", checked: false, color: "text-[#d946ef]" },
   { id: "bookmarks", label: "Bookmarks Only", checked: false, color: "text-[#f59e0b]" },
 ];
 
@@ -133,7 +132,7 @@ export const GraphView: React.FC = () => {
   const [linkStrength, setLinkStrength] = useState(initialSettings?.linkStrength ?? 0.35);
   const [gravity, setGravity] = useState(initialSettings?.gravity ?? 0.05);
   const [collisionRadius, setCollisionRadius] = useState(initialSettings?.collisionRadius ?? 28);
-  const [linkThickness, setLinkThickness] = useState(initialSettings?.linkThickness ?? 1.2);
+  const [linkThickness, setLinkThickness] = useState(initialSettings?.linkThickness ?? 2.0);
 
   const [isSaveSuccess, setIsSaveSuccess] = useState(false);
 
@@ -168,9 +167,11 @@ export const GraphView: React.FC = () => {
     setLinkStrength(0.35);
     setGravity(0.05);
     setCollisionRadius(28);
-    setLinkThickness(1.2);
+    setLinkThickness(2.0);
     alphaRef.current = 1.0;
   };
+
+
 
   // States
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -256,15 +257,7 @@ export const GraphView: React.FC = () => {
   useEffect(() => { maxSemanticLinksPerNoteRef.current = maxSemanticLinksPerNote; wakeUpSimulation(1.0); }, [maxSemanticLinksPerNote, wakeUpSimulation]);
   useEffect(() => { linksRef.current = links; wakeUpSimulation(0.3); }, [links, wakeUpSimulation]);
 
-  // Drag reordering using inline filter drag handlers below
-  const moveItem = (index: number, direction: "up" | "down") => {
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= filters.length) return;
-    const updated = [...filters];
-    [updated[index], updated[targetIndex]] = [updated[targetIndex], updated[index]];
-    setFilters(updated);
-    alphaRef.current = 1.0;
-  };
+
 
   const getFilterIcon = (id: string) => {
     switch (id) {
@@ -311,45 +304,7 @@ export const GraphView: React.FC = () => {
     return "#d946ef"; // Fuchsia
   }, []);
 
-  // Weighted Radial Centrality: Calculates continuous target radius for soft attractor physics
-  const calculateTargetRadius = useCallback((
-    node: Node,
-    activeLinks: Link[],
-    filterSeq: FilterItem[],
-    baseDistance: number
-  ): number => {
-    let score = 0;
 
-    filterSeq.forEach((filter, index) => {
-      if (!filter.checked) return;
-      let isMatch = false;
-
-      if (filter.id === "folders" && node.type === "folder") isMatch = true;
-      else if (filter.id === "tags" && node.type === "tag-in-notes") isMatch = true;
-      else if (filter.id === "dailyNotes" && node.subType === "daily") isMatch = true;
-      else if (filter.id === "bookmarks" && node.bookmarked) isMatch = true;
-      else if (node.type === "note") {
-        if (filter.id === "folders" && activeLinks.some(l => l.type === "folder" && (l.source === node.id || l.target === node.id))) isMatch = true;
-        if (filter.id === "tags" && activeLinks.some(l => l.type === "tag-in-notes" && (l.source === node.id || l.target === node.id))) isMatch = true;
-        if (filter.id === "backlinks" && activeLinks.some(l => l.type === "backlink" && (l.source === node.id || l.target === node.id))) isMatch = true;
-      }
-
-      if (isMatch) {
-        score += 100 / (index + 1);
-      }
-    });
-
-    // Factor in structural degree centrality (connected hub nodes float toward center)
-    score += Math.min(node.degree * 5, 50);
-
-    const maxScore = 150;
-    const proximity = Math.min(score / maxScore, 1.0);
-
-    const minR = 30; // Core hub radius
-    const maxR = Math.max(baseDistance * 3.2, 420); // Outer boundary
-
-    return minR + (maxR - minR) * (1.0 - proximity);
-  }, []);
 
   // File tree traversal
   const traverseFiles = (
@@ -1010,8 +965,9 @@ export const GraphView: React.FC = () => {
       }
 
       // Repulsion Force with Distance Cutoff Optimization (O(N) for distant pairs)
-      const charge = -repulsionRef.current;
       const numNodes = finalVisibleNodes.length;
+      const densityFactor = numNodes > 150 ? Math.pow(150 / numNodes, 0.35) : 1.0;
+      const charge = -repulsionRef.current * densityFactor;
       for (let i = 0; i < numNodes; i++) {
         const n1 = finalVisibleNodes[i];
         if (n1.pinned || pinnedNodesRef.current.has(n1.id)) continue;
@@ -1107,21 +1063,7 @@ export const GraphView: React.FC = () => {
         }
       }
 
-      // Soft Weighted Radial Centrality Attractor Force (Harmonic Attractor)
-      const kRing = 0.025; // Soft spring coefficient so link spring forces dominate without jitter
-      for (const node of finalVisibleNodes) {
-        if (node === dragNodeRef.current || node.pinned || pinnedNodesRef.current.has(node.id)) continue;
 
-        const targetRadius = calculateTargetRadius(node, activeLinks, filtersRef.current, linkDistanceRef.current);
-        const currentRadius = Math.sqrt(node.x * node.x + node.y * node.y) || 1;
-        const radiusDelta = currentRadius - targetRadius;
-
-        // Apply force along radial vector toward target radius
-        const force = radiusDelta * kRing * alpha;
-        const factor = force / currentRadius;
-        node.vx -= node.x * factor;
-        node.vy -= node.y * factor;
-      }
 
       // Smooth Central Gravity & Coordinate Updates
       const friction = 0.84;
@@ -1738,13 +1680,13 @@ export const GraphView: React.FC = () => {
   const applyPreset = (preset: "galaxy" | "web" | "tree" | "cluster") => {
     alphaRef.current = 1.0;
     if (preset === "galaxy") {
-      setRepulsion(2200); setLinkDistance(180); setLinkStrength(0.35); setGravity(0.05); setCollisionRadius(28);
+      setRepulsion(2000); setLinkDistance(170); setLinkStrength(0.350); setGravity(0.040); setCollisionRadius(26); setLinkThickness(1.4);
     } else if (preset === "web") {
-      setRepulsion(1200); setLinkDistance(100); setLinkStrength(0.60); setGravity(0.10); setCollisionRadius(18);
+      setRepulsion(750); setLinkDistance(75); setLinkStrength(0.750); setGravity(0.090); setCollisionRadius(14); setLinkThickness(1.0);
     } else if (preset === "tree") {
-      setRepulsion(3500); setLinkDistance(250); setLinkStrength(0.25); setGravity(0.03); setCollisionRadius(35);
+      setRepulsion(3400); setLinkDistance(260); setLinkStrength(0.200); setGravity(0.020); setCollisionRadius(34); setLinkThickness(1.6);
     } else if (preset === "cluster") {
-      setRepulsion(4200); setLinkDistance(320); setLinkStrength(0.15); setGravity(0.02); setCollisionRadius(40);
+      setRepulsion(5500); setLinkDistance(380); setLinkStrength(0.100); setGravity(0.005); setCollisionRadius(45); setLinkThickness(2.0);
     }
   };
 
@@ -1898,42 +1840,12 @@ export const GraphView: React.FC = () => {
 
           {isConnectionFiltersOpen && (
             <div className="flex flex-col gap-0.5 bg-card rounded-lg border border-card-border p-1">
-              {filters.map((filter, index) => (
-                <div
+              {filters.map((filter) => (
+                <label
                   key={filter.id}
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData("text/plain", String(index));
-                    e.dataTransfer.effectAllowed = "all";
-                  }}
-                  onDragEnter={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (e.dataTransfer) {
-                      e.dataTransfer.dropEffect = "move";
-                    }
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const fromIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
-                    if (isNaN(fromIndex) || fromIndex === index) return;
-                    setFilters((prev) => {
-                      const updated = [...prev];
-                      const [moved] = updated.splice(fromIndex, 1);
-                      updated.splice(index, 0, moved);
-                      return updated;
-                    });
-                    alphaRef.current = 1.0;
-                  }}
-                  className="flex items-center justify-between p-1.5 rounded-md hover:bg-card-hover transition-colors group cursor-grab active:cursor-grabbing border border-transparent hover:border-card-border"
+                  className="flex items-center justify-between p-1.5 rounded-md hover:bg-card-hover transition-colors group cursor-pointer select-none border border-transparent hover:border-card-border"
                 >
-                  <div className="flex items-center gap-2 select-none min-w-0 flex-1">
-                    <GripVertical className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-300 cursor-grab shrink-0" />
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     <input
                       type="checkbox"
                       checked={filter.checked}
@@ -1949,15 +1861,7 @@ export const GraphView: React.FC = () => {
                       <span className="truncate">{filter.label}</span>
                     </span>
                   </div>
-                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                    <button disabled={index === 0} onClick={() => moveItem(index, "up")} className="p-0.5 rounded text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 disabled:opacity-30 disabled:pointer-events-none cursor-pointer">
-                      <ChevronUp className="h-3 w-3" />
-                    </button>
-                    <button disabled={index === filters.length - 1} onClick={() => moveItem(index, "down")} className="p-0.5 rounded text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 disabled:opacity-30 disabled:pointer-events-none cursor-pointer">
-                      <ChevronDown className="h-3 w-3" />
-                    </button>
-                  </div>
-                </div>
+                </label>
               ))}
             </div>
           )}
@@ -2061,12 +1965,12 @@ export const GraphView: React.FC = () => {
           </div>
 
           {[
-            { label: "Repulsion", value: repulsion, min: 200, max: 6000, step: 50, set: setRepulsion },
-            { label: "Link Distance", value: linkDistance, min: 40, max: 450, step: 5, set: setLinkDistance },
-            { label: "Link Strength", value: linkStrength, min: 0.01, max: 1.00, step: 0.01, set: setLinkStrength },
-            { label: "Gravity", value: gravity, min: 0.001, max: 0.300, step: 0.005, set: setGravity },
-            { label: "Collision Padding", value: collisionRadius, min: 0, max: 80, step: 2, set: setCollisionRadius },
-            { label: "Connector Thickness", value: linkThickness, min: 0.5, max: 5.2, step: 0.1, set: setLinkThickness },
+            { label: "Repulsion", value: repulsion, min: 10, max: 10000, step: 25, set: setRepulsion },
+            { label: "Link Distance", value: linkDistance, min: 10, max: 600, step: 5, set: setLinkDistance },
+            { label: "Link Strength", value: linkStrength, min: 0.005, max: 1.000, step: 0.005, set: setLinkStrength },
+            { label: "Gravity", value: gravity, min: 0.000, max: 0.250, step: 0.001, set: setGravity },
+            { label: "Collision Padding", value: collisionRadius, min: 0, max: 120, step: 1, set: setCollisionRadius },
+            { label: "Connector Thickness", value: linkThickness, min: 0.2, max: 8.0, step: 0.1, set: setLinkThickness },
           ].map(({ label, value, min, max, step, set }) => (
             <div key={label} className="flex flex-col gap-1">
               <div className="flex justify-between text-[10px]">

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useVault, FileEntry } from "../contexts/VaultContext";
 import { useSettings } from "../contexts/SettingsContext";
+import { useSync } from "../contexts/SyncContext";
 import { aiService } from "../lib/local-ai";
 import { invokeIPC } from "../lib/ipc";
 import { parseDiffBlocks, applyDiffBlocks } from "../lib/diff-applier";
@@ -42,6 +43,7 @@ import {
   Trash2,
   Search,
   MessageSquare,
+  Settings,
   Square,
   Minus
 } from "lucide-react";
@@ -232,7 +234,20 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
     updateNoteCache 
   } = useVault();
 
-  const { vaultPath, aiLocalModel, aiProvider, setAiProvider, setAiLocalModel } = useSettings();
+  const {
+    vaultPath,
+    aiLocalModel,
+    aiProvider,
+    setAiProvider,
+    setAiLocalModel,
+    customLocalUrl,
+    customLocalModel,
+    openaiApiKey,
+    anthropicApiKey,
+    geminiApiKey,
+    customApiKey,
+    aiApiModel
+  } = useSettings();
 
   const [inputMessage, setInputMessage] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -386,6 +401,17 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const agentsCacheRef = useRef<{ path: string; content: string; mtime: number } | null>(null);
   const pinnedCacheRef = useRef<Map<string, { content: string; mtime: number }>>(new Map());
+
+  const { registerSyncHandler, unregisterSyncHandler } = useSync();
+
+  useEffect(() => {
+    const handleVaultFileChanged = async () => {
+      pinnedCacheRef.current.clear();
+      agentsCacheRef.current = null;
+    };
+    registerSyncHandler("vault-file-changed", handleVaultFileChanged, "Invalidate Copilot RAM cache");
+    return () => unregisterSyncHandler("vault-file-changed");
+  }, [registerSyncHandler, unregisterSyncHandler]);
 
   const WELCOME_TEXT = "Hi! I am **Kognote Copilot**, your local AI workspace agent. I can extract tasks, update Kanban board cards, sync frontmatter, live edit notes, and answer questions across your vault.";
 
@@ -546,6 +572,31 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
     setIsHistoryDrawerOpen(false);
   };
 
+  const lastUnloadedTimeRef = useRef<number>(aiService.getLastUnloadedAt());
+
+  // Listen for local AI auto-unload timeout event to open a fresh chat thread & track panel open/close state
+  useEffect(() => {
+    aiService.setChatOpen(true);
+
+    // If local model was unloaded while the chat panel was closed, reset to a fresh thread on mount
+    const currentUnloadTime = aiService.getLastUnloadedAt();
+    if (currentUnloadTime > 0 && currentUnloadTime > lastUnloadedTimeRef.current) {
+      lastUnloadedTimeRef.current = currentUnloadTime;
+      createNewThread();
+    }
+
+    const handleModelUnloaded = () => {
+      lastUnloadedTimeRef.current = Date.now();
+      createNewThread();
+    };
+
+    window.addEventListener("kognote-local-ai-unloaded", handleModelUnloaded);
+    return () => {
+      aiService.setChatOpen(false);
+      window.removeEventListener("kognote-local-ai-unloaded", handleModelUnloaded);
+    };
+  }, []);
+
   const switchThread = (threadId: string) => {
     const target = threads.find((t) => t.id === threadId);
     if (target) {
@@ -605,23 +656,45 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         path
       }) as string;
 
-      let cleanText = textToInsert
-        .replace(/\[ACTION:[^\]]*\]/gi, "")
-        .replace(/<<<<<<< SEARCH[\s\S]*?>>>>>>> REPLACE/gi, "")
-        .trim();
+      let updatedContent = currentContent;
+      const diffBlocks = parseDiffBlocks(textToInsert);
 
-      const outerFenceRegex = /^```(?:markdown|md|text)?\s*\n([\s\S]*?)\n```$/i;
-      if (outerFenceRegex.test(cleanText)) {
-        cleanText = cleanText.replace(outerFenceRegex, "$1").trim();
+      if (diffBlocks.length > 0) {
+        const diffRes = applyDiffBlocks(currentContent, diffBlocks);
+        if (diffRes.appliedCount > 0) {
+          updatedContent = diffRes.updatedContent;
+        } else {
+          // If diff application failed to match, strip chat headers and append clean text
+          let cleanText = textToInsert
+            .replace(/^✏️\s*\*.*?\*\s*/gi, "")
+            .replace(/\[ACTION:[^\]]*\]/gi, "")
+            .replace(/<<<<<<< SEARCH[\s\S]*?>>>>>>> REPLACE/gi, "")
+            .trim();
+          const outerFenceRegex = /^```(?:markdown|md|text)?\s*\n([\s\S]*?)\n```$/i;
+          if (outerFenceRegex.test(cleanText)) {
+            cleanText = cleanText.replace(outerFenceRegex, "$1").trim();
+          }
+          cleanText = cleanText
+            .replace(/^```(?:markdown|md|text)?\s*\n?/i, "")
+            .replace(/\n?```$/, "")
+            .trim();
+          updatedContent = currentContent ? `${currentContent}\n\n${cleanText}` : cleanText;
+        }
+      } else {
+        let cleanText = textToInsert
+          .replace(/^✏️\s*\*.*?\*\s*/gi, "")
+          .replace(/\[ACTION:[^\]]*\]/gi, "")
+          .trim();
+        const outerFenceRegex = /^```(?:markdown|md|text)?\s*\n([\s\S]*?)\n```$/i;
+        if (outerFenceRegex.test(cleanText)) {
+          cleanText = cleanText.replace(outerFenceRegex, "$1").trim();
+        }
+        cleanText = cleanText
+          .replace(/^```(?:markdown|md|text)?\s*\n?/i, "")
+          .replace(/\n?```$/, "")
+          .trim();
+        updatedContent = currentContent ? `${currentContent}\n\n${cleanText}` : cleanText;
       }
-      cleanText = cleanText
-        .replace(/^```(?:markdown|md|text)?\s*\n?/i, "")
-        .replace(/\n?```$/, "")
-        .trim();
-
-      const updatedContent = currentContent 
-        ? `${currentContent}\n\n${cleanText}`
-        : cleanText;
 
       await invokeIPC("write_note", {
         path,
@@ -963,21 +1036,159 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         }
       }
 
-      // 1. Workspace Context Assembly
-      let contextHeader = `Kognote Workspace Context:\n`;
-      contextHeader += `- Current ISO Timestamp: ${new Date().toISOString()}\n`;
-      contextHeader += `- User Configured Timezone: ${userTimezone}\n`;
-      contextHeader += `- Active View: ${activeView}\n`;
-      contextHeader += `- Selected Context Scope Mode: ${contextScopeMode}\n`;
-      if (activeFile) {
-        contextHeader += `- Currently Focused Note: ${activeFile.name}\n`;
+      // 1. Run Pre-Flight Intent Gateway Classification (Step 1)
+      const recentHistory = messages.slice(-3).map((m) => m.text);
+      const intentResult = await classifyIntent(userText, targetRefFile?.name, pinnedContexts.length, recentHistory);
+
+      // 2. Live View Snapshots & Structured System Context Header Injection (<system_context>)
+      const folderPaths = flatMdFiles.map(f => {
+        const parts = f.path.replace(/\\/g, "/").split("/");
+        parts.pop();
+        return parts.join("/");
+      }).filter((v, i, a) => v && a.indexOf(v) === i);
+
+      const queryLower = userText.toLowerCase();
+
+      // Live View Snapshot Generators
+      let liveViewSnapshot = "";
+
+      // A. Board / Kanban View Snapshot
+      const isBoardQuery = activeView === "board" || queryLower.includes("backlog") || queryLower.includes("kanban") || queryLower.includes("board");
+      if (isBoardQuery) {
+        const boardMap: Record<string, string[]> = {
+          backlog: [],
+          todo: [],
+          "in-progress": [],
+          "in-review": [],
+          done: []
+        };
+        Object.entries(noteCache).forEach(([filePath, data]: [string, any]) => {
+          if (data) {
+            const noteName = filePath.split(/[\/\\]/).pop()?.replace(/\.md$/i, "") || "";
+            const rawStatus = (data.boardCard?.status || data.parsedFields?.status || data.status || "backlog").toString().toLowerCase().trim();
+            
+            let columnKey = "backlog";
+            if (rawStatus.includes("progress")) columnKey = "in-progress";
+            else if (rawStatus.includes("review")) columnKey = "in-review";
+            else if (rawStatus.includes("todo")) columnKey = "todo";
+            else if (rawStatus.includes("done")) columnKey = "done";
+            else columnKey = "backlog";
+
+            if (boardMap[columnKey]) {
+              boardMap[columnKey].push(noteName);
+            }
+          }
+        });
+        liveViewSnapshot += `<kanban_board_snapshot>\n`;
+        liveViewSnapshot += `BACKLOG (${boardMap.backlog.length}): ${JSON.stringify(boardMap.backlog)}\n`;
+        liveViewSnapshot += `TODO (${boardMap.todo.length}): ${JSON.stringify(boardMap.todo)}\n`;
+        liveViewSnapshot += `IN_PROGRESS (${boardMap["in-progress"].length}): ${JSON.stringify(boardMap["in-progress"])}\n`;
+        liveViewSnapshot += `IN_REVIEW (${boardMap["in-review"].length}): ${JSON.stringify(boardMap["in-review"])}\n`;
+        liveViewSnapshot += `DONE (${boardMap.done.length}): ${JSON.stringify(boardMap.done)}\n`;
+        liveViewSnapshot += `</kanban_board_snapshot>\n\n`;
       }
 
-      // 2. Scope-Specific Context Assembly (Dynamic Token-Budget Allocation RAG)
+      // B. Tasks View Snapshot
+      const isTaskQuery = activeView === "tasks" || queryLower.includes("task") || queryLower.includes("todo") || queryLower.includes("roadmap") || queryLower.includes("checklist");
+      if (isTaskQuery) {
+        const pendingTasks: string[] = [];
+        const completedTasks: string[] = [];
+        Object.entries(noteCache).forEach(([filePath, data]: [string, any]) => {
+          if (data && data.content) {
+            const noteName = filePath.split(/[\/\\]/).pop()?.replace(/\.md$/i, "") || "";
+            const lines = data.content.split("\n");
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+              if (/^[-*+]\s*\[[ ]\]/i.test(trimmedLine)) {
+                if (pendingTasks.length < 25) {
+                  pendingTasks.push(`${trimmedLine} (Note: [[${noteName}]])`);
+                }
+              } else if (/^[-*+]\s*\[[xX]\]/i.test(trimmedLine)) {
+                if (completedTasks.length < 10) {
+                  completedTasks.push(`${trimmedLine} (Note: [[${noteName}]])`);
+                }
+              }
+            }
+          }
+        });
+        liveViewSnapshot += `<vault_tasks_snapshot>\n`;
+        liveViewSnapshot += `PENDING_TASKS (${pendingTasks.length}):\n${pendingTasks.join("\n")}\n`;
+        liveViewSnapshot += `COMPLETED_TASKS (${completedTasks.length}):\n${completedTasks.join("\n")}\n`;
+        liveViewSnapshot += `</vault_tasks_snapshot>\n\n`;
+      }
+
+      // C. Calendar & Due Schedule Snapshot
+      const isCalendarQuery = activeView === "calendar" || queryLower.includes("calendar") || queryLower.includes("schedule") || queryLower.includes("due");
+      if (isCalendarQuery) {
+        const scheduledEvents: string[] = [];
+        Object.entries(noteCache).forEach(([filePath, data]: [string, any]) => {
+          if (data) {
+            const noteName = filePath.split(/[\/\\]/).pop()?.replace(/\.md$/i, "") || "";
+            if (data.due) {
+              scheduledEvents.push(`Due Date: ${data.due} → Note: [[${noteName}]]`);
+            }
+            if (data.content) {
+              const dateMatches = data.content.match(/@20\d{2}[-/]\d{2}[-/]\d{2}/g);
+              if (dateMatches) {
+                for (const d of dateMatches.slice(0, 2)) {
+                  scheduledEvents.push(`Task Date: ${d} → Note: [[${noteName}]]`);
+                }
+              }
+            }
+          }
+        });
+        liveViewSnapshot += `<calendar_schedule_snapshot>\n`;
+        liveViewSnapshot += `TODAY_DATE: "${new Date().toISOString().split("T")[0]}"\n`;
+        liveViewSnapshot += `SCHEDULED_EVENTS & DATES:\n${scheduledEvents.slice(0, 15).join("\n")}\n`;
+        liveViewSnapshot += `</calendar_schedule_snapshot>\n\n`;
+      }
+
+      // D. Flashcards Deck Snapshot
+      const isFlashcardQuery = activeView === "flashcards" || queryLower.includes("flashcard") || queryLower.includes("quiz") || queryLower.includes("card") || queryLower.includes("study");
+      if (isFlashcardQuery) {
+        const flashcards: string[] = [];
+        Object.entries(noteCache).forEach(([filePath, data]: [string, any]) => {
+          if (data && data.content) {
+            const noteName = filePath.split(/[\/\\]/).pop()?.replace(/\.md$/i, "") || "";
+            const lines = data.content.split("\n");
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+              if (trimmedLine.includes("::") || trimmedLine.toLowerCase().includes("@flashcard")) {
+                if (flashcards.length < 15) {
+                  flashcards.push(`${trimmedLine} (From Note: [[${noteName}]])`);
+                }
+              }
+            }
+          }
+        });
+        liveViewSnapshot += `<flashcards_deck_snapshot>\n`;
+        liveViewSnapshot += `TOTAL_FLASHCARDS_FOUND: ${flashcards.length}\n`;
+        liveViewSnapshot += `FLASHCARDS_LIST:\n${flashcards.join("\n")}\n`;
+        liveViewSnapshot += `</flashcards_deck_snapshot>\n\n`;
+      }
+
+      let contextHeader = `<system_context>\n`;
+      contextHeader += `CURRENT_TIMESTAMP: "${new Date().toISOString()}"\n`;
+      contextHeader += `USER_TIMEZONE: "${userTimezone}"\n`;
+      contextHeader += `ACTIVE_VIEW: "${activeView}"\n`;
+      contextHeader += `SELECTED_SCOPE: "${contextScopeMode}"\n`;
+      if (activeFile) {
+        contextHeader += `ACTIVE_FILE: "${activeFile.name}"\n`;
+        contextHeader += `ACTIVE_FILE_PATH: "${activeFile.path}"\n`;
+      }
+      contextHeader += `AVAILABLE_FOLDERS: ${JSON.stringify(folderPaths.slice(0, 15))}\n`;
+      contextHeader += `KANBAN_COLUMNS: ["Backlog", "Todo", "In Progress", "In Review", "Done"]\n`;
+      contextHeader += `</system_context>\n\n`;
+
+      if (liveViewSnapshot) {
+        contextHeader += liveViewSnapshot;
+      }
+
+      // 3. Scope-Specific Context Assembly (Conditional RAG: Skip RAG vector search if Intent is DO Note Edit)
       const tokenBudget = aiProvider === "local" ? 3000 : 16000;
 
-      if (contextScopeMode === "vault") {
-        contextHeader += `\n[ENTIRE VAULT VECTOR RAG CONTEXT (Time-Weighted & Dynamic Budget Matches)]:\n`;
+      if (contextScopeMode === "vault" && intentResult.intent !== "DO") {
+        contextHeader += `[ENTIRE VAULT VECTOR RAG CONTEXT (Time-Weighted & Dynamic Budget Matches)]:\n`;
         try {
           const searchResults = await searchEngine.hybridRrfSearchWithBudget(userText, tokenBudget);
           if (searchResults && searchResults.length > 0) {
@@ -1000,7 +1211,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         }
       } else if (contextScopeMode === "none") {
         // NO CONTEXT / PURE READ-ONLY QA MODE: Extract database facts only, no note editing
-        contextHeader += `\n[DATABASE REFERENCE FACTS (READ-ONLY QA MODE)]:\n`;
+        contextHeader += `[DATABASE REFERENCE FACTS (READ-ONLY QA MODE)]:\n`;
         try {
           const searchResults = await searchEngine.hybridRrfSearchWithBudget(userText, Math.min(tokenBudget, 2000));
           if (searchResults && searchResults.length > 0) {
@@ -1016,7 +1227,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         }
       }
 
-      // 3. Isolated Turn History (strictly for active thread)
+      // 4. Isolated Turn History (strictly for active thread)
       if (conversationHistory.length > 0) {
         contextHeader += `\n[CURRENT CHAT CONVERSATION HISTORY (LAST 6 TURNS)]:\n`;
         const recentTurns = conversationHistory.slice(-6);
@@ -1025,7 +1236,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         }
       }
 
-      // 4. Ingest Pinned Context Chips (@notes and #tags) with caching
+      // 5. Ingest Pinned Context Chips (@notes and #tags) with caching
       if (pinnedContexts.length > 0) {
         contextHeader += `\n[PINNED CONTEXT REPOSITORIES]:\n`;
         const nowMs = Date.now();
@@ -1062,7 +1273,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         }
       }
 
-      // 5. Ingest Vault AGENTS.md rules with TTL caching (30s)
+      // 6. Ingest Vault AGENTS.md rules with TTL caching (30s)
       let agentsRuleContent = DEFAULT_AGENTS_MD;
       const agentsPath = `${vaultPath}${separator}AGENTS.md`;
       const now = Date.now();
@@ -1091,6 +1302,13 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
           refText = (await invokeIPC("read_note", {
             path: noteFileToRead.path,
           })) as string;
+
+          // Safe Windowing for Large Active Notes (protects local LLM context window)
+          const MAX_REF_NOTE_CHARS = aiProvider === "local" ? 14000 : 60000;
+          if (refText.length > MAX_REF_NOTE_CHARS) {
+            refText = refText.slice(0, MAX_REF_NOTE_CHARS) + "\n\n[...Note text windowed for model context length...]";
+          }
+
           contextHeader += `\n[PRIMARY REFERENCE NOTE] "${noteFileToRead.name}" Text Content:\n"""\n${refText}\n"""\n`;
         } catch {
           contextHeader += `- Primary Note: ${noteFileToRead.name} (Unreadable)\n`;
@@ -1114,14 +1332,12 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
         }
       }
 
-      // Compute Context Token Budget
+      // Compute Context Token Budget with Code Density Awareness
       const fullContextLength = contextHeader.length + userText.length;
-      const estimatedTokenCount = Math.ceil(fullContextLength / 4);
+      const hasCodeOrJson = contextHeader.includes("```") || contextHeader.includes("<system_context>") || contextHeader.includes("{");
+      const charRatio = hasCodeOrJson ? 2.8 : 4.0;
+      const estimatedTokenCount = Math.ceil(fullContextLength / charRatio);
       setEstimatedTokens(estimatedTokenCount);
-
-      // Run Pre-Flight Intent Gateway Classification with recent conversation history context
-      const recentHistory = messages.slice(-3).map((m) => m.text);
-      const intentResult = await classifyIntent(userText, targetRefFile?.name, pinnedContexts.length, recentHistory);
 
       let intentDirective = "";
       if (contextScopeMode === "none") {
@@ -1136,13 +1352,19 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
           `The user wants you to directly modify "${editTargetName}".\n` +
           `YOU MUST OUTPUT A SEARCH/REPLACE BLOCK. Do NOT show the content in a code fence or chat response.\n` +
           `Do NOT explain what you are doing. Just emit the block and nothing else.\n\n` +
+          `CRITICAL MULTI-ITEM TASK-BATCHING DIRECTIVE:\n` +
+          `When the user requests an action on multiple items or tasks (e.g., "mark all tasks tagged #roadmap as complete", or "update all backlog items"):\n` +
+          `YOU MUST EITHER:\n` +
+          `1. Output a SINGLE SEARCH/REPLACE block containing ALL matching lines in SEARCH and ALL updated lines in REPLACE, OR\n` +
+          `2. Output MULTIPLE SEPARATE SEARCH/REPLACE blocks (one block per matching item).\n` +
+          `DO NOT edit only the first item and ignore the rest!\n\n` +
           `HOW TO USE SEARCH/REPLACE BLOCKS:\n` +
           `Rule 1 — REPLACING existing content: put the exact lines to remove in SEARCH, put the new lines in REPLACE.\n` +
           `Rule 2 — INSERTING / APPENDING new content (no existing text to replace): leave SEARCH completely empty.\n` +
           `Rule 3 — NEVER wrap the SEARCH or REPLACE section in backtick code fences.\n` +
           `Rule 4 — You may output multiple blocks for multiple changes.\n\n` +
-          `EXAMPLE A — Replace a section:\n` +
-          `<<<<<<< SEARCH\n## Old Heading\nOld content here.\n=======\n## New Heading\nNew content here.\n>>>>>>> REPLACE\n\n` +
+          `EXAMPLE A — Replace a section or task:\n` +
+          `<<<<<<< SEARCH\n- [ ] Task 1 #roadmap\n=======\n- [x] Task 1 #roadmap\n>>>>>>> REPLACE\n\n` +
           `EXAMPLE B — Insert/Append new content at end of note (SEARCH is empty):\n` +
           `<<<<<<< SEARCH\n=======\n| Col 1 | Col 2 |\n|-------|-------|\n| | |\n>>>>>>> REPLACE\n\n`;
       } else {
@@ -1663,24 +1885,20 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
               <span className="truncate">
                 {aiProvider === "local"
                   ? (localModelsList.find(m => m.id === aiLocalModel)?.display_name || aiLocalModel)
+                  : aiProvider === "custom_local"
+                  ? `LOCAL (${customLocalModel || "SERVER"})`
                   : aiProvider.toUpperCase()}
               </span>
               <ChevronDown className="h-2.5 w-2.5 shrink-0" />
             </button>
 
             {modelMenuOpen && (
-              <div className="absolute left-0 top-full mt-1 z-100 w-56 sm:w-60 max-h-64 overflow-y-auto custom-scrollbar bg-card border border-card-border rounded-xl p-1.5 shadow-2xl backdrop-blur-xl text-xs space-y-0.5">
-                <div className="px-2 py-0.5 text-[9px] font-bold text-slate-500 uppercase tracking-wider">Local AI Models (Offline)</div>
+              <div className="absolute left-0 top-full mt-1 z-100 w-56 sm:w-64 max-h-72 overflow-y-auto custom-scrollbar bg-card border border-card-border rounded-xl p-1.5 shadow-2xl backdrop-blur-xl text-xs space-y-0.5">
+                <div className="px-2 py-0.5 text-[9px] font-bold text-slate-500 uppercase tracking-wider">Ready Local Models</div>
                 
-                {(localModelsList.length > 0 ? localModelsList : [
-                  { id: "qwen2.5-coder-1.5b", display_name: "Qwen 2.5 Coder (1.5B)", ram_required: "1.8 GB RAM", downloaded: false },
-                  { id: "qwen2.5-coder-3b", display_name: "Qwen 2.5 Coder (3B)", ram_required: "2.7 GB RAM", downloaded: false },
-                  { id: "llama-3.2-3b-instruct", display_name: "Llama 3.2 (3B Instruct)", ram_required: "2.8 GB RAM", downloaded: false },
-                  { id: "qwen2.5-coder-7b", display_name: "Qwen 2.5 Coder (7B)", ram_required: "5.5 GB RAM", downloaded: false },
-                ]).map((m) => {
-                  const isDownloaded = m.downloaded;
+                {/* 1. Bundled Local GGUF Models (Only Downloaded/Ready Ones) */}
+                {localModelsList.filter(m => m.downloaded).map((m) => {
                   const isSelected = aiProvider === "local" && aiLocalModel === m.id;
-
                   return (
                     <button
                       key={m.id}
@@ -1695,60 +1913,108 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ onClose, isDetached: e
                       <div className="flex flex-col min-w-0">
                         <span className="flex items-center gap-1 font-bold text-[11px] truncate">
                           {m.display_name || m.name || m.id}
-                          {isDownloaded && (
-                            <span className="text-[7.5px] text-emerald-500 dark:text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded font-extrabold shrink-0">
-                              READY
-                            </span>
-                          )}
+                          <span className="text-[7.5px] text-emerald-500 dark:text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded font-extrabold shrink-0">
+                            READY
+                          </span>
                         </span>
-                        <span className="text-[9px] text-slate-500 truncate">{m.ram_required || m.description || m.desc || "Local GGUF Model"}</span>
+                        <span className="text-[9px] text-slate-500 truncate">{m.ram_required || "100% Offline GGUF"}</span>
                       </div>
                       {isSelected && <Check className="h-3 w-3 text-indigo-500 dark:text-indigo-400 shrink-0 ml-1" />}
                     </button>
                   );
                 })}
 
-                <div className="px-2 py-1 text-[9px] text-slate-600 dark:text-slate-400 leading-tight border-t border-card-border pt-1 mt-0.5">
-                  ⚡ <strong>Auto Memory:</strong> Boots on demand, unloads when idle.
+                {/* 2. External Local Server (Ollama / LM Studio / LocalAI) */}
+                <button
+                  type="button"
+                  onClick={() => { setAiProvider("custom_local"); setModelMenuOpen(false); }}
+                  className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between cursor-pointer text-[11px] ${
+                    aiProvider === "custom_local"
+                      ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30"
+                      : "hover:bg-card-hover text-slate-700 dark:text-slate-300"
+                  }`}
+                >
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-bold text-[11px] truncate flex items-center gap-1">
+                      <span>External Local Server</span>
+                      <span className="text-[7.5px] text-indigo-500 dark:text-indigo-400 bg-indigo-500/10 px-1 py-0.2 rounded font-extrabold shrink-0">
+                        OLLAMA / LMS
+                      </span>
+                    </span>
+                    <span className="text-[9px] text-slate-500 truncate">{customLocalModel || "qwen2.5-coder"} ({customLocalUrl || "localhost"})</span>
+                  </div>
+                  {aiProvider === "custom_local" && <Check className="h-3 w-3 text-indigo-400 shrink-0 ml-1" />}
+                </button>
+
+                <div className="pt-1 border-t border-card-border px-2 py-0.5 text-[9px] font-bold text-slate-500 uppercase tracking-wider">Active Cloud APIs</div>
+
+                {/* 3. Configured Cloud API Providers */}
+                {openaiApiKey && (
+                  <button
+                    type="button"
+                    onClick={() => { setAiProvider("openai"); setModelMenuOpen(false); }}
+                    className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between cursor-pointer text-[11px] ${aiProvider === "openai" ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30" : "hover:bg-card-hover text-slate-700 dark:text-slate-300"}`}
+                  >
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-bold">OpenAI GPT</span>
+                      <span className="text-[9px] text-slate-500 truncate">{aiApiModel || "gpt-4o-mini"}</span>
+                    </div>
+                    {aiProvider === "openai" && <Check className="h-3 w-3 text-indigo-400" />}
+                  </button>
+                )}
+
+                {anthropicApiKey && (
+                  <button
+                    type="button"
+                    onClick={() => { setAiProvider("anthropic"); setModelMenuOpen(false); }}
+                    className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between cursor-pointer text-[11px] ${aiProvider === "anthropic" ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30" : "hover:bg-card-hover text-slate-700 dark:text-slate-300"}`}
+                  >
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-bold">Anthropic Claude</span>
+                      <span className="text-[9px] text-slate-500 truncate">Claude 3.5 Sonnet</span>
+                    </div>
+                    {aiProvider === "anthropic" && <Check className="h-3 w-3 text-indigo-400" />}
+                  </button>
+                )}
+
+                {geminiApiKey && (
+                  <button
+                    type="button"
+                    onClick={() => { setAiProvider("gemini"); setModelMenuOpen(false); }}
+                    className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between cursor-pointer text-[11px] ${aiProvider === "gemini" ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30" : "hover:bg-card-hover text-slate-700 dark:text-slate-300"}`}
+                  >
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-bold">Google Gemini</span>
+                      <span className="text-[9px] text-slate-500 truncate">{aiApiModel || "gemini-1.5-flash"}</span>
+                    </div>
+                    {aiProvider === "gemini" && <Check className="h-3 w-3 text-indigo-500 dark:text-indigo-400" />}
+                  </button>
+                )}
+
+                {customApiKey && (
+                  <button
+                    type="button"
+                    onClick={() => { setAiProvider("api"); setModelMenuOpen(false); }}
+                    className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between cursor-pointer text-[11px] ${aiProvider === "api" ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30" : "hover:bg-card-hover text-slate-700 dark:text-slate-300"}`}
+                  >
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-bold">Custom REST Endpoint</span>
+                      <span className="text-[9px] text-slate-500 truncate">{aiApiModel || "Custom Model"}</span>
+                    </div>
+                    {aiProvider === "api" && <Check className="h-3 w-3 text-indigo-400" />}
+                  </button>
+                )}
+
+                <div className="pt-1.5 border-t border-card-border mt-1">
+                  <button
+                    type="button"
+                    onClick={() => { setModelMenuOpen(false); onOpenSettings?.(); }}
+                    className="w-full text-left px-2 py-1.5 rounded-lg flex items-center gap-1.5 font-bold text-[10px] text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 transition cursor-pointer"
+                  >
+                    <Settings className="h-3 w-3" />
+                    <span>Configure / Download Models in Settings</span>
+                  </button>
                 </div>
-
-                <div className="pt-1 border-t border-card-border px-2 py-0.5 text-[9px] font-bold text-slate-500 uppercase tracking-wider">Cloud AI Providers</div>
-
-                <button
-                  type="button"
-                  onClick={() => { setAiProvider("gemini"); setModelMenuOpen(false); }}
-                  className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between cursor-pointer text-[11px] ${aiProvider === "gemini" ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30" : "hover:bg-card-hover text-slate-700 dark:text-slate-300"}`}
-                >
-                  <span>Google Gemini</span>
-                  {aiProvider === "gemini" && <Check className="h-3 w-3 text-indigo-500 dark:text-indigo-400" />}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => { setAiProvider("openai"); setModelMenuOpen(false); }}
-                  className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between cursor-pointer text-[11px] ${aiProvider === "openai" ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30" : "hover:bg-card-hover text-slate-700 dark:text-slate-300"}`}
-                >
-                  <span>OpenAI GPT-4o</span>
-                  {aiProvider === "openai" && <Check className="h-3 w-3 text-indigo-400" />}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => { setAiProvider("anthropic"); setModelMenuOpen(false); }}
-                  className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between cursor-pointer text-[11px] ${aiProvider === "anthropic" ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30" : "hover:bg-card-hover text-slate-700 dark:text-slate-300"}`}
-                >
-                  <span>Anthropic Claude</span>
-                  {aiProvider === "anthropic" && <Check className="h-3 w-3 text-indigo-400" />}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => { setAiProvider("api"); setModelMenuOpen(false); }}
-                  className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between cursor-pointer text-[11px] ${aiProvider === "api" ? "bg-indigo-600/20 text-indigo-500 dark:text-indigo-300 font-bold border border-indigo-500/30" : "hover:bg-card-hover text-slate-700 dark:text-slate-300"}`}
-                >
-                  <span>Custom API Endpoint</span>
-                  {aiProvider === "api" && <Check className="h-3 w-3 text-indigo-400" />}
-                </button>
               </div>
             )}
           </div>

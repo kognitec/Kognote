@@ -79,11 +79,14 @@ export const FileTree: React.FC = () => {
     previewAttachment,
     setPreviewAttachment,
   } = useVault();
-  const { registerSyncHandler, unregisterSyncHandler } = useSync();
+  const { registerSyncHandler, unregisterSyncHandler, triggerSync } = useSync();
   const [filter, setFilter] = useState("");
+  const [urlSearchQuery, setUrlSearchQuery] = useState("");
   const [fileTypeFilter, setFileTypeFilter] = useState<"all" | "md" | "canvas" | "templates" | "clippings">("all");
   const [isCreatingDir, setIsCreatingDir] = useState(false);
   const [newName, setNewName] = useState("");
+
+
 
   // Sort & Filter Dropdown State
   const [sortOption, setSortOption] = useState<SortOption>(() => {
@@ -145,6 +148,71 @@ export const FileTree: React.FC = () => {
   // URLs Tab State
   const [urlsList, setUrlsList] = useState<{ url: string; notes: FileEntry[] }[]>([]);
   const [isScanning, setIsScanning] = useState<boolean>(false);
+
+  const filteredUrlsList = useMemo(() => {
+    if (!urlSearchQuery.trim()) return urlsList;
+    const q = urlSearchQuery.toLowerCase().trim();
+    return urlsList.filter(
+      (item) =>
+        item.url.toLowerCase().includes(q) ||
+        item.notes.some((n) => n.name.toLowerCase().includes(q))
+    );
+  }, [urlsList, urlSearchQuery]);
+
+  const removeUrlFromMarkdown = (content: string, urlToRemove: string): string => {
+    if (!content || !urlToRemove) return content;
+    const escaped = urlToRemove.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    let result = content.replace(new RegExp(`\\[([^\\]]+)\\]\\(${escaped}\\)`, "g"), "$1");
+    result = result.replace(new RegExp(`<${escaped}>`, "g"), "");
+    result = result.replace(new RegExp(escaped, "g"), "");
+    return result;
+  };
+
+  const handleDeleteUrlGlobally = async (url: string, notes: FileEntry[]) => {
+    if (!url || !notes || notes.length === 0) return;
+    try {
+      let updatedCount = 0;
+      for (const note of notes) {
+        const fileContent = (await invokeIPC("read_note", { path: note.path })) as string;
+        if (fileContent) {
+          const newContent = removeUrlFromMarkdown(fileContent, url);
+          if (newContent !== fileContent) {
+            await invokeIPC("write_note", { path: note.path, content: newContent });
+            updatedCount++;
+          }
+        }
+      }
+      window.dispatchEvent(
+        new CustomEvent("kognote-toast", {
+          detail: { message: `Removed URL from ${updatedCount} note${updatedCount > 1 ? "s" : ""}` },
+        })
+      );
+      triggerSync();
+    } catch (err) {
+      console.error("Failed to delete URL globally:", err);
+    }
+  };
+
+  const handleDeleteUrlFromNote = async (url: string, note: FileEntry) => {
+    if (!url || !note?.path) return;
+    try {
+      const fileContent = (await invokeIPC("read_note", { path: note.path })) as string;
+      if (fileContent) {
+        const newContent = removeUrlFromMarkdown(fileContent, url);
+        if (newContent !== fileContent) {
+          await invokeIPC("write_note", { path: note.path, content: newContent });
+          window.dispatchEvent(
+            new CustomEvent("kognote-toast", {
+              detail: { message: `Removed URL from "${note.name}"` },
+            })
+          );
+          triggerSync();
+        }
+      }
+    } catch (err) {
+      console.error("Failed to delete URL from note:", err);
+    }
+  };
 
   // Sidebar Layout State
   const [isStarredOpen, setIsStarredOpen] = useState(true);
@@ -1316,51 +1384,107 @@ export const FileTree: React.FC = () => {
 
       {/* Tab Contents: URLs */}
       {activeTab === "urls" && (
-        <div className="flex-1 flex flex-col overflow-hidden p-3 gap-3">
+        <div className="flex-1 flex flex-col overflow-hidden p-3 gap-2.5">
+          {/* Header & Count */}
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase flex items-center gap-1">
-              <Globe className="h-3.5 w-3.5 text-indigo-400" /> Extracted URLs ({urlsList.length})
+            <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase flex items-center gap-1.5">
+              <Globe className="h-3.5 w-3.5 text-indigo-400" /> Extracted URLs ({filteredUrlsList.length}{urlSearchQuery ? ` / ${urlsList.length}` : ""})
             </span>
           </div>
 
-          <div className="flex-1 overflow-y-auto flex flex-col gap-2">
+          {/* Search Box */}
+          <div className="relative">
+            <Search className="h-3 w-3 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search URLs or note names..."
+              value={urlSearchQuery}
+              onChange={(e) => setUrlSearchQuery(e.target.value)}
+              className="w-full rounded-lg bg-card border border-card-border pl-7 pr-7 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 transition-colors"
+            />
+            {urlSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setUrlSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-0.5 cursor-pointer"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+
+          {/* URLs List */}
+          <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-0.5">
             {isScanning && urlsList.length === 0 ? (
               <span className="text-[10px] text-slate-500 italic">Scanning URLs in notes...</span>
             ) : urlsList.length === 0 ? (
               <span className="text-[10px] text-slate-600 leading-normal">
                 No external URLs found in your notes.
               </span>
+            ) : filteredUrlsList.length === 0 ? (
+              <span className="text-[10px] text-slate-500 italic">
+                No URLs matching "{urlSearchQuery}"
+              </span>
             ) : (
-              urlsList.map((item) => (
+              filteredUrlsList.map((item) => (
                 <div
                   key={item.url}
-                  className="flex flex-col gap-1.5 rounded-lg border border-card-border bg-card p-2.5"
+                  className="flex flex-col gap-1.5 rounded-lg border border-card-border bg-card p-2.5 hover:border-indigo-500/30 transition-all group/urlcard"
                 >
-                  <div className="flex items-center gap-1.5 truncate">
-                    <Globe className="h-3 w-3 text-indigo-400 shrink-0" />
-                    <a
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-indigo-400 hover:underline font-semibold truncate hover:text-indigo-300 cursor-pointer"
-                      title={item.url}
+                  <div className="flex items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1.5 truncate min-w-0 flex-1">
+                      <Globe className="h-3 w-3 text-indigo-400 shrink-0" />
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-indigo-400 hover:underline font-semibold truncate hover:text-indigo-300 cursor-pointer"
+                        title={item.url}
+                      >
+                        {item.url}
+                      </a>
+                    </div>
+                    {/* Delete URL Globally Button */}
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteUrlGlobally(item.url, item.notes)}
+                      className="p-1 rounded-md text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 opacity-70 hover:opacity-100 transition-all cursor-pointer shrink-0"
+                      title="Delete URL from all notes"
                     >
-                      {item.url}
-                    </a>
+                      <Trash2 className="h-3 w-3" />
+                    </button>
                   </div>
-                  <div className="flex flex-col gap-1 pl-5">
-                    <span className="text-[8px] font-bold text-slate-600 uppercase tracking-wider">
-                      Found in:
+
+                  <div className="flex flex-col gap-1 pl-4 border-l border-slate-800/60 ml-1.5 mt-0.5">
+                    <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider">
+                      Found in ({item.notes.length}):
                     </span>
                     {item.notes.map((note) => (
-                      <button
+                      <div
                         key={note.path}
-                        onClick={() => openFile(note)}
-                        className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 hover:underline text-left cursor-pointer w-full"
+                        className="flex items-center justify-between gap-1 group/noterow"
                       >
-                        <FileText className="h-2.5 w-2.5 text-slate-500" />
-                        <span className="truncate">{note.name}</span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => openFile(note)}
+                          className="flex items-center gap-1.5 text-[10px] text-slate-400 hover:text-slate-200 hover:underline text-left cursor-pointer min-w-0 flex-1 truncate"
+                        >
+                          <FileText className="h-2.5 w-2.5 text-slate-500 shrink-0" />
+                          <span className="truncate">{note.name}</span>
+                        </button>
+                        {/* Delete URL from this specific note button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteUrlFromNote(item.url, note);
+                          }}
+                          className="p-0.5 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 opacity-0 group-hover/noterow:opacity-100 transition-opacity cursor-pointer shrink-0"
+                          title={`Remove URL from ${note.name}`}
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>

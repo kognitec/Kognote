@@ -1,8 +1,9 @@
 import { pipeline, env } from "@huggingface/transformers";
 
-// Configure Transformers.js to check local bundled models first, falling back to CDN
-env.allowLocalModels = true;
+// Configure Transformers.js to download remote model from Hugging Face Hub / CDN
+env.allowLocalModels = false;
 env.allowRemoteModels = true;
+env.useBrowserCache = true;
 
 // Configure ONNX WebAssembly backend to use single-threaded mode for maximum stability across platforms
 if (env.backends?.onnx?.wasm) {
@@ -17,7 +18,7 @@ async function purgeCorruptedCache() {
     try {
       const keys = await caches.keys();
       for (const key of keys) {
-        if (key.includes("transformers") || key.includes("huggingface") || key.includes("onnx")) {
+        if (key.includes("transformers") || key.includes("huggingface") || key.includes("onnx") || key.includes("nomic")) {
           console.warn(`[Embedding Worker] Clearing cached storage key: ${key}`);
           await caches.delete(key);
         }
@@ -32,27 +33,6 @@ async function purgeCorruptedCache() {
 async function getPipeline(maxRetries = 3) {
   if (pipelineInstance) return pipelineInstance;
 
-  // 1. Try loading from local bundled asset path (/models/nomic-embed-text-v1.5/) for 100% offline first boot
-  try {
-    console.log("[Embedding Worker] Checking for local bundled model in /models/nomic-embed-text-v1.5/...");
-    const checkRes = await fetch("/models/nomic-embed-text-v1.5/config.json");
-    const checkType = checkRes.headers.get("content-type") || "";
-    if (!checkRes.ok || !checkType.includes("application/json")) {
-      throw new Error("Bundled model config not found or invalid response");
-    }
-
-    pipelineInstance = await (pipeline as any)(
-      "feature-extraction",
-      "/models/nomic-embed-text-v1.5/",
-      { dtype: "q8" }
-    );
-    console.log("[Embedding Worker] Successfully loaded bundled model offline!");
-    self.postMessage({ type: "ready" });
-    return pipelineInstance;
-  } catch (localErr) {
-    console.log("[Embedding Worker] Local bundled model files not present or invalid. Proceeding with remote CDN fetching...");
-  }
-
   let lastError: any = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -66,10 +46,11 @@ async function getPipeline(maxRetries = 3) {
           dtype: "q8",
           progress_callback: (data: any) => {
             if (data.status === "progress") {
+              const pct = typeof data.progress === "number" ? Math.round(data.progress) : 0;
               self.postMessage({
                 type: "progress",
                 file: data.file,
-                progress: data.progress,
+                progress: pct,
                 loaded: data.loaded,
                 total: data.total,
               });
@@ -100,8 +81,15 @@ async function getPipeline(maxRetries = 3) {
     }
   }
 
-  throw new Error(`Failed to load embedding model after ${maxRetries} attempts: ${lastError?.message || lastError}`);
+  const errMsg = lastError?.message || String(lastError);
+  self.postMessage({ type: "error", error: errMsg });
+  throw new Error(`Failed to load embedding model after ${maxRetries} attempts: ${errMsg}`);
 }
+
+// Automatically trigger silent background download on worker launch
+getPipeline().catch((err) => {
+  console.warn("[Embedding Worker] Silent background download error:", err);
+});
 
 // Internal FIFO message queue to prevent concurrent ONNX WebAssembly session race conditions
 const messageQueue: MessageEvent[] = [];

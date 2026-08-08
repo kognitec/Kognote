@@ -16,7 +16,7 @@ import {
 } from "../lib/vault-constants";
 import { ensureAndSyncFrontmatter, parseFrontmatter, stringifyFrontmatter, getCurrentIsoTimestamp, getZonedDateParts } from "../lib/frontmatter";
 import { isArchivedPath, isTrashPath } from "../lib/task-scanner";
-import { getShortestUniquePath, replaceWikilinksOutsideCode } from "../lib/wikilink-utils";
+import { replaceWikilinksOutsideCode } from "../lib/wikilink-utils";
 import { embeddingQueue } from "../lib/embedding-queue";
 import { DEFAULT_AGENTS_MD } from "../constants/defaultAgents";
 import { ONBOARDING_NOTES } from "../constants/onboardingNotes";
@@ -163,6 +163,8 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const hasRestoredWorkspaceRef = useRef(false);
+  const agentsCheckedRef = useRef(false);
+  const storeSaveTimerRef = useRef<number | null>(null);
   const indexDebounceTimers = useRef<Map<string, any>>(new Map());
 
   const refreshFiles = useCallback(async () => {
@@ -173,11 +175,14 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
     try {
-      const separator = vaultPath.includes("\\") ? "\\" : "/";
-      const agentsPath = `${vaultPath}${separator}AGENTS.md`;
-      const exists = await invokeIPC("fs_exists", { path: agentsPath }).catch(() => false);
-      if (!exists) {
-        await invokeIPC("write_note", { path: agentsPath, content: DEFAULT_AGENTS_MD }).catch(() => {});
+      if (!agentsCheckedRef.current) {
+        agentsCheckedRef.current = true;
+        const separator = vaultPath.includes("\\") ? "\\" : "/";
+        const agentsPath = `${vaultPath}${separator}AGENTS.md`;
+        const exists = await invokeIPC("fs_exists", { path: agentsPath }).catch(() => false);
+        if (!exists) {
+          await invokeIPC("write_note", { path: agentsPath, content: DEFAULT_AGENTS_MD }).catch(() => {});
+        }
       }
       const fileList = await invokeIPC("list_vault_files", { vaultPath });
       const filtered = filterSystemFiles(fileList);
@@ -213,14 +218,18 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [vaultPath]);
 
-  // Persist workspace layout changes to LazyStore
+  // Persist workspace layout changes to LazyStore with debouncing
   useEffect(() => {
     if (!hasRestoredWorkspaceRef.current) return;
     const paths = openFiles.map((f) => f.path);
     store.set("workspaceOpenFiles", paths);
     store.set("workspaceActiveFile", activeFile?.path || null);
     store.set("workspaceActiveView", activeView);
-    store.save();
+    
+    if (storeSaveTimerRef.current) window.clearTimeout(storeSaveTimerRef.current);
+    storeSaveTimerRef.current = window.setTimeout(() => {
+      store.save();
+    }, 500);
   }, [openFiles, activeFile, activeView]);
 
   const setActiveFile = useCallback((file: FileEntry | null) => {
@@ -399,7 +408,9 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
           if (debounceTimer) window.clearTimeout(debounceTimer);
           debounceTimer = window.setTimeout(() => {
-            refreshFiles();
+            if (event.payload.kind !== "modify") {
+              refreshFiles();
+            }
             // Use ref so watcher always invokes the latest scan with current settings
             triggerNotesScanRef.current();
             window.dispatchEvent(new CustomEvent("reload-active-file", { detail: { path: event.payload.path } }));
@@ -980,13 +991,11 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         embeddingQueue.enqueueBackground(backgroundChunkItems);
       }
 
-      // Compute mentions (backlinks) using relational SQL note_links table with Trash isolation & Shortest Unique Path
-      const allCachedEntries = Array.from(newCache.values()).map((v) => ({ name: v.path.split(/[\/\\]/).pop() || "", path: v.path }));
+      // Compute mentions (backlinks) using relational SQL note_links table in a single high-performance batch query
+      const batchBacklinks: Record<string, string[]> = await searchEngine.getAllBacklinksBatch(includeTrashInScans).catch(() => ({}));
       for (const data of newCache.values()) {
-        const noteName = data.path.replace(/\\/g, "/").split("/").pop()!.replace(/\.(md|excalidraw)$/i, "");
-        const relPath = getShortestUniquePath(data.path, vaultPath, allCachedEntries);
-        const isTrashed = isTrashPath(data.path) || data.meta?.storage === "deleted";
-        const mentions = await searchEngine.getBacklinks(noteName, relPath, isTrashed).catch(() => []);
+        const cleanName = data.path.replace(/\\/g, "/").split("/").pop()!.replace(/\.(md|excalidraw)$/i, "").toLowerCase();
+        const mentions = batchBacklinks[cleanName] || [];
         if (data.meta) {
           data.meta = { ...data.meta, mentions };
         }

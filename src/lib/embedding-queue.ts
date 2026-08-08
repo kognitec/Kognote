@@ -40,7 +40,11 @@ class PriorityEmbeddingQueue {
 
   /** Priority 2 & 3: Enqueue background vault chunks for idle processing */
   public enqueueBackground(chunks: TextChunkItem[]) {
+    // Cap background queue at 1000 items to avoid memory inflation on massive vault scans
+    if (this.backgroundQueue.length >= 1000) return;
+
     for (const chunk of chunks) {
+      if (this.backgroundQueue.length >= 1000) break;
       const key = `${chunk.filePath}:${chunk.chunkText.slice(0, 50)}`;
       if (!this.queuedSet.has(key)) {
         this.queuedSet.add(key);

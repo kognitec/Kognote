@@ -1,6 +1,6 @@
 [package]
 name = "kognote"
-version = "0.1.6"
+version = "0.2.0"
 description = "Kognote — Your AI-powered personal knowledge base"
 authors = ["Kognitec"]
 edition = "2021"
@@ -50,9 +50,15 @@ tauri-plugin-shell = "2"
 regex = "1"
 sysinfo = "0.30"
 zip = "2.1"
-window-vibrancy = "0.5"
 rayon = "1.8"
 walkdir = "2"
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+window-vibrancy = "0.5"
+
+[profile.dev]
+opt-level = 1
+incremental = true
 
 [profile.release]
 opt-level = 3

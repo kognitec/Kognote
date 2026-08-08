@@ -171,6 +171,10 @@ export interface IPCCommands {
     args: { id: string; status: string };
     response: void;
   };
+  db_get_all_backlinks_batch: {
+    args: { includeTrash?: boolean };
+    response: Record<string, string[]>;
+  };
   llm_check_connection: {
     args: Record<string, never>;
     response: boolean;

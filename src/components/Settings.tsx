@@ -9,7 +9,7 @@ import {
   FileCode, Lock, Brain, Archive,
   Info, ExternalLink, ShieldCheck, Cpu, Sparkles, Clock,
   BookOpen, Layers, Edit, Waypoints, GraduationCap, CheckSquare, Wand2,
-  Eye, EyeOff, Key, CheckCircle2, XCircle, Zap
+  Eye, EyeOff, Key, CheckCircle2, XCircle, Zap, DownloadCloud, AlertTriangle, RefreshCw
 } from "lucide-react";
 import { aiService, type ModelStatus, type DownloadProgressEvent, type SystemHardwareInfo } from "../lib/local-ai";
 import { DEFAULT_AGENTS_MD } from "../constants/defaultAgents";
@@ -38,6 +38,10 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
     aiProvider,
     setAiProvider,
     setAiLocalModel,
+    customLocalUrl,
+    setCustomLocalUrl,
+    customLocalModel,
+    setCustomLocalModel,
     aiApiUrl,
     setAiApiUrl,
     openaiApiKey,
@@ -57,6 +61,41 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
     includeArchivedInScans,
     setIncludeArchivedInScans,
   } = useSettings();
+
+  const [fetchedLocalModels, setFetchedLocalModels] = useState<string[]>([]);
+  const [isFetchingLocalModels, setIsFetchingLocalModels] = useState<boolean>(false);
+  const [fetchedApiModels, setFetchedApiModels] = useState<string[]>([]);
+  const [isFetchingApiModels, setIsFetchingApiModels] = useState<boolean>(false);
+
+  const handleFetchLocalModels = async () => {
+    setIsFetchingLocalModels(true);
+    try {
+      const list = await aiService.fetchExternalLocalModels(customLocalUrl);
+      setFetchedLocalModels(list);
+      if (list.length > 0 && !list.includes(customLocalModel)) {
+        setCustomLocalModel(list[0]);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch local models:", e);
+    } finally {
+      setIsFetchingLocalModels(false);
+    }
+  };
+
+  const handleFetchApiModels = async () => {
+    setIsFetchingApiModels(true);
+    try {
+      const list = await aiService.fetchCustomApiModels(aiApiUrl, customApiKey);
+      setFetchedApiModels(list);
+      if (list.length > 0 && !list.includes(aiApiModel)) {
+        setAiApiModel(list[0]);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch remote API models:", e);
+    } finally {
+      setIsFetchingApiModels(false);
+    }
+  };
 
   const { triggerSync } = useSync();
 
@@ -85,8 +124,62 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
   const [agentsContent, setAgentsContent] = useState("");
 
   // Vectorization Model State (nomic-embed-text-v1.5)
-  const [vecModelStatus, setVecModelStatus] = useState<"idle" | "testing">("idle");
+  const [vecModelStatus, setVecModelStatus] = useState<"idle" | "ready" | "downloading" | "error" | "testing">("idle");
+  const [vecDownloadProgress, setVecDownloadProgress] = useState<number>(0);
   const [vecModelTestResult, setVecModelTestResult] = useState<string | null>(null);
+  const [vecModelError, setVecModelError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Check initial cached status
+    embeddingClient.isModelCached().then((cached) => {
+      if (cached) setVecModelStatus("ready");
+    });
+
+    const handleProgress = (e: CustomEvent) => {
+      setVecModelStatus("downloading");
+      if (typeof e.detail?.progress === "number") {
+        setVecDownloadProgress(e.detail.progress);
+      }
+    };
+
+    const handleReady = () => {
+      setVecModelStatus("ready");
+      setVecDownloadProgress(100);
+      setVecModelError(null);
+    };
+
+    const handleError = (e: CustomEvent) => {
+      setVecModelStatus("error");
+      setVecModelError(e.detail?.error || "Download failed");
+    };
+
+    window.addEventListener("embedding-progress", handleProgress as EventListener);
+    window.addEventListener("embedding-ready", handleReady as EventListener);
+    window.addEventListener("embedding-error", handleError as EventListener);
+
+    return () => {
+      window.removeEventListener("embedding-progress", handleProgress as EventListener);
+      window.removeEventListener("embedding-ready", handleReady as EventListener);
+      window.removeEventListener("embedding-error", handleError as EventListener);
+    };
+  }, []);
+
+  const handleDownloadVecModel = async () => {
+    setVecModelStatus("downloading");
+    setVecDownloadProgress(0);
+    setVecModelError(null);
+    setVecModelTestResult("Downloading nomic-embed-text-v1.5 from Hugging Face Hub...");
+    try {
+      await embeddingClient.redownloadModel();
+      setVecModelStatus("ready");
+      setVecDownloadProgress(100);
+      setVecModelTestResult("✅ Embedding model successfully downloaded and set up!");
+    } catch (err: any) {
+      setVecModelStatus("error");
+      setVecModelError(err?.message || "Failed to download model");
+      setVecModelTestResult(`⚠️ Download Failed: ${err?.message || "Check your internet connection"}`);
+    }
+  };
 
   const handleTestVecModel = async () => {
     setVecModelStatus("testing");
@@ -94,10 +187,10 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
     try {
       const res = await embeddingClient.testEmbeddingModel();
       setVecModelTestResult(`✅ Test Passed! Generated ${res.dimensions}-dim vector in ${res.latencyMs}ms latency.`);
-      setVecModelStatus("idle");
+      setVecModelStatus("ready");
     } catch (err: any) {
       setVecModelTestResult(`⚠️ Test Failed: ${err?.message || "Model not initialized or network error"}`);
-      setVecModelStatus("idle");
+      setVecModelStatus("error");
     }
   };
 
@@ -483,24 +576,60 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                         </span>
                       </div>
                       <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                        Powers instant <strong>AI Semantic Search in Command Palette</strong> (<kbd className="bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded text-[10px]">Ctrl+K → ?</kbd>), <strong>Vault RAG Context</strong> for AI Copilot Chat, and <strong>Semantic Backlink Connections</strong> in Graph View. Generates 768-dimensional normalized vectors via ONNX WebAssembly.
+                        Powers instant <strong>AI Semantic Search in Command Palette</strong> (<kbd className="bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded text-[10px]">Ctrl+K → ?</kbd>), <strong>Vault RAG Context</strong> for AI Copilot Chat, and <strong>Semantic Backlink Connections</strong> in Graph View. Downloads automatically in the background or manually below.
                       </p>
                     </div>
 
-                    {/* Status Pill */}
+                    {/* Dynamic Status Pill */}
                     <div className="shrink-0 pt-0.5">
                       {vecModelStatus === "testing" ? (
                         <span className="text-[10px] font-bold text-indigo-800 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-500/20 border border-indigo-300 dark:border-indigo-500/30 px-2.5 py-1 rounded-full flex items-center gap-1">
                           <Loader2 className="h-3 w-3 animate-spin" /> Running Test...
                         </span>
-                      ) : (
+                      ) : vecModelStatus === "downloading" ? (
+                        <span className="text-[10px] font-bold text-indigo-800 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-500/20 border border-indigo-300 dark:border-indigo-500/30 px-2.5 py-1 rounded-full flex items-center gap-1">
+                          <Loader2 className="h-3 w-3 animate-spin" /> Downloading ({vecDownloadProgress}%)
+                        </span>
+                      ) : vecModelStatus === "error" ? (
+                        <span className="text-[10px] font-bold text-rose-800 dark:text-rose-300 bg-rose-100 dark:bg-rose-500/20 border border-rose-300 dark:border-rose-500/30 px-2.5 py-1 rounded-full flex items-center gap-1">
+                          <AlertTriangle className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" /> Download Failed
+                        </span>
+                      ) : vecModelStatus === "ready" ? (
                         <span className="text-[10px] font-extrabold text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-500/15 border border-emerald-300 dark:border-emerald-500/30 px-2.5 py-1 rounded-full flex items-center gap-1">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                          Bundled & Ready
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /> Ready & Cached (Offline Ready)
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-500/30 px-2.5 py-1 rounded-full flex items-center gap-1">
+                          <Clock className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" /> Not Downloaded
                         </span>
                       )}
                     </div>
                   </div>
+
+                  {/* Downloading Progress Bar */}
+                  {vecModelStatus === "downloading" && (
+                    <div className="flex flex-col gap-1 w-full pt-1">
+                      <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                        <div
+                          className="bg-indigo-600 dark:bg-indigo-400 h-full transition-all duration-300 ease-out"
+                          style={{ width: `${Math.max(5, vecDownloadProgress)}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono text-right">
+                        {vecDownloadProgress}% complete
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Error Message Feedback */}
+                  {vecModelError && (
+                    <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-[11px] text-rose-800 dark:text-rose-300 flex items-center justify-between">
+                      <span className="font-mono">{vecModelError}</span>
+                      <button onClick={() => setVecModelError(null)} className="text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 cursor-pointer">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
 
                   {/* Test / Action Result Feedback Message */}
                   {vecModelTestResult && (
@@ -516,10 +645,20 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                   <div className="flex items-center justify-end gap-2 pt-2 border-t border-indigo-200/60 dark:border-indigo-500/20">
                     <button
                       type="button"
+                      onClick={handleDownloadVecModel}
+                      disabled={vecModelStatus === "downloading" || vecModelStatus === "testing"}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs transition cursor-pointer shadow-2xs disabled:opacity-50"
+                      title="Download embedding model ONNX weights from Hugging Face"
+                    >
+                      <DownloadCloud className="h-3.5 w-3.5" />
+                      <span>{vecModelStatus === "ready" ? "Re-download / Repair Model" : "Download & Setup Model"}</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={handleTestVecModel}
-                      disabled={vecModelStatus === "testing"}
+                      disabled={vecModelStatus === "downloading" || vecModelStatus === "testing"}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition cursor-pointer shadow-2xs disabled:opacity-50"
-                      title="Run test vector embedding to verify latency and dimensionality"
+                      title="Run test vector embedding to verify latency and 768-dim output"
                     >
                       <Zap className="h-3.5 w-3.5" />
                       <span>Test Model</span>
@@ -530,12 +669,14 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                 {/* Provider Selector */}
                 <div className="flex flex-col gap-2">
                   <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Select Engine Provider</span>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {[
-                      { id: "local", label: "Local (GGUF)" },
-                      { id: "anthropic", label: "Claude" },
-                      { id: "gemini", label: "Gemini" },
-                      { id: "openai", label: "OpenAI / Custom" },
+                      { id: "local", label: "Bundled Local (GGUF)" },
+                      { id: "custom_local", label: "External Local (Ollama/LMS)" },
+                      { id: "anthropic", label: "Anthropic Claude" },
+                      { id: "gemini", label: "Google Gemini" },
+                      { id: "openai", label: "OpenAI GPT" },
+                      { id: "api", label: "Custom REST / OpenRouter" },
                     ].map((prov) => (
                       <button
                         key={prov.id}
@@ -612,12 +753,11 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                           onChange={(e) => setAiInactivityTimeoutSeconds(Number(e.target.value))}
                           className="w-full sm:w-auto rounded-xl bg-white dark:bg-[#161825] border border-slate-300 dark:border-slate-800 px-3.5 py-2 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500 font-semibold cursor-pointer shadow-2xs"
                         >
-                          <option value={15}>15 Seconds (Aggressive — Free RAM quickly for 8GB Laptops)</option>
-                          <option value={30}>30 Seconds</option>
+                          <option value={30}>30 Seconds (Fast RAM Release for 8GB Laptops)</option>
                           <option value={60}>1 Minute</option>
                           <option value={120}>2 Minutes</option>
+                          <option value={180}>3 Minutes</option>
                           <option value={300}>5 Minutes (Recommended — Instant Back-and-Forth Chat)</option>
-                          <option value={600}>10 Minutes</option>
                         </select>
                       </div>
                     </div>
@@ -739,6 +879,102 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                           </div>
                         );
                       })}
+                    </div>
+                  </div>
+                )}
+
+                {/* External Local LLM Server (Ollama / LM Studio / LocalAI) */}
+                {aiProvider === "custom_local" && (
+                  <div className="flex flex-col gap-4 bg-slate-50 dark:bg-card p-4 rounded-xl border border-slate-200 dark:border-slate-800 text-xs shadow-2xs">
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Quick Preset Server URLs</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          { label: "Ollama (11434)", url: "http://localhost:11434/v1" },
+                          { label: "LM Studio (1234)", url: "http://localhost:1234/v1" },
+                          { label: "LocalAI (8080)", url: "http://localhost:8080/v1" },
+                          { label: "Text-Gen WebUI (5000)", url: "http://localhost:5000/v1" },
+                        ].map(({ label, url }) => (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => { setCustomLocalUrl(url); handleFetchLocalModels(); }}
+                            className="rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-[10.5px] font-semibold text-slate-700 dark:text-slate-300 cursor-pointer transition-colors"
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Local Server Base URL</span>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={customLocalUrl}
+                          onChange={(e) => setCustomLocalUrl(e.target.value)}
+                          placeholder="http://localhost:11434/v1"
+                          className="flex-1 rounded-xl bg-white dark:bg-[#161825] px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500 font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleFetchLocalModels}
+                          disabled={isFetchingLocalModels}
+                          className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                        >
+                          {isFetchingLocalModels ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                          <span>Fetch Models</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Target Model Name</span>
+                      {fetchedLocalModels.length > 0 ? (
+                        <select
+                          value={customLocalModel}
+                          onChange={(e) => setCustomLocalModel(e.target.value)}
+                          className="w-full rounded-xl bg-white dark:bg-[#161825] px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500 cursor-pointer font-semibold"
+                        >
+                          {fetchedLocalModels.map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={customLocalModel}
+                          onChange={(e) => setCustomLocalModel(e.target.value)}
+                          placeholder="e.g. qwen2.5-coder, llama3.2, mistral"
+                          className="w-full rounded-xl bg-white dark:bg-[#161825] px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500"
+                        />
+                      )}
+                      <p className="text-[10px] text-slate-500">Ensure this model is pulled or loaded in Ollama / LM Studio.</p>
+                    </div>
+
+                    <div className="flex flex-col gap-2 pt-1 border-t border-slate-200 dark:border-slate-800">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {apiStatus === "idle" && <span className="text-slate-500 dark:text-slate-500">Not tested</span>}
+                          {apiStatus === "checking" && <><Loader2 className="h-3 w-3 animate-spin text-amber-500" /><span className="text-amber-600 dark:text-amber-400 font-semibold">Testing Local Connection...</span></>}
+                          {apiStatus === "ok" && <><CheckCircle2 className="h-3 w-3 text-emerald-500" /><span className="text-emerald-600 dark:text-emerald-400 font-semibold">Server Ready</span></>}
+                          {apiStatus === "error" && <><XCircle className="h-3 w-3 text-rose-500" /><span className="text-rose-600 dark:text-red-400 font-semibold">Failed</span></>}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={checkApiStatus}
+                          disabled={apiStatus === "checking"}
+                          className="rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed border border-indigo-500/50 px-3.5 py-1.5 font-semibold text-xs text-white transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
+                        >
+                          <Zap className="h-3.5 w-3.5" /> Test Local Connection
+                        </button>
+                      </div>
+                      {apiStatusMsg && (
+                        <p className={`text-[10.5px] font-mono leading-relaxed ${apiStatus === "ok" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-red-400"}`}>
+                          {apiStatusMsg}
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
@@ -950,16 +1186,17 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                 {aiProvider === "api" && (
                   <div className="flex flex-col gap-4 bg-slate-50 dark:bg-card p-4 rounded-xl border border-slate-200 dark:border-slate-800 text-xs shadow-2xs">
                     <div className="flex flex-col gap-1.5">
-                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Quick Fill</span>
+                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Quick Fill Presets</span>
                       <div className="flex flex-wrap gap-1.5">
                         {[
+                          { label: "OpenRouter", url: "https://openrouter.ai/api/v1", model: "anthropic/claude-3.5-sonnet" },
+                          { label: "Groq", url: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile" },
+                          { label: "DeepSeek", url: "https://api.deepseek.com/v1", model: "deepseek-chat" },
                           { label: "OpenAI", url: "https://api.openai.com/v1", model: "gpt-4o-mini" },
-                          { label: "Groq", url: "https://api.groq.com/openai/v1", model: "llama-3.1-70b-versatile" },
-                          { label: "OpenRouter", url: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini" },
-                          { label: "Ollama", url: "http://localhost:11434/v1", model: "llama3.2" },
                         ].map(({ label, url, model }) => (
                           <button
                             key={label}
+                            type="button"
                             onClick={() => { setAiApiUrl(url); setAiApiModel(model); }}
                             className="rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 border border-slate-300 dark:border-slate-700 px-2.5 py-1 text-[10.5px] font-semibold text-slate-700 dark:text-slate-300 cursor-pointer transition-colors"
                           >
@@ -974,17 +1211,19 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                         type="text"
                         value={aiApiUrl}
                         onChange={(e) => setAiApiUrl(e.target.value)}
-                        placeholder="https://api.openai.com/v1"
-                        className="w-full rounded-xl bg-white dark:bg-[#161825] px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500"
+                        placeholder="https://openrouter.ai/api/v1"
+                        className="w-full rounded-xl bg-white dark:bg-[#161825] px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500 font-mono"
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5"><Key className="h-3 w-3" /> API Key</span>
                         <div className="flex items-center gap-2">
-                          <a onClick={() => handleOpenWebsite("https://console.groq.com/keys")} className="text-[10px] text-indigo-500 hover:text-indigo-400 cursor-pointer font-semibold flex items-center gap-0.5">Get Groq Key <ExternalLink className="h-2 w-2" /></a>
-                          <span className="text-slate-400">·</span>
                           <a onClick={() => handleOpenWebsite("https://openrouter.ai/settings/keys")} className="text-[10px] text-indigo-500 hover:text-indigo-400 cursor-pointer font-semibold flex items-center gap-0.5">OpenRouter <ExternalLink className="h-2 w-2" /></a>
+                          <span className="text-slate-400">·</span>
+                          <a onClick={() => handleOpenWebsite("https://console.groq.com/keys")} className="text-[10px] text-indigo-500 hover:text-indigo-400 cursor-pointer font-semibold flex items-center gap-0.5">Groq <ExternalLink className="h-2 w-2" /></a>
+                          <span className="text-slate-400">·</span>
+                          <a onClick={() => handleOpenWebsite("https://platform.deepseek.com/api_keys")} className="text-[10px] text-indigo-500 hover:text-indigo-400 cursor-pointer font-semibold flex items-center gap-0.5">DeepSeek <ExternalLink className="h-2 w-2" /></a>
                         </div>
                       </div>
                       <div className="relative">
@@ -1006,16 +1245,39 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                       <p className="text-[10px] text-slate-500 dark:text-slate-500">Stored securely in your OS keychain. Never sent to Kognote servers.</p>
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Model Name</span>
-                      <input
-                        type="text"
-                        value={aiApiModel}
-                        onChange={(e) => setAiApiModel(e.target.value)}
-                        placeholder="gpt-4o-mini"
-                        className="w-full rounded-xl bg-white dark:bg-[#161825] px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500"
-                      />
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Model Name</span>
+                        <button
+                          type="button"
+                          onClick={handleFetchApiModels}
+                          disabled={isFetchingApiModels}
+                          className="text-[10px] text-indigo-500 hover:text-indigo-400 font-semibold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        >
+                          {isFetchingApiModels ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                          <span>Fetch Remote Models</span>
+                        </button>
+                      </div>
+                      {fetchedApiModels.length > 0 ? (
+                        <select
+                          value={aiApiModel}
+                          onChange={(e) => setAiApiModel(e.target.value)}
+                          className="w-full rounded-xl bg-white dark:bg-[#161825] px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500 cursor-pointer font-semibold"
+                        >
+                          {fetchedApiModels.map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={aiApiModel}
+                          onChange={(e) => setAiApiModel(e.target.value)}
+                          placeholder="e.g. anthropic/claude-3.5-sonnet, deepseek-chat, gpt-4o-mini"
+                          className="w-full rounded-xl bg-white dark:bg-[#161825] px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-200 border border-slate-300 dark:border-slate-800 focus:outline-none focus:border-indigo-500"
+                        />
+                      )}
                     </div>
-                    <div className="flex flex-col gap-2 pt-1">
+                    <div className="flex flex-col gap-2 pt-1 border-t border-slate-200 dark:border-slate-800">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           {apiStatus === "idle" && <span className="text-slate-500 dark:text-slate-500">Not tested</span>}
@@ -1024,6 +1286,7 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialTab 
                           {apiStatus === "error" && <><XCircle className="h-3 w-3 text-rose-500" /><span className="text-rose-600 dark:text-red-400 font-semibold">Failed</span></>}
                         </div>
                         <button
+                          type="button"
                           onClick={checkApiStatus}
                           disabled={apiStatus === "checking"}
                           className="rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed border border-indigo-500/50 px-3.5 py-1.5 font-semibold text-xs text-white transition-all cursor-pointer shadow-xs flex items-center gap-1.5"

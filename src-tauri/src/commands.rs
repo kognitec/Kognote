@@ -103,6 +103,10 @@ pub fn list_vault_files(vault_path: String) -> Result<Vec<FileEntry>, String> {
     walk_dir(path)
 }
 
+use std::sync::OnceLock;
+
+static STRIP_COMMENT_RE: OnceLock<regex::Regex> = OnceLock::new();
+
 #[tauri::command]
 pub fn read_note(
     path: String,
@@ -118,8 +122,8 @@ pub fn read_note(
     let raw = String::from_utf8(bytes).map_err(|e| format!("Invalid UTF-8: {}", e))?;
 
     // Automatically strip any residual HTML comment IDs (<!-- id: xxxxxxxx ... -->)
-    let comment_regex = regex::Regex::new(r"\s*<!--\s*id:\s*[a-f0-9]{8}.*?-->").unwrap();
-    let cleaned = comment_regex.replace_all(&raw, "").to_string();
+    let comment_re = STRIP_COMMENT_RE.get_or_init(|| regex::Regex::new(r"\s*<!--\s*id:\s*[a-f0-9]{8}.*?-->").unwrap());
+    let cleaned = comment_re.replace_all(&raw, "").to_string();
     Ok(cleaned)
 }
 
@@ -809,84 +813,100 @@ pub struct ScanDeltaResult {
     pub total_files: usize,
 }
 
+use rayon::prelude::*;
+
 #[tauri::command]
-pub fn scan_vault_delta(
+pub async fn scan_vault_delta(
     vault_path: String,
     known_mtimes: std::collections::HashMap<String, u64>,
 ) -> Result<ScanDeltaResult, String> {
-    let root = Path::new(&vault_path);
-    if !root.exists() || !root.is_dir() {
-        return Err("Vault path does not exist or is not a directory".to_string());
-    }
+    tokio::task::spawn_blocking(move || {
+        let root = Path::new(&vault_path);
+        if !root.exists() || !root.is_dir() {
+            return Err("Vault path does not exist or is not a directory".to_string());
+        }
 
-    let mut disk_paths = std::collections::HashSet::new();
-    let mut updated = Vec::new();
-    let mut total_files = 0;
+        let mut disk_paths = std::collections::HashSet::new();
+        let mut files_to_parse = Vec::new();
+        let mut total_files = 0;
 
-    let mut stack = vec![root.to_path_buf()];
+        let mut stack = vec![root.to_path_buf()];
 
-    while let Some(current_dir) = stack.pop() {
-        if let Ok(dir_entries) = fs::read_dir(&current_dir) {
-            for entry in dir_entries.flatten() {
-                let path = entry.path();
-                let name = path.file_name().unwrap_or_default().to_string_lossy();
-                
-                // Skip hidden folders/files starting with '.'
-                if name.starts_with('.') {
-                    continue;
-                }
+        while let Some(current_dir) = stack.pop() {
+            if let Ok(dir_entries) = fs::read_dir(&current_dir) {
+                for entry in dir_entries.flatten() {
+                    let path_buf = entry.path();
+                    let name_str = path_buf.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    
+                    // Skip hidden folders/files starting with '.'
+                    if name_str.starts_with('.') {
+                        continue;
+                    }
 
-                if path.is_dir() {
-                    stack.push(path);
-                } else if path.is_file() {
-                    let path_str = path.to_string_lossy().to_string();
-                    let is_md = name.ends_with(".md");
-                    if is_md {
-                        total_files += 1;
-                        disk_paths.insert(path_str.clone());
+                    if path_buf.is_dir() {
+                        stack.push(path_buf);
+                    } else if path_buf.is_file() {
+                        let path_str = path_buf.to_string_lossy().to_string();
+                        let is_md = name_str.ends_with(".md");
+                        if is_md {
+                            total_files += 1;
+                            disk_paths.insert(path_str.clone());
 
-                        let disk_mtime = if let Ok(meta) = path.metadata() {
-                            meta.modified()
-                                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-                                .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                                .map(|d| d.as_millis() as u64)
-                                .unwrap_or(0)
-                        } else {
-                            0
-                        };
+                            let disk_mtime = if let Ok(meta) = path_buf.metadata() {
+                                meta.modified()
+                                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                                    .map(|d| d.as_millis() as u64)
+                                    .unwrap_or(0)
+                            } else {
+                                0
+                            };
 
-                        let cached_mtime = known_mtimes.get(&path_str).cloned().unwrap_or(0);
+                            let cached_mtime = known_mtimes.get(&path_str).cloned().unwrap_or(0);
 
-                        // If file is new or modified on disk, parse natively in Rust
-                        if disk_mtime == 0 || disk_mtime > cached_mtime {
-                            if let Ok(content) = fs::read_to_string(&path) {
-                                let metadata = crate::parser::parse_markdown(&content);
-                                updated.push(ScannedNoteDelta {
-                                    path: path_str,
-                                    name: name.to_string(),
-                                    modified_at: disk_mtime,
-                                    content,
-                                    metadata,
-                                });
+                            // If file is new or modified on disk, queue for parallel parse
+                            if disk_mtime == 0 || disk_mtime > cached_mtime {
+                                files_to_parse.push((path_str, name_str, disk_mtime));
                             }
                         }
                     }
                 }
             }
         }
-    }
 
-    // Find deleted files that exist in known_mtimes but no longer on disk
-    let mut deleted_paths = Vec::new();
-    for (known_path, _) in known_mtimes.iter() {
-        if !disk_paths.contains(known_path) {
-            deleted_paths.push(known_path.clone());
+        // Parallel parse over updated files using Rayon thread pool
+        let updated: Vec<ScannedNoteDelta> = files_to_parse
+            .par_iter()
+            .filter_map(|(path_str, name_str, disk_mtime)| {
+                if let Ok(content) = fs::read_to_string(Path::new(path_str)) {
+                    let metadata = crate::parser::parse_markdown(&content);
+                    Some(ScannedNoteDelta {
+                        path: path_str.clone(),
+                        name: name_str.clone(),
+                        modified_at: *disk_mtime,
+                        content,
+                        metadata,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Find deleted files that exist in known_mtimes but no longer on disk
+        let mut deleted_paths = Vec::new();
+        for (known_path, _) in known_mtimes.iter() {
+            if !disk_paths.contains(known_path) {
+                deleted_paths.push(known_path.clone());
+            }
         }
-    }
 
-    Ok(ScanDeltaResult {
-        updated,
-        deleted_paths,
-        total_files,
+        Ok(ScanDeltaResult {
+            updated,
+            deleted_paths,
+            total_files,
+        })
     })
+    .await
+    .map_err(|e| format!("Task execution error: {e}"))?
 }
